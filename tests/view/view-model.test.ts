@@ -118,6 +118,10 @@ describe("ViewModel", () => {
     expect(blob!.type).toBe("image/png");
   });
 
+  it("renderDeps() returns a stable object identity across calls", () => {
+    expect(ctx.vm.renderDeps()).toBe(ctx.vm.renderDeps());
+  });
+
   it("re-reads the list when the sync engine emits a change for the active mailbox", async () => {
     await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
     await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1)]);

@@ -70,8 +70,28 @@ export class ViewModel {
   private unsubSync: Array<() => void> = [];
   private providerListToken: string | undefined;
   private providerListExhausted = false;
+  private readonly _renderDeps: {
+    getInlineAttachment: (cid: string) => Promise<Blob | undefined>;
+    openExternal: (url: string) => void;
+  };
 
   constructor(private deps: ViewModelDeps) {
+    this._renderDeps = {
+      openExternal: (url: string) => this.deps.openExternal(url),
+      getInlineAttachment: async (cid: string) => {
+        const acct = this.state.activeAccountId;
+        const provider = acct ? this.deps.getProvider(acct) : undefined;
+        if (!acct || !provider) return undefined;
+        for (const m of this.state.openMessages) {
+          const att = m.body?.attachments.find((a) => a.inline && a.contentId === cid);
+          if (att) {
+            const buf = await provider.getAttachment(m.summary.id, att.id);
+            return new Blob([buf], { type: att.mimeType });
+          }
+        }
+        return undefined;
+      },
+    };
     this.unsubSync.push(
       deps.sync.changes.on((e) => {
         if (e.accountId === this.state.activeAccountId && !this.state.search.active) {
@@ -194,22 +214,7 @@ export class ViewModel {
   }
 
   renderDeps(): { getInlineAttachment: (cid: string) => Promise<Blob | undefined>; openExternal: (url: string) => void } {
-    return {
-      openExternal: (url: string) => this.deps.openExternal(url),
-      getInlineAttachment: async (cid: string) => {
-        const acct = this.state.activeAccountId;
-        const provider = acct ? this.deps.getProvider(acct) : undefined;
-        if (!acct || !provider) return undefined;
-        for (const m of this.state.openMessages) {
-          const att = m.body?.attachments.find((a) => a.inline && a.contentId === cid);
-          if (att) {
-            const buf = await provider.getAttachment(m.summary.id, att.id);
-            return new Blob([buf], { type: att.mimeType });
-          }
-        }
-        return undefined;
-      },
-    };
+    return this._renderDeps;
   }
 
   async downloadAttachment(messageId: string, att: AttachmentMeta): Promise<Blob> {

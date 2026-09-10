@@ -1,9 +1,17 @@
 import { describe, it, expect, vi } from "vitest";
 import { mount, unmount, flushSync } from "svelte";
 import ReadingPane from "../../src/view/components/ReadingPane.svelte";
+import ReadingPaneHost from "./fixtures/ReadingPaneHost.svelte";
 import type { ViewState } from "../../src/view/view-model";
 
 const renderDeps = { getInlineAttachment: vi.fn(), openExternal: vi.fn() };
+
+const msg = (id: string, subject: string): ViewState["openMessages"][number] => ({
+  summary: {
+    id, threadId: id.slice(0, 2), mailboxIds: ["INBOX"], from: { name: id, email: `${id}@x.com` },
+    to: [], cc: [], subject, snippet: "", date: Date.now(), unread: false, hasAttachments: false, flagged: false,
+  },
+});
 
 const open = (): ViewState["openMessages"] => [{
   summary: {
@@ -50,6 +58,32 @@ describe("ReadingPane smoke", () => {
     flushSync();
     host.querySelector<HTMLElement>(".oe-attachment")!.click();
     expect(onDownload).toHaveBeenCalledWith("m1", expect.objectContaining({ filename: "report.pdf" }));
+    unmount(app);
+  });
+
+  it("resets manual expansion when the open thread changes", () => {
+    const host = document.createElement("div");
+    const app = mount(ReadingPaneHost, {
+      target: host,
+      props: {
+        initial: [msg("aa1", "A one"), msg("aa2", "A two"), msg("aa3", "A three")],
+        renderDeps, onClose: () => {}, onDownload: vi.fn(),
+      },
+    });
+    flushSync();
+    // Manually expand a non-last message in thread A.
+    host.querySelectorAll<HTMLElement>(".oe-message-head")[1].click();
+    flushSync();
+    let expanded = host.querySelectorAll(".oe-message-block.is-expanded");
+    expect(expanded.length).toBe(1);
+    expect(expanded[0].textContent).toContain("aa2");
+
+    // Swap to thread B — stale expandedId ("aa2") must not collapse every block.
+    (app as unknown as { set: (m: ViewState["openMessages"]) => void }).set([msg("bb1", "B one"), msg("bb2", "B two")]);
+    flushSync();
+    expanded = host.querySelectorAll(".oe-message-block.is-expanded");
+    expect(expanded.length).toBe(1);
+    expect(expanded[0].textContent).toContain("bb2");
     unmount(app);
   });
 

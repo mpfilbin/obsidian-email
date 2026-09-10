@@ -13,6 +13,19 @@
   let expandedId = $state<string | null>(null);
   const lastId = $derived(openMessages.at(-1)?.summary.id ?? null);
   const isExpanded = (id: string) => (expandedId ?? lastId) === id;
+
+  // Reset manual expansion whenever the open thread changes (tracked by its first
+  // message id) so a stale id from a previous thread doesn't leave every block in
+  // the new thread collapsed. Keyed on the first id rather than the openMessages
+  // identity so per-message body loads within one thread don't clear expansion.
+  let threadKey: string | null = null;
+  $effect(() => {
+    const firstId = openMessages[0]?.summary.id ?? null;
+    if (firstId !== threadKey) {
+      threadKey = firstId;
+      expandedId = null;
+    }
+  });
 </script>
 
 <section class="oe-reading-pane">
