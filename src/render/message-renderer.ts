@@ -27,8 +27,11 @@ export function renderMessageBody(
   const objectUrls: string[] = [];
   let disposed = false;
 
+  const boundAnchors = new WeakSet<HTMLAnchorElement>();
   const bindLinks = (): void => {
     container.querySelectorAll<HTMLAnchorElement>("a[href]").forEach((a) => {
+      if (boundAnchors.has(a)) return;
+      boundAnchors.add(a);
       a.addEventListener("click", (e) => {
         e.preventDefault();
         deps.openExternal(a.getAttribute("href")!);
@@ -37,12 +40,12 @@ export function renderMessageBody(
   };
 
   const resolveCids = (): void => {
-    const inline = new Map(
-      body.attachments.filter((a) => a.inline && a.contentId).map((a) => [a.contentId!, a]),
+    const inlineIds = new Set(
+      body.attachments.filter((a) => a.inline && a.contentId).map((a) => a.contentId!),
     );
     container.querySelectorAll<HTMLImageElement>('img[src^="cid:"]').forEach((img) => {
       const cid = img.getAttribute("src")!.slice(4).replace(/^<|>$/g, "");
-      if (!inline.has(cid)) return;
+      if (!inlineIds.has(cid)) return;
       void deps.getInlineAttachment(cid).then((blob) => {
         if (disposed || !blob) return;
         const url = URL.createObjectURL(blob);
@@ -70,7 +73,11 @@ export function renderMessageBody(
     blockedRemoteContent,
     loadRemoteImages(): void {
       // Fast path: if the DOM still has blocked markers, just swap them.
-      if (container.querySelector("img[data-blocked-src]")) {
+      if (
+        container.querySelector(
+          "[data-blocked-src], [data-blocked-poster], [data-blocked-href]",
+        )
+      ) {
         restoreBlockedContent(container);
         bindLinks();
         return;

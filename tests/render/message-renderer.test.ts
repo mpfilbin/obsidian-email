@@ -32,6 +32,20 @@ describe("renderMessageBody", () => {
     expect(el.querySelector("img")!.getAttribute("src")).toBe("https://cdn.example/l.png");
   });
 
+  it("binds each link once even after loadRemoteImages", () => {
+    const d = deps();
+    const el = document.createElement("div");
+    const h = renderMessageBody(
+      el,
+      body({ html: '<a href="https://example.com">go</a><img src="https://cdn.example/l.png">' }),
+      { allowRemote: false },
+      d,
+    );
+    h.loadRemoteImages();
+    el.querySelector("a")!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    expect(d.openExternal).toHaveBeenCalledTimes(1);
+  });
+
   it("resolves cid: images from inline attachments", async () => {
     const d = deps();
     const el = document.createElement("div");

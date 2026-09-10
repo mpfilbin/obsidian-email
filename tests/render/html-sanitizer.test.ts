@@ -46,6 +46,72 @@ describe("sanitizeEmailHtml — remote content", () => {
     const r = clean('<div style="background-image:url(https://x.example/bg.png)">x</div>');
     expect(r.html).not.toContain("x.example");
   });
+  it("keeps remote url() in style attributes when allowRemote is true", () => {
+    const r = clean('<div style="background-image:url(https://x.example/bg.png)">x</div>', true);
+    expect(r.html).toContain("x.example");
+  });
+});
+
+describe("sanitizeEmailHtml — remote content beyond <img src>", () => {
+  it("blocks remote href on SVG <image> and restores it", () => {
+    const r = clean('<svg><image href="https://tracker.example/p.png"></image></svg>');
+    expect(r.blockedRemoteContent).toBe(true);
+    expect(r.html).not.toContain('href="https://tracker');
+    expect(r.html).toContain("data-blocked-href");
+
+    const div = document.createElement("div");
+    div.innerHTML = r.html;
+    restoreBlockedContent(div);
+    const image = div.querySelector("image")!;
+    expect(image.getAttribute("href")).toBe("https://tracker.example/p.png");
+    expect(image.hasAttribute("data-blocked-href")).toBe(false);
+  });
+
+  it("blocks remote poster on <video> and restores it", () => {
+    const r = clean('<video poster="https://tracker.example/poster.jpg"></video>');
+    expect(r.blockedRemoteContent).toBe(true);
+    expect(r.html).not.toContain('poster="https://tracker');
+    expect(r.html).toContain("data-blocked-poster");
+
+    const div = document.createElement("div");
+    div.innerHTML = r.html;
+    restoreBlockedContent(div);
+    const video = div.querySelector("video")!;
+    expect(video.getAttribute("poster")).toBe("https://tracker.example/poster.jpg");
+    expect(video.hasAttribute("data-blocked-poster")).toBe(false);
+  });
+
+  it("blocks remote src on <input type=image> and restores it", () => {
+    const r = clean('<input type="image" src="https://tracker.example/pixel.png">');
+    expect(r.blockedRemoteContent).toBe(true);
+    expect(r.html).not.toContain('src="https://tracker');
+    expect(r.html).toContain("data-blocked-src");
+
+    const div = document.createElement("div");
+    div.innerHTML = r.html;
+    restoreBlockedContent(div);
+    const input = div.querySelector("input")!;
+    expect(input.getAttribute("src")).toBe("https://tracker.example/pixel.png");
+    expect(input.hasAttribute("data-blocked-src")).toBe(false);
+  });
+
+  it("blocks protocol-relative remote images and restores them", () => {
+    const r = clean('<img src="//tracker.example/x.png">');
+    expect(r.blockedRemoteContent).toBe(true);
+    expect(r.html).not.toContain('src="//tracker');
+    expect(r.html).toContain("data-blocked-src");
+
+    const div = document.createElement("div");
+    div.innerHTML = r.html;
+    restoreBlockedContent(div);
+    expect(div.querySelector("img")!.getAttribute("src")).toBe("//tracker.example/x.png");
+  });
+
+  it("does not treat a bare path as remote", () => {
+    const r = clean('<img src="/local/path.png">');
+    expect(r.blockedRemoteContent).toBe(false);
+    expect(r.html).toContain('src="/local/path.png"');
+  });
 });
 
 describe("sanitizeEmailHtml — links", () => {
