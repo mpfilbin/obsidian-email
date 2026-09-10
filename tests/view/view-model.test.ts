@@ -141,6 +141,28 @@ describe("ViewModel", () => {
     expect(ctx.vm.getState().hasMore).toBe(true);
   });
 
+  it("advertises hasMore for a mailbox the backfill never populated (empty cache)", async () => {
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1)]);
+    await ctx.vm.init();
+    // SENT was never backfilled and has 0 cached rows. hasMore must be true so
+    // MessageList renders a load affordance instead of a permanent "No
+    // messages".
+    await ctx.vm.selectMailbox("SENT");
+    expect(ctx.vm.getState().threads).toEqual([]);
+    expect(ctx.vm.getState().hasMore).toBe(true);
+  });
+
+  it("does not advertise hasMore for a short list once the provider is exhausted", async () => {
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1)]);
+    await ctx.vm.init();
+    // Drain the provider: one short page, no next token => exhausted.
+    await ctx.vm.loadMore();
+    // backfilled + exhausted + short page => no further load affordance.
+    expect(ctx.vm.getState().hasMore).toBe(false);
+  });
+
   it("ignores a stale mailbox read that resolves after a newer one", async () => {
     await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
     await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1)]);

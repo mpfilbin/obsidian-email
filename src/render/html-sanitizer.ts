@@ -46,6 +46,13 @@ const SURVIVING_REMOTE = [
   REMOTE_CSS_IMPORT,
 ];
 
+// Output-scan only (Rec 3 residual): the neutralizer and SURVIVING_REMOTE both
+// key off `REMOTE_CSS_REF`, which a CSS comment inside `url(/*c*/"https://…")`
+// slips past. As a cheap fail-closed backstop, flag any surviving `style`
+// attribute whose value contains a `//` (protocol-relative or after a scheme)
+// anywhere. We only set the flag — never strip — so the banner still shows.
+const STYLE_ATTR_REMOTE = /\sstyle\s*=\s*(?:"[^"]*(?:https?:)?\/\/|'[^']*(?:https?:)?\/\/)/i;
+
 // Treat absolute http(s) URLs and protocol-relative `//host/...` URLs as remote.
 // A bare path like `/foo` is NOT remote.
 function isRemote(url: string): boolean {
@@ -159,7 +166,11 @@ export function sanitizeEmailHtml(raw: string, opts: { allowRemote: boolean }): 
     // Fail closed: anything remote that slipped past the hooks still flips the
     // flag so the user is told and can decide. We do not strip here — the DOM
     // is already serialized and a half-hearted string edit would be worse.
-    if (!allowRemote && !blocked && SURVIVING_REMOTE.some((re) => re.test(html))) {
+    if (
+      !allowRemote &&
+      !blocked &&
+      (SURVIVING_REMOTE.some((re) => re.test(html)) || STYLE_ATTR_REMOTE.test(html))
+    ) {
       blocked = true;
     }
     return { html, blockedRemoteContent: blocked };

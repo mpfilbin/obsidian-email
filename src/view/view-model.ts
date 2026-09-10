@@ -183,12 +183,14 @@ export class ViewModel {
     if (seq !== this.reloadSeq) return;
     this.set({
       threads: groupThreads(rows),
-      // Only offer "load more" once the cache actually filled a page. Deriving
-      // this from `providerListExhausted` made it true immediately after
-      // init(), and MessageList's IntersectionObserver sentinel is visible on
-      // any short list — so opening the view fired an unrequested provider
-      // round-trip that just refetched page 1.
-      hasMore: rows.length >= limit && !this.providerListExhausted,
+      // Offer "load more" when the cache filled a page, when a provider cursor
+      // is still open, or when the cache is empty for this mailbox. The last
+      // case covers folders `SyncEngine.backfill` never populates (Spam, Trash,
+      // custom labels) — without it, selecting one shows a permanent "No
+      // messages" with no way to fetch. A short-but-non-empty page for an
+      // already-exhausted mailbox stays `false` (via `providerListExhausted`),
+      // so opening the view still doesn't fire an unrequested round-trip.
+      hasMore: !this.providerListExhausted && (rows.length >= limit || this.providerListToken !== undefined || rows.length === 0),
       loadingList: false,
     });
   }

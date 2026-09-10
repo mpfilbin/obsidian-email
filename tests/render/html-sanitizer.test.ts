@@ -52,6 +52,17 @@ describe("sanitizeEmailHtml — remote content", () => {
   });
 });
 
+describe("sanitizeEmailHtml — CSS-comment scan gap (Rec3 residual)", () => {
+  it("flags a style url() hidden behind a CSS comment", () => {
+    const r = clean('<div style=\'background:url(/*c*/"https://tracker.example/x.png")\'>x</div>');
+    expect(r.blockedRemoteContent).toBe(true);
+  });
+  it("does not flag a benign style value with no //", () => {
+    const r = clean('<div style="color:red;font-size:14px">x</div>');
+    expect(r.blockedRemoteContent).toBe(false);
+  });
+});
+
 describe("sanitizeEmailHtml — remote content beyond <img src>", () => {
   it("blocks remote href on SVG <image> and restores it", () => {
     const r = clean('<svg><image href="https://tracker.example/p.png"></image></svg>');
