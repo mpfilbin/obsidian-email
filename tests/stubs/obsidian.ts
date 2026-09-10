@@ -68,6 +68,33 @@ export class PluginSettingTab extends SettingTab {
   hide(): void {}
 }
 
+// Chainable no-op stand-ins for the settings DOM builder. Only the logic
+// handlers (`handleConnect` / `handleClearCache`) are unit-tested; `display()`
+// is exercised only in the real Obsidian runtime, so these just need to load
+// and chain without throwing.
+class StubComponent {
+  inputEl = { type: "" } as { type: string };
+  setButtonText(): this { return this; }
+  setValue(): this { return this; }
+  setCta(): this { return this; }
+  setWarning(): this { return this; }
+  setPlaceholder(): this { return this; }
+  addOption(): this { return this; }
+  onChange(): this { return this; }
+  onClick(): this { return this; }
+}
+
+export class Setting {
+  constructor(public containerEl?: unknown) {}
+  setName(): this { return this; }
+  setDesc(): this { return this; }
+  setHeading(): this { return this; }
+  addButton(cb: (c: StubComponent) => unknown): this { cb(new StubComponent()); return this; }
+  addText(cb: (c: StubComponent) => unknown): this { cb(new StubComponent()); return this; }
+  addDropdown(cb: (c: StubComponent) => unknown): this { cb(new StubComponent()); return this; }
+  addToggle(cb: (c: StubComponent) => unknown): this { cb(new StubComponent()); return this; }
+}
+
 export class WorkspaceLeaf {}
 
 export const requestUrl = async (): Promise<unknown> => ({

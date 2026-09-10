@@ -1,13 +1,49 @@
-import { PluginSettingTab } from "obsidian";
+import { PluginSettingTab, Setting, Notice } from "obsidian";
 import type { Plugin } from "obsidian";
 import type { PluginContext } from "../plugin-context";
 import type { SettingsStore } from "./settings-store";
+import type { ProviderKind } from "../providers/types";
+
+export interface ConnectInput {
+  kind: ProviderKind;
+  clientId: string;
+  clientSecret?: string;
+}
 
 /**
- * TEMPORARY stub — the real settings UI is Task 28. It only needs to satisfy
- * `addSettingTab(...)` and the `(plugin, ctx, settings)` constructor shape that
- * `main.ts` wires up.
+ * DOM-free core of the "Connect" button: validate the inputs, run the OAuth
+ * flow, and turn the outcome into a message the caller shows with a `Notice`.
  */
+export async function handleConnect(
+  ctx: Pick<PluginContext, "addAccountFlow">,
+  input: ConnectInput,
+): Promise<{ ok: boolean; message: string }> {
+  if (!input.clientId.trim()) return { ok: false, message: "Client ID is required." };
+  if (input.kind === "gmail" && !input.clientSecret?.trim()) {
+    return { ok: false, message: "A client secret is required for Google." };
+  }
+  try {
+    const account = await ctx.addAccountFlow(input);
+    return { ok: true, message: `Connected ${account.email}.` };
+  } catch (err) {
+    return { ok: false, message: `Could not connect: ${(err as Error).message}` };
+  }
+}
+
+/** DOM-free core of the "Clear local cache" button. */
+export async function handleClearCache(ctx: Pick<PluginContext, "cache">): Promise<void> {
+  await ctx.cache.clearAll();
+}
+
+const POLL_OPTIONS: Array<[string, string]> = [
+  ["", "Manual only"],
+  ["1", "1 minute"],
+  ["5", "5 minutes"],
+  ["15", "15 minutes"],
+  ["30", "30 minutes"],
+  ["60", "60 minutes"],
+];
+
 export class EmailSettingTab extends PluginSettingTab {
   constructor(
     plugin: Plugin,
@@ -15,12 +51,136 @@ export class EmailSettingTab extends PluginSettingTab {
     private settings: SettingsStore,
   ) {
     super(plugin.app, plugin);
-    void this.ctx;
-    void this.settings;
   }
 
   display(): void {
-    this.containerEl.empty();
-    this.containerEl.createEl("p", { text: "Email settings — see Task 28" });
+    const { containerEl } = this;
+    containerEl.empty();
+    const cfg = this.settings.get();
+
+    containerEl.createEl("h2", { text: "Accounts" });
+    if (cfg.accounts.length === 0) {
+      containerEl.createEl("p", {
+        text: "No accounts yet. Add one below to start reading mail.",
+      });
+    }
+    for (const a of cfg.accounts) {
+      const status = this.ctx.sync.getState(a.id).status;
+      new Setting(containerEl)
+        .setName(a.email)
+        .setDesc(`${a.provider} · ${status}`)
+        .addButton((b) =>
+          b.setButtonText("Re-authenticate").onClick(async () => {
+            const r = await handleConnect(this.ctx, {
+              kind: a.provider,
+              clientId: a.clientId,
+            });
+            new Notice(r.message);
+            this.display();
+          }),
+        )
+        .addButton((b) =>
+          b
+            .setButtonText("Remove")
+            .setWarning()
+            .onClick(async () => {
+              await this.ctx.removeAccountFlow(a.id);
+              new Notice(`Removed ${a.email}.`);
+              this.display();
+            }),
+        );
+    }
+
+    containerEl.createEl("h2", { text: "Add account" });
+    let kind: ProviderKind = "gmail";
+    let clientId = "";
+    let clientSecret = "";
+    new Setting(containerEl).setName("Provider").addDropdown((d) =>
+      d
+        .addOption("gmail", "Google (Gmail)")
+        .addOption("ms-graph", "Microsoft 365")
+        .setValue(kind)
+        .onChange((v) => {
+          kind = v as ProviderKind;
+          this.display();
+        }),
+    );
+    new Setting(containerEl)
+      .setName("Client ID")
+      .addText((t) => t.onChange((v) => (clientId = v)));
+    if (kind === "gmail") {
+      new Setting(containerEl)
+        .setName("Client secret")
+        .setDesc("Required for Google Desktop-app OAuth clients.")
+        .addText((t) => {
+          t.inputEl.type = "password";
+          t.onChange((v) => (clientSecret = v));
+        });
+    }
+    new Setting(containerEl).addButton((b) =>
+      b
+        .setCta()
+        .setButtonText("Connect")
+        .onClick(async () => {
+          const r = await handleConnect(this.ctx, {
+            kind,
+            clientId,
+            clientSecret: clientSecret || undefined,
+          });
+          new Notice(r.message);
+          if (r.ok) this.display();
+        }),
+    );
+
+    containerEl.createEl("h2", { text: "Preferences" });
+    new Setting(containerEl).setName("Check for new mail").addDropdown((d) => {
+      for (const [value, label] of POLL_OPTIONS) d.addOption(value, label);
+      d.setValue(cfg.prefs.pollMinutes ? String(cfg.prefs.pollMinutes) : "");
+      d.onChange(async (v) => {
+        await this.settings.updatePrefs({ pollMinutes: v ? Number(v) : null });
+        this.ctx.applyPollInterval();
+      });
+    });
+    new Setting(containerEl)
+      .setName("Load remote images automatically")
+      .setDesc("Off by default — remote images can track when mail is opened.")
+      .addToggle((t) =>
+        t
+          .setValue(cfg.prefs.autoLoadImages)
+          .onChange((v) => this.settings.updatePrefs({ autoLoadImages: v })),
+      );
+    new Setting(containerEl)
+      .setName("Attachment save folder")
+      .setDesc("Vault-relative path. Blank = ask each time.")
+      .addText((t) =>
+        t
+          .setValue(cfg.prefs.attachmentDir ?? "")
+          .onChange((v) => this.settings.updatePrefs({ attachmentDir: v || null })),
+      );
+    new Setting(containerEl).setName("Default account").addDropdown((d) => {
+      d.addOption("", "First account");
+      for (const a of cfg.accounts) d.addOption(a.id, a.email);
+      d.setValue(cfg.prefs.defaultAccountId ?? "");
+      d.onChange((v) => this.settings.updatePrefs({ defaultAccountId: v || null }));
+    });
+    new Setting(containerEl)
+      .setName("Debug logging")
+      .addToggle((t) =>
+        t.setValue(cfg.prefs.debug).onChange((v) => this.settings.updatePrefs({ debug: v })),
+      );
+
+    containerEl.createEl("h2", { text: "Danger zone" });
+    new Setting(containerEl)
+      .setName("Clear local cache")
+      .setDesc("Removes cached mail. Accounts and tokens are kept; mail re-syncs.")
+      .addButton((b) =>
+        b
+          .setWarning()
+          .setButtonText("Clear cache")
+          .onClick(async () => {
+            await handleClearCache(this.ctx);
+            new Notice("Local cache cleared.");
+          }),
+      );
   }
 }
