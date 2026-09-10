@@ -8,3 +8,17 @@ if (typeof URL.createObjectURL !== "function") {
 if (typeof URL.revokeObjectURL !== "function") {
   URL.revokeObjectURL = () => {};
 }
+
+// jsdom has no IntersectionObserver; MessageList's infinite-scroll sentinel
+// constructs one. A minimal no-op keeps mount/unmount working under tests
+// (the visible "Load more" button remains the exercised code path).
+if (typeof (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver !== "function") {
+  class IntersectionObserverStub {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+    takeRecords(): [] { return []; }
+  }
+  (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver =
+    IntersectionObserverStub as unknown;
+}
