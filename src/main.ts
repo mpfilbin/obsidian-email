@@ -1,4 +1,4 @@
-import { Plugin, requestUrl } from "obsidian";
+import { Notice, Plugin, normalizePath, requestUrl } from "obsidian";
 import type { WorkspaceLeaf } from "obsidian";
 import type { HttpPost } from "./auth/oauth-client";
 import type { SecretStore } from "./auth/token-manager";
@@ -8,6 +8,7 @@ import { MailView, MAIL_VIEW_TYPE } from "./view/mail-view";
 import { EmailSettingTab } from "./settings/settings-tab";
 import { makeObsidianHttp } from "./providers/obsidian-http";
 import { Logger } from "./util/logger";
+import { safeAttachmentName, uniqueAttachmentPath } from "./util/safe-filename";
 
 export default class EmailPlugin extends Plugin {
   private ctx?: PluginContext;
@@ -56,17 +57,30 @@ export default class EmailPlugin extends Plugin {
 
     // Ruling D: persist attachments into the configured vault folder, else hand
     // the blob to the renderer as a download.
+    //
+    // `filename` is attacker-controlled (MIME Content-Disposition / Graph's
+    // attachment `name`), so it is reduced to a single inert path segment
+    // before it can reach `writeBinary`, the join is re-checked against the
+    // configured folder, and an existing file is never overwritten.
     const saveBlob = async (blob: Blob, filename: string): Promise<void> => {
       const dir = settings.get().prefs.attachmentDir;
       if (dir) {
-        const path = `${dir.replace(/\/+$/, "")}/${filename}`;
-        await this.app.vault.adapter.writeBinary(path, await blob.arrayBuffer());
+        const { adapter } = this.app.vault;
+        const baseDir = normalizePath(dir);
+        const rel = normalizePath(`${baseDir}/${safeAttachmentName(filename)}`);
+        const prefix = baseDir === "/" ? "" : `${baseDir}/`;
+        if (!rel.startsWith(prefix) || rel.length <= prefix.length) {
+          new Notice(`Refused to save "${filename}" outside the attachment folder.`);
+          return;
+        }
+        const target = await uniqueAttachmentPath(rel, (p) => adapter.exists(p));
+        await adapter.writeBinary(target, await blob.arrayBuffer());
         return;
       }
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = filename;
+      a.download = safeAttachmentName(filename);
       document.body.appendChild(a);
       a.click();
       a.remove();

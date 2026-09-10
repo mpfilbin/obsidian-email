@@ -114,12 +114,84 @@ describe("sanitizeEmailHtml — remote content beyond <img src>", () => {
   });
 });
 
+describe("sanitizeEmailHtml — remote-content negative control", () => {
+  // Every vector here must both (a) flip blockedRemoteContent so the user sees
+  // the "Load remote images" banner, and (b) leave no live tracker URL behind.
+  const VECTORS: Array<[string, string]> = [
+    ["img src", '<img src="https://tracker.example/x.png">'],
+    ["img protocol-relative src", '<img src="//tracker.example/x.png">'],
+    ["svg image href", '<svg><image href="https://tracker.example/x.png"></image></svg>'],
+    ["svg image xlink:href", '<svg><image xlink:href="https://tracker.example/x.png"></image></svg>'],
+    ["svg use xlink:href", '<svg><use xlink:href="https://tracker.example/x.svg#i"></use></svg>'],
+    ["video poster", '<video poster="https://tracker.example/x.jpg"></video>'],
+    ["video src", '<video src="https://tracker.example/x.mp4"></video>'],
+    ["audio src", '<audio src="https://tracker.example/x.mp3"></audio>'],
+    ["input type=image src", '<input type="image" src="https://tracker.example/x.png">'],
+    ["style block url()", "<style>p{background:url(https://tracker.example/x.png)}</style>"],
+    ["style block @import", "<style>@import url(https://tracker.example/x.css);</style>"],
+    ["style attr image-set()", `<div style="background:image-set('https://tracker.example/x.png' 1x)">x</div>`],
+    ["style attr -webkit-image-set()", `<div style="background:-webkit-image-set('https://tracker.example/x.png' 1x)">x</div>`],
+    ["style attr url()", '<div style="background-image:url(https://tracker.example/x.png)">x</div>'],
+  ];
+
+  for (const [label, raw] of VECTORS) {
+    it(`flags and neutralizes: ${label}`, () => {
+      const r = clean(raw);
+      expect(r.blockedRemoteContent, `${label} should set blockedRemoteContent`).toBe(true);
+      expect(r.html, `${label} leaked a live tracker URL`).not.toContain("https://tracker");
+      expect(r.html, `${label} leaked a protocol-relative tracker URL`).not.toContain("//tracker");
+    });
+  }
+});
+
+describe("sanitizeEmailHtml — <style> elements", () => {
+  it("drops style elements and their CSS entirely", () => {
+    const r = clean("<style>body{display:none}</style><p>hi</p>");
+    expect(r.html).not.toContain("display:none");
+    expect(r.html).not.toContain("<style");
+    expect(r.html).toContain("<p>hi</p>");
+  });
+});
+
+describe("sanitizeEmailHtml — forged data-blocked-* markers", () => {
+  it("does not launder an attacker-supplied data-blocked-href into a javascript: href", () => {
+    const r = clean('<a data-blocked-href="javascript%3Aalert(1)">x</a>');
+    const div = document.createElement("div");
+    div.innerHTML = r.html;
+    restoreBlockedContent(div);
+    const a = div.querySelector("a")!;
+    expect(a.getAttribute("href")).toBeNull();
+    expect(div.innerHTML).not.toContain("javascript:");
+  });
+
+  it("drops forged markers on every stashable attribute", () => {
+    const r = clean(
+      '<img data-blocked-src="javascript%3Aalert(1)">' +
+        '<video data-blocked-poster="javascript%3Aalert(2)"></video>' +
+        '<svg><image data-blocked-xlink-href="javascript%3Aalert(3)"></image></svg>',
+    );
+    expect(r.html).not.toContain("data-blocked-");
+  });
+
+  it("still blocks a real remote src when a forged marker rides along", () => {
+    const r = clean('<img data-blocked-src="javascript%3Aalert(1)" src="https://tracker.example/x.png">');
+    expect(r.blockedRemoteContent).toBe(true);
+    const div = document.createElement("div");
+    div.innerHTML = r.html;
+    restoreBlockedContent(div);
+    expect(div.querySelector("img")!.getAttribute("src")).toBe("https://tracker.example/x.png");
+  });
+});
+
 describe("sanitizeEmailHtml — links", () => {
   it("forces target and rel and mirrors href into title", () => {
     const r = clean('<a href="https://example.com/path">click</a>');
     expect(r.html).toContain('target="_blank"');
     expect(r.html).toContain('rel="noopener noreferrer"');
     expect(r.html).toContain('title="https://example.com/path"');
+  });
+  it("does not treat a plain remote link as blocked remote content", () => {
+    expect(clean('<a href="https://example.com/path">click</a>').blockedRemoteContent).toBe(false);
   });
 });
 
@@ -130,5 +202,24 @@ describe("restoreBlockedContent", () => {
     restoreBlockedContent(div);
     expect(div.querySelector("img")!.getAttribute("src")).toBe("https://cdn.example/a.png");
     expect(div.querySelector("img")!.hasAttribute("data-blocked-src")).toBe(false);
+  });
+
+  it("restores a blocked xlink:href round-trip", () => {
+    const r = clean('<svg><image xlink:href="https://tracker.example/p.png"></image></svg>');
+    const div = document.createElement("div");
+    div.innerHTML = r.html;
+    restoreBlockedContent(div);
+    const image = div.querySelector("image")!;
+    expect(image.getAttribute("xlink:href")).toBe("https://tracker.example/p.png");
+    expect(image.hasAttribute("data-blocked-xlink-href")).toBe(false);
+  });
+
+  it("refuses to promote a non-http(s) stashed value", () => {
+    const div = document.createElement("div");
+    div.innerHTML = '<img data-blocked-src="javascript%3Aalert(1)">';
+    restoreBlockedContent(div);
+    const img = div.querySelector("img")!;
+    expect(img.getAttribute("src")).toBeNull();
+    expect(img.hasAttribute("data-blocked-src")).toBe(false);
   });
 });

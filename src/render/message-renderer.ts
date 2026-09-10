@@ -75,7 +75,7 @@ export function renderMessageBody(
       // Fast path: if the DOM still has blocked markers, just swap them.
       if (
         container.querySelector(
-          "[data-blocked-src], [data-blocked-poster], [data-blocked-href]",
+          "[data-blocked-src], [data-blocked-poster], [data-blocked-href], [data-blocked-xlink-href]",
         )
       ) {
         restoreBlockedContent(container);

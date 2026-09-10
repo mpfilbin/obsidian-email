@@ -97,6 +97,17 @@ export class Setting {
 
 export class WorkspaceLeaf {}
 
+// Mirrors Obsidian's `normalizePath`: POSIX separators, collapsed runs, no
+// leading/trailing slash, NFC-normalized, with "" folded to the vault root.
+export function normalizePath(path: string): string {
+  const p = path
+    .replace(/[\\/]+/g, "/")
+    .replace(/^\/+|\/+$/g, "")
+    .replace(/\u00a0|\u202f/g, " ")
+    .normalize("NFC");
+  return p === "" ? "/" : p;
+}
+
 export const requestUrl = async (): Promise<unknown> => ({
   status: 200,
   json: {},
