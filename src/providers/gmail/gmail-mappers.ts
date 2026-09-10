@@ -19,11 +19,14 @@ export interface GmailLabel { id: string; name: string; type?: string; }
 
 export const GMAIL_ARCHIVE_MAILBOX: Mailbox = { id: "ARCHIVE", name: "All Mail", kind: "archive" };
 
-export function decodeBase64Url(data: string): string {
+export function decodeBase64UrlBytes(data: string): Uint8Array {
   const b64 = data.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(data.length / 4) * 4, "=");
   const bin = atob(b64);
-  const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
-  return new TextDecoder("utf-8").decode(bytes);
+  return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+}
+
+export function decodeBase64Url(data: string): string {
+  return new TextDecoder("utf-8").decode(decodeBase64UrlBytes(data));
 }
 
 export function parseAddress(raw: string): Address {

@@ -3,7 +3,7 @@ import type { MailProvider, Mailbox, MessageBody, MessageSummary, Page, SyncCurs
 import type { HttpClient, HttpResponse } from "../http";
 import { withRetry, parseRetryAfter, type RetryableResult } from "../../util/backoff";
 import {
-  GMAIL_ARCHIVE_MAILBOX, decodeBase64Url, mapGmailBody, mapGmailLabels, mapGmailSummary,
+  GMAIL_ARCHIVE_MAILBOX, decodeBase64UrlBytes, mapGmailBody, mapGmailLabels, mapGmailSummary,
   type GmailMessage,
 } from "./gmail-mappers";
 
@@ -85,22 +85,23 @@ export class GmailProvider implements MailProvider {
     return params.toString();
   }
 
-  async listMessages(mailboxId: string, pageToken?: string): Promise<Page<MessageSummary>> {
+  /** Fetch a `/messages` list page for the given query string and hydrate summaries. */
+  private async fetchPage(query: string): Promise<Page<MessageSummary>> {
     const data = await this.get<{ messages?: Array<{ id: string }>; nextPageToken?: string }>(
-      `/messages?${this.listQuery(mailboxId, pageToken)}`,
+      `/messages?${query}`,
     );
     const items = await this.hydrate((data.messages ?? []).map((m) => m.id));
     return { items, nextPageToken: data.nextPageToken };
   }
 
+  async listMessages(mailboxId: string, pageToken?: string): Promise<Page<MessageSummary>> {
+    return this.fetchPage(this.listQuery(mailboxId, pageToken));
+  }
+
   async search(query: string, pageToken?: string): Promise<Page<MessageSummary>> {
     const params = new URLSearchParams({ maxResults: String(PAGE_SIZE), q: query });
     if (pageToken) params.set("pageToken", pageToken);
-    const data = await this.get<{ messages?: Array<{ id: string }>; nextPageToken?: string }>(
-      `/messages?${params.toString()}`,
-    );
-    const items = await this.hydrate((data.messages ?? []).map((m) => m.id));
-    return { items, nextPageToken: data.nextPageToken };
+    return this.fetchPage(params.toString());
   }
 
   async getMessageBody(id: string): Promise<MessageBody> {
@@ -109,8 +110,7 @@ export class GmailProvider implements MailProvider {
 
   async getAttachment(messageId: string, attachmentId: string): Promise<ArrayBuffer> {
     const data = await this.get<{ data?: string }>(`/messages/${messageId}/attachments/${attachmentId}`);
-    const bin = decodeBase64Url(data.data ?? "");
-    return Uint8Array.from(bin, (c) => c.charCodeAt(0)).buffer;
+    return decodeBase64UrlBytes(data.data ?? "").buffer as ArrayBuffer;
   }
 
   async initialCursor(): Promise<SyncCursor> {
@@ -135,7 +135,7 @@ export class GmailProvider implements MailProvider {
         historyId?: string;
         nextPageToken?: string;
       }>(`/history?${params.toString()}`);
-      for (const h of (data.history ?? []) as Array<Record<string, unknown>>) {
+      for (const h of data.history ?? []) {
         if (typeof h.id === "string") latestHistoryId = h.id;
         for (const a of (h.messagesAdded as Array<{ message: { id: string } }>) ?? []) addedIds.add(a.message.id);
         for (const d of (h.messagesDeleted as Array<{ message: { id: string } }>) ?? []) deletions.add(d.message.id);

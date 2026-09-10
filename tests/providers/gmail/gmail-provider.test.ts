@@ -66,6 +66,20 @@ describe("GmailProvider", () => {
     expect(calls).toBe(2);
   });
 
+  it("getAttachment returns the raw bytes, including bytes >= 0x80", async () => {
+    const raw = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0xd8, 0xc0]);
+    const b64url = Buffer.from(raw).toString("base64url");
+    const http = router([
+      [/messages\/msg1\/attachments\/att1/, () => resp({ size: raw.length, data: b64url })],
+    ]);
+    const p = new GmailProvider({ http, getAccessToken: async () => "tokA" });
+    const buf = await p.getAttachment("msg1", "att1");
+    expect(Array.from(new Uint8Array(buf))).toEqual(Array.from(raw));
+    const call = (http.request as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(call.url).toContain("/messages/msg1/attachments/att1");
+    expect(call.headers.Authorization).toBe("Bearer tokA");
+  });
+
   it("throws AuthError on 401", async () => {
     const http = router([[/./, () => resp({ error: "unauthorized" }, 401)]]);
     const p = new GmailProvider({ http, getAccessToken: async () => "at" });
