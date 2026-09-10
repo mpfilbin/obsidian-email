@@ -1,0 +1,13 @@
+{
+  "id": "18f1a", "threadId": "18f1a", "labelIds": ["INBOX", "UNREAD", "IMPORTANT"],
+  "snippet": "Hello there, this is the preview",
+  "payload": {
+    "headers": [
+      { "name": "From", "value": "Jane Doe <jane@example.com>" },
+      { "name": "To", "value": "me@example.com" },
+      { "name": "Cc", "value": "Team <team@example.com>, bob@example.com" },
+      { "name": "Subject", "value": "Weekly sync" },
+      { "name": "Date", "value": "Wed, 03 Sep 2026 14:05:00 -0700" }
+    ]
+  }
+}

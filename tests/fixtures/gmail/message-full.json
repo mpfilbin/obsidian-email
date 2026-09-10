@@ -1,0 +1,36 @@
+{
+  "id": "18f1a", "threadId": "18f1a", "labelIds": ["INBOX"],
+  "snippet": "Hello",
+  "payload": {
+    "mimeType": "multipart/mixed",
+    "headers": [
+      { "name": "From", "value": "jane@example.com" },
+      { "name": "Subject", "value": "With attachment" },
+      { "name": "Date", "value": "Wed, 03 Sep 2026 14:05:00 -0700" }
+    ],
+    "parts": [
+      {
+        "mimeType": "multipart/alternative",
+        "parts": [
+          { "mimeType": "text/plain", "body": { "data": "SGVsbG8gd29ybGQ" } },
+          { "mimeType": "text/html", "body": { "data": "PHA-SGVsbG88L3A-" } }
+        ]
+      },
+      {
+        "mimeType": "application/pdf",
+        "filename": "report.pdf",
+        "headers": [{ "name": "Content-Disposition", "value": "attachment; filename=\"report.pdf\"" }],
+        "body": { "attachmentId": "ANGjdJ9", "size": 12345 }
+      },
+      {
+        "mimeType": "image/png",
+        "filename": "logo.png",
+        "headers": [
+          { "name": "Content-Disposition", "value": "inline" },
+          { "name": "Content-ID", "value": "<logo123>" }
+        ],
+        "body": { "attachmentId": "IMG1", "size": 999 }
+      }
+    ]
+  }
+}

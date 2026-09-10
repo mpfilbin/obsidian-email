@@ -1,0 +1,9 @@
+{ "labels": [
+  { "id": "INBOX", "name": "INBOX", "type": "system" },
+  { "id": "SENT", "name": "SENT", "type": "system" },
+  { "id": "TRASH", "name": "TRASH", "type": "system" },
+  { "id": "SPAM", "name": "SPAM", "type": "system" },
+  { "id": "DRAFT", "name": "DRAFT", "type": "system" },
+  { "id": "CATEGORY_PROMOTIONS", "name": "CATEGORY_PROMOTIONS", "type": "system" },
+  { "id": "Label_12", "name": "Projects/Acme", "type": "user" }
+] }
