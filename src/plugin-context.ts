@@ -13,6 +13,7 @@ import { ViewModel } from "./view/view-model";
 import { TokenManager } from "./auth/token-manager";
 import { createProvider } from "./providers/provider-factory";
 import { addAccount, defaultFetchProfileEmail } from "./auth/add-account";
+import type { AddAccountDeps, LoopbackLike } from "./auth/add-account";
 
 export interface ContextHostDeps {
   http: HttpClient;
@@ -21,6 +22,8 @@ export interface ContextHostDeps {
   openExternal: (url: string) => void;
   saveBlob: (blob: Blob, filename: string) => Promise<void>;
   now?: () => number;
+  /** Test-only seam: lets a spec inject a fake OAuth loopback server. */
+  makeLoopback?: (host: "127.0.0.1" | "localhost") => LoopbackLike;
 }
 
 /**
@@ -150,23 +153,58 @@ export class PluginContext {
     }
   }
 
+  /** Shared `addAccount` deps; `genId` decides new-id (add) vs reuse-id (re-auth). */
+  private addAccountDeps(genId: () => string): AddAccountDeps {
+    return {
+      post: this.host.post,
+      secrets: this.host.secrets,
+      openBrowser: this.host.openExternal,
+      now: this.now,
+      genId,
+      fetchProfileEmail: defaultFetchProfileEmail(this.host.http),
+      makeLoopback: this.host.makeLoopback,
+    };
+  }
+
   async addAccountFlow(input: {
     kind: ProviderKind;
     clientId: string;
     clientSecret?: string;
   }): Promise<AccountConfig> {
-    const { account } = await addAccount(input, {
-      post: this.host.post,
-      secrets: this.host.secrets,
-      openBrowser: this.host.openExternal,
-      now: this.now,
-      genId: () => crypto.randomUUID(),
-      fetchProfileEmail: defaultFetchProfileEmail(this.host.http),
-    });
+    const { account } = await addAccount(
+      input,
+      this.addAccountDeps(() => crypto.randomUUID()),
+    );
     await this.settings.addAccount(account);
     this.rebuildProviders();
     void this.sync.syncAccount(account.id);
     return account;
+  }
+
+  /**
+   * Per-account "Re-authenticate": re-runs the OAuth flow reusing the existing
+   * account id and client id, so `settings.addAccount` replaces the record in
+   * place instead of creating a duplicate.
+   */
+  async reauthAccount(accountId: string): Promise<{ ok: boolean; message: string }> {
+    const account = this.settings.get().accounts.find((a) => a.id === accountId);
+    if (!account) return { ok: false, message: "Account not found." };
+    try {
+      const storedSecret =
+        account.provider === "gmail"
+          ? (await this.host.secrets.getSecret(`obsidian-email-${accountId}-secret`)) ?? undefined
+          : undefined;
+      const { account: refreshed } = await addAccount(
+        { kind: account.provider, clientId: account.clientId, clientSecret: storedSecret },
+        this.addAccountDeps(() => accountId),
+      );
+      await this.settings.addAccount(refreshed);
+      this.rebuildProviders();
+      void this.sync.syncAccount(accountId);
+      return { ok: true, message: `Re-authenticated ${refreshed.email}.` };
+    } catch (err) {
+      return { ok: false, message: `Could not re-authenticate: ${(err as Error).message}` };
+    }
   }
 
   async removeAccountFlow(id: string): Promise<void> {

@@ -71,10 +71,7 @@ export class EmailSettingTab extends PluginSettingTab {
         .setDesc(`${a.provider} · ${status}`)
         .addButton((b) =>
           b.setButtonText("Re-authenticate").onClick(async () => {
-            const r = await handleConnect(this.ctx, {
-              kind: a.provider,
-              clientId: a.clientId,
-            });
+            const r = await this.ctx.reauthAccount(a.id);
             new Notice(r.message);
             this.display();
           }),

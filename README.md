@@ -25,8 +25,7 @@ From a release:
 1. Download `main.js`, `manifest.json`, and `styles.css` from the release.
 2. Copy all three into `<vault>/.obsidian/plugins/obsidian-email/`
    (create the folder if it does not exist).
-3. In Obsidian: **Settings → Community plugins**, reload plugins, and enable
-   **Email**.
+3. In Obsidian: **Settings → Community plugins**, then enable **Email**.
 
 ## Google (Gmail) setup
 
@@ -85,7 +84,8 @@ You need a Microsoft Entra (Azure AD) app registration. Once, per Microsoft acco
 - Message HTML is sanitized (scripts, iframes, event handlers, and
   `javascript:` URLs are stripped) before it is rendered.
 - **No telemetry.** The plugin talks only to Google's and Microsoft's APIs and
-  to `127.0.0.1` for the OAuth loopback.
+  to a loopback address (`127.0.0.1` for Google, `localhost` for Microsoft) for
+  the OAuth loopback.
 
 ## Development
 

@@ -124,6 +124,64 @@ describe("PluginContext", () => {
     cursorOpen.mockRestore();
   });
 
+  it("reauthAccount refreshes in place, reusing the account id and stored secret", async () => {
+    const settings = await SettingsStore.load({ loadData: async () => null, saveData: async () => {} });
+    await settings.addAccount({ id: "acct-1", email: "old@g.com", provider: "gmail", clientId: "cid", addedAt: 0 });
+
+    const captured = { state: "" };
+    const deps = {
+      ...hostDeps(),
+      http: {
+        request: vi.fn().mockResolvedValue({
+          status: 200,
+          json: { emailAddress: "new@g.com" },
+          text: "{}",
+          arrayBuffer: new ArrayBuffer(0),
+          headers: {},
+        }),
+      },
+      secrets: {
+        getSecret: vi.fn(async (k: string) =>
+          k === "obsidian-email-acct-1-secret" ? "goog-secret" : null,
+        ),
+        setSecret: vi.fn().mockResolvedValue(undefined),
+      },
+      post: vi.fn().mockResolvedValue({
+        status: 200,
+        json: { access_token: "at", refresh_token: "rt", expires_in: 3600 },
+      }),
+      openExternal: vi.fn((url: string) => {
+        captured.state = new URL(url).searchParams.get("state")!;
+      }),
+      makeLoopback: () => ({
+        listen: async () => ({ port: 1, redirectUri: "http://127.0.0.1:1" }),
+        waitForCode: async () => ({ code: "C", state: captured.state }),
+        close: vi.fn(),
+      }),
+    };
+
+    const ctx = await PluginContext.create(settings, deps, logger);
+    const syncSpy = vi.spyOn(ctx.sync, "syncAccount");
+
+    const r = await ctx.reauthAccount("acct-1");
+
+    expect(r).toEqual({ ok: true, message: expect.stringContaining("new@g.com") });
+    expect(deps.secrets.getSecret).toHaveBeenCalledWith("obsidian-email-acct-1-secret");
+    // no duplicate — same id replaced in place
+    expect(settings.get().accounts).toHaveLength(1);
+    expect(settings.get().accounts[0].id).toBe("acct-1");
+    expect(settings.get().accounts[0].email).toBe("new@g.com");
+    expect(syncSpy).toHaveBeenCalledWith("acct-1");
+    ctx.dispose();
+  });
+
+  it("reauthAccount reports an unknown account", async () => {
+    const settings = await SettingsStore.load({ loadData: async () => null, saveData: async () => {} });
+    const ctx = await PluginContext.create(settings, hostDeps(), logger);
+    expect(await ctx.reauthAccount("missing")).toEqual({ ok: false, message: "Account not found." });
+    ctx.dispose();
+  });
+
   it("applyPollInterval forwards the configured interval to the sync engine", async () => {
     const settings = await SettingsStore.load({ loadData: async () => null, saveData: async () => {} });
     const ctx = await PluginContext.create(settings, hostDeps(), logger);
