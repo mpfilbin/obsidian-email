@@ -1,0 +1,9 @@
+{
+	"id": "obsidian-email",
+	"name": "Email",
+	"version": "0.1.0",
+	"minAppVersion": "1.11.4",
+	"description": "A full email client for Gmail and Microsoft 365 inside Obsidian.",
+	"author": "Michael Filbin",
+	"isDesktopOnly": true
+}

@@ -3,3 +3,8 @@ node_modules/
 main.js
 *.js.map
 .DS_Store
+dev-vault/.obsidian/plugins/
+dev-vault/.obsidian/workspace.json
+dev-vault/.obsidian/workspace-mobile.json
+dev-vault/.obsidian/hotkeys.json
+dev-vault/*.md
