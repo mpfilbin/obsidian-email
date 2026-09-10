@@ -24,8 +24,9 @@ describe("LoopbackServer", () => {
     const server = new LoopbackServer("127.0.0.1");
     const { redirectUri } = await server.listen();
     const waiting = server.waitForCode();
+    const expectation = expect(waiting).rejects.toBeInstanceOf(AuthError);
     await hit(`${redirectUri}/?error=access_denied`);
-    await expect(waiting).rejects.toBeInstanceOf(AuthError);
+    await expectation;
     server.close();
   });
 
