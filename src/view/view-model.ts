@@ -1,4 +1,4 @@
-import type { Mailbox, MailProvider, MessageBody, MessageSummary, ProviderKind } from "../providers/types";
+import type { AttachmentMeta, Mailbox, MailProvider, MessageBody, MessageSummary, ProviderKind } from "../providers/types";
 import type { MailCache } from "../cache/mail-cache";
 import type { SyncEngine, SyncStatus } from "../sync/sync-engine";
 import type { SettingsStore } from "../settings/settings-store";
@@ -31,6 +31,8 @@ export interface ViewModelDeps {
   settings: SettingsStore;
   getProvider: (id: string) => MailProvider | undefined;
   isOnline: () => boolean;
+  openExternal: (url: string) => void;
+  saveBlob: (blob: Blob, filename: string) => Promise<void>;
 }
 
 const PAGE = 50;
@@ -189,6 +191,38 @@ export class ViewModel {
 
   closeThread(): void {
     this.set({ openThreadId: null, openMessages: [] });
+  }
+
+  renderDeps(): { getInlineAttachment: (cid: string) => Promise<Blob | undefined>; openExternal: (url: string) => void } {
+    return {
+      openExternal: (url: string) => this.deps.openExternal(url),
+      getInlineAttachment: async (cid: string) => {
+        const acct = this.state.activeAccountId;
+        const provider = acct ? this.deps.getProvider(acct) : undefined;
+        if (!acct || !provider) return undefined;
+        for (const m of this.state.openMessages) {
+          const att = m.body?.attachments.find((a) => a.inline && a.contentId === cid);
+          if (att) {
+            const buf = await provider.getAttachment(m.summary.id, att.id);
+            return new Blob([buf], { type: att.mimeType });
+          }
+        }
+        return undefined;
+      },
+    };
+  }
+
+  async downloadAttachment(messageId: string, att: AttachmentMeta): Promise<Blob> {
+    const acct = this.state.activeAccountId;
+    const provider = acct ? this.deps.getProvider(acct) : undefined;
+    if (!acct || !provider) throw new Error("No active account");
+    const buf = await provider.getAttachment(messageId, att.id);
+    return new Blob([buf], { type: att.mimeType });
+  }
+
+  async downloadAttachmentToDisk(messageId: string, att: AttachmentMeta): Promise<void> {
+    const blob = await this.downloadAttachment(messageId, att);
+    await this.deps.saveBlob(blob, att.filename);
   }
 
   async refresh(): Promise<void> {

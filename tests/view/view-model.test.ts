@@ -33,8 +33,9 @@ async function build() {
   });
   const vm = new ViewModel({
     cache, sync, settings, getProvider: () => provider, isOnline: () => true,
+    openExternal: () => {}, saveBlob: async () => {},
   });
-  return { cache, provider, sync, vm };
+  return { cache, provider, sync, settings, vm };
 }
 
 describe("ViewModel", () => {
@@ -92,6 +93,7 @@ describe("ViewModel", () => {
     const offlineVm = new ViewModel({
       cache: ctx.cache, sync: ctx.sync, settings: (ctx as never as { settings: SettingsStore }).settings ?? await SettingsStore.load({ loadData: async () => ({ accounts: [{ id: "a1", email: "e", provider: "gmail", clientId: "c", addedAt: 0 }] }), saveData: async () => {} }),
       getProvider: () => ctx.provider, isOnline: () => false,
+      openExternal: () => {}, saveBlob: async () => {},
     });
     await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
     await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1)]);
@@ -99,6 +101,21 @@ describe("ViewModel", () => {
     await offlineVm.runSearch("anything");
     expect(offlineVm.getState().notice).toMatch(/offline/i);
     expect(offlineVm.getState().threads.map((t) => t.threadId)).toEqual(["t1"]);
+  });
+
+  it("renderDeps().getInlineAttachment returns a Blob for an open message's inline attachment", async () => {
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1)]);
+    await ctx.cache.putBody("a1", {
+      id: "m1", html: '<img src="cid:logo">', text: null, headers: {},
+      attachments: [{ id: "att1", filename: "logo.png", mimeType: "image/png", size: 3, inline: true, contentId: "logo" }],
+    });
+    vi.spyOn(ctx.provider, "getAttachment").mockResolvedValue(new Uint8Array([1, 2, 3]).buffer);
+    await ctx.vm.init();
+    await ctx.vm.openThread("t1");
+    const blob = await ctx.vm.renderDeps().getInlineAttachment("logo");
+    expect(blob).toBeInstanceOf(Blob);
+    expect(blob!.type).toBe("image/png");
   });
 
   it("re-reads the list when the sync engine emits a change for the active mailbox", async () => {

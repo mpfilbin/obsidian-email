@@ -1,6 +1,24 @@
 <script lang="ts">
-  // Stub — real implementation lands in Task 26.
-  const props = $props();
+  let { query, active, onSearch, onClear, onRefresh }: {
+    query: string;
+    active: boolean;
+    onSearch: (q: string) => void;
+    onClear: () => void;
+    onRefresh: () => void;
+  } = $props();
+
+  // Seed the local editable value from the initial prop; the $effect below
+  // keeps it synced when `query` changes (e.g. after clearing a search).
+  // svelte-ignore state_referenced_locally
+  let value = $state(query);
+  $effect(() => { value = query; });
 </script>
 
-<div class="oe-search"></div>
+<form class="oe-search" onsubmit={(e) => { e.preventDefault(); if (value.trim()) onSearch(value.trim()); }}>
+  <input type="search" placeholder="Search mail…" bind:value />
+  <button type="submit">Search</button>
+  <button type="button" onclick={onRefresh} aria-label="Refresh">⟳</button>
+  {#if active}
+    <button type="button" class="oe-search-pill" onclick={onClear}>Search: {query} ✕</button>
+  {/if}
+</form>

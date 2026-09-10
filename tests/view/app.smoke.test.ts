@@ -27,6 +27,8 @@ function fakeVm(state: Partial<ViewState> = {}): ViewModel {
     subscribe: (fn: (s: ViewState) => void) => { fn(full); return () => {}; },
     selectAccount: vi.fn(), selectMailbox: vi.fn(), openThread: vi.fn(), closeThread: vi.fn(),
     loadMore: vi.fn(), refresh: vi.fn(), runSearch: vi.fn(), clearSearch: vi.fn(),
+    renderDeps: () => ({ getInlineAttachment: async () => undefined, openExternal: () => {} }),
+    downloadAttachment: vi.fn(), downloadAttachmentToDisk: vi.fn(),
   } as unknown as ViewModel;
 }
 

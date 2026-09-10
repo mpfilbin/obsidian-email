@@ -49,6 +49,8 @@
   </section>
   <ReadingPane
     openMessages={state.openMessages}
+    renderDeps={vm.renderDeps()}
     onClose={() => vm.closeThread()}
+    onDownload={(id, att) => vm.downloadAttachmentToDisk(id, att)}
   />
 </div>
