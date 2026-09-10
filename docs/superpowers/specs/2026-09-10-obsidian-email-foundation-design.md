@@ -23,7 +23,7 @@ actions (trash, move, mark-read), and polish are later sub-projects.
 
 | # | Sub-project | Scope |
 |---|---|---|
-| **1** | **Foundation + reading** (this spec) | Plugin scaffold, build/CI/release tooling, settings UI, per-account PKCE OAuth (Google + Microsoft), token storage via `app.secretStorage`, provider-adapter abstraction, Gmail + Graph read paths, mail view, IndexedDB cache, incremental background sync, server-side search. |
+| **1** | **Foundation + reading** (this spec) | Plugin scaffold, build/CI/release tooling, dev vault + install scripts, settings UI, per-account PKCE OAuth (Google + Microsoft), token storage via `app.secretStorage`, provider-adapter abstraction, Gmail + Graph read paths, mail view, IndexedDB cache, incremental background sync, server-side search. |
 | **2** | **Compose & send** | Composer component, Markdown→MIME (multipart HTML + text), new / reply / reply-all / forward, drafts, attachments (receive + send). |
 | **3** | **Actions & organization** | Trash/delete, archive, read/unread, move/label, star/flag, multi-select, keyboard shortcuts, optional unified inbox. |
 | **4** | **Polish** | "Save thread to note", command-palette integration, optional new-mail notifications, theming pass. |
@@ -468,15 +468,65 @@ Ported from the author's `ribbon-bar` plugin, adjusted:
 - **`scripts/release.sh`** + **`version-bump.mjs`** + **`versions.json`:** copied
   from `ribbon-bar` (bump `package.json` → sync `manifest.json` + `versions.json`
   → `npm install` → commit).
-- **`scripts/install.sh`** / **`scripts/uninstall.sh`:** dev symlink helpers, ported.
 - **`tsconfig.json`:** extend `@tsconfig/svelte`, `target` ES2020,
   `moduleResolution` bundler, `strict`, `skipLibCheck`, `types: ["node"]`,
   `include: ["src/**/*.ts", "src/**/*.svelte"]`.
 - **`vitest.config.ts`:** `environment: "jsdom"` (sanitizer + mapper tests touch
   the DOM), `include: ["tests/**/*.test.ts"]`.
-- **`.gitignore`:** `/.idea/`, `node_modules/`, `main.js`, `*.js.map`, `.DS_Store`.
+- **`.gitignore`:** `/.idea/`, `node_modules/`, `main.js`, `*.js.map`,
+  `.DS_Store`, plus the dev-vault entries in §9a.
 - **`LICENSE.md`:** MIT. **`README.md`:** Google + Azure registration walkthroughs,
-  install instructions, security notes.
+  install instructions, security notes, and the Development section from §9a.
+
+---
+
+## 9a. Dev vault & install scripts
+
+A checked-in Obsidian vault at **`dev-vault/`** in the repo root lets the plugin
+be tested with no manual setup. All scripts read `PLUGIN_ID` from `manifest.json`
+(the pattern already used by `ribbon-bar`'s `uninstall.sh`), never hardcode it,
+and default their vault argument to `./dev-vault`.
+
+### Committed vault skeleton
+
+```
+dev-vault/
+  .obsidian/
+    community-plugins.json   # ["obsidian-email"] — plugin enabled on open
+    core-plugins.json        # minimal core plugin set
+    app.json                 # minimal app config
+  README.md                  # what to test, sample checklist
+```
+
+Not committed (added to `.gitignore`):
+
+```
+dev-vault/.obsidian/plugins/       # built plugin artifacts land here
+dev-vault/.obsidian/workspace*.json
+dev-vault/.obsidian/hotkeys.json
+dev-vault/*.md                     # local scratch notes, except README.md
+```
+
+`README.md` is force-added (`git add -f`) so it survives the `*.md` ignore.
+
+### Scripts (`scripts/`)
+
+| Script | Purpose |
+|---|---|
+| `install.sh [vault-path]` | Same shape as `ribbon-bar`'s. `npm run build`, then **copy** `main.js` + `manifest.json` + `styles.css` into `<vault>/.obsidian/plugins/<PLUGIN_ID>/`. Defaults to `./dev-vault`. Verifies the vault path exists. Use for a clean, release-like test. |
+| `uninstall.sh [vault-path]` | Ported verbatim from `ribbon-bar` — removes the plugin dir and strips the `community-plugins.json` entry. Defaults to `./dev-vault`. |
+| `link.sh [vault-path]` | **New.** Creates `<vault>/.obsidian/plugins/<PLUGIN_ID>/`, **symlinks** the three build artifacts into it (so `npm run dev` esbuild-watch output is picked up live), and `touch`es a `.hotreload` file in that dir. Defaults to `./dev-vault`. |
+| `release.sh` | Unchanged (see §9). |
+
+### Live-reload workflow
+
+1. `npm install`
+2. Install pjeby's **Hot Reload** plugin into `dev-vault/.obsidian/plugins/hot-reload/` (documented in `README.md`; the `.hotreload` marker file that `link.sh` writes is what it watches).
+3. `./scripts/link.sh`
+4. Open `dev-vault/` in Obsidian, enable **Email** (and **Hot Reload**).
+5. `npm run dev` — edits rebuild `main.js`; Hot Reload reloads the plugin. Without Hot Reload, `Cmd/Ctrl+R` in Obsidian picks up the new build.
+
+`README.md` "Development" section documents steps 1–5.
 
 ---
 
