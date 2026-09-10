@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 20, cache: npm }
+        with: { node-version-file: '.tool-versions', cache: npm }
       - run: npm ci
       - run: npm run typecheck
 
@@ -21,7 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 20, cache: npm }
+        with: { node-version-file: '.tool-versions', cache: npm }
       - run: npm ci
       - run: npm run test
 
@@ -31,6 +31,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 20, cache: npm }
+        with: { node-version-file: '.tool-versions', cache: npm }
       - run: npm ci
       - run: npm run build

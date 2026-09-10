@@ -5,6 +5,10 @@
   "description": "A full email client for Gmail and Microsoft 365 inside Obsidian.",
   "license": "MIT",
   "type": "module",
+  "engines": {
+    "node": ">=24",
+    "npm": ">=11"
+  },
   "scripts": {
     "dev": "node esbuild.config.mjs",
     "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
@@ -15,7 +19,7 @@
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^4.0.4",
     "@tsconfig/svelte": "^5.0.4",
-    "@types/node": "^20.14.0",
+    "@types/node": "^24",
     "esbuild": "^0.21.5",
     "esbuild-svelte": "^0.8.2",
     "fake-indexeddb": "^6.0.0",

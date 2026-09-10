@@ -89,6 +89,10 @@ You need a Microsoft Entra (Azure AD) app registration. Once, per Microsoft acco
 
 ## Development
 
+**Prerequisites:** Node.js **24+** and npm **11+**. The pinned version lives in
+`.tool-versions` (`asdf install` picks it up); `npm install` enforces it via
+`engine-strict`. CI reads the same `.tool-versions` file.
+
 Live-reload workflow using the `dev-vault/` in this repo:
 
 1. `npm install`
