@@ -32,6 +32,27 @@ describe("withRetry", () => {
     expect(fn).toHaveBeenCalledTimes(2);
   });
 
+  it("clamps an explicit Retry-After to maxMs", async () => {
+    const slept: number[] = [];
+    const sleep = async (ms: number) => { slept.push(ms); };
+    const fn = vi.fn()
+      .mockResolvedValueOnce({ retry: true, afterMs: 86_400_000, error: new Error("429") })
+      .mockResolvedValueOnce({ retry: false, value: "ok" });
+    await expect(withRetry(fn, { retries: 3, baseMs: 500, maxMs: 8000, jitter: () => 0 }, sleep))
+      .resolves.toBe("ok");
+    expect(slept).toEqual([8000]);
+  });
+
+  it("still honours a Retry-After shorter than maxMs", async () => {
+    const slept: number[] = [];
+    const sleep = async (ms: number) => { slept.push(ms); };
+    const fn = vi.fn()
+      .mockResolvedValueOnce({ retry: true, afterMs: 1500, error: new Error("429") })
+      .mockResolvedValueOnce({ retry: false, value: "ok" });
+    await withRetry(fn, { retries: 3, baseMs: 500, maxMs: 8000, jitter: () => 0 }, sleep);
+    expect(slept).toEqual([1500]);
+  });
+
   it("throws the last error after exhausting retries", async () => {
     const fn = vi.fn().mockResolvedValue({ retry: true, error: new Error("still 503") });
     await expect(withRetry(fn, { retries: 2, baseMs: 1, maxMs: 10, jitter: () => 0 }, noSleep))

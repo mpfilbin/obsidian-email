@@ -17,7 +17,7 @@ function fakeVm(state: Partial<ViewState> = {}): ViewModel {
         unread: true, hasAttachments: false, flagged: false,
       }],
     }],
-    hasMore: false, loadingList: false,
+    hasMore: false, loadingList: false, autoLoadImages: false,
     search: { query: "", active: false },
     openThreadId: null, openMessages: [], notice: null,
     ...state,

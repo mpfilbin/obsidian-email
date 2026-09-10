@@ -1,4 +1,4 @@
-import { AuthError } from "../providers/types";
+import { AuthError, CursorExpiredError } from "../providers/types";
 import type { MailProvider, SyncCursor } from "../providers/types";
 import type { MailCache } from "../cache/mail-cache";
 import type { CursorStore } from "../cache/cursor-store";
@@ -94,7 +94,18 @@ export class SyncEngine {
       if (!saved || !saved.backfillDone) {
         await this.backfill(accountId, provider);
       } else {
-        await this.incremental(accountId, provider, saved.cursor);
+        try {
+          await this.incremental(accountId, provider, saved.cursor);
+        } catch (err) {
+          if (!(err instanceof CursorExpiredError)) throw err;
+          // The provider can no longer diff from our cursor (Gmail history
+          // aged out / Graph delta token gone). Drop it and re-backfill in
+          // this same cycle, rather than parking the account in `error` until
+          // the user finds "Clear local cache".
+          this.deps.logger.warn(`sync cursor expired for ${accountId}; re-running backfill`, err.message);
+          await this.deps.cursors.delete(accountId);
+          await this.backfill(accountId, provider);
+        }
       }
       this.setState(accountId, { status: "idle", lastSyncMs: this.now(), lastError: undefined });
     } catch (err) {

@@ -122,6 +122,59 @@ describe("ViewModel", () => {
     expect(ctx.vm.renderDeps()).toBe(ctx.vm.renderDeps());
   });
 
+  it("does not advertise hasMore for a short cached list (no auto-fetch on open)", async () => {
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1)]);
+    const spy = vi.spyOn(ctx.provider, "listMessages");
+    await ctx.vm.init();
+    // MessageList's sentinel is visible on any short list; hasMore must be
+    // false so opening the view doesn't fire an unrequested provider fetch.
+    expect(ctx.vm.getState().hasMore).toBe(false);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("advertises hasMore once the cache returns a full page", async () => {
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    // PAGE * 4 === 200 rows is a full read.
+    await ctx.cache.upsertMessages("a1", Array.from({ length: 200 }, (_, i) => sum(`m${i}`, `t${i}`, i)));
+    await ctx.vm.init();
+    expect(ctx.vm.getState().hasMore).toBe(true);
+  });
+
+  it("ignores a stale mailbox read that resolves after a newer one", async () => {
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1)]);
+    await ctx.cache.upsertMessages("a1", [{ ...sum("s1", "ts", 5), mailboxIds: ["SENT"] }]);
+    await ctx.vm.init();
+
+    // Make INBOX's read resolve *after* SENT's, the way a slow read would.
+    const real = ctx.cache.listMailboxMessages.bind(ctx.cache);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    vi.spyOn(ctx.cache, "listMailboxMessages").mockImplementation(async (acct, mb, opts) => {
+      if (mb === "INBOX") await gate;
+      return real(acct, mb, opts);
+    });
+
+    const slow = ctx.vm.selectMailbox("INBOX");
+    await ctx.vm.selectMailbox("SENT");
+    release();
+    await slow;
+
+    expect(ctx.vm.getState().activeMailboxId).toBe("SENT");
+    expect(ctx.vm.getState().threads.map((t) => t.threadId)).toEqual(["ts"]);
+  });
+
+  it("exposes prefs.autoLoadImages so the renderer can honour it", async () => {
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await ctx.vm.init();
+    expect(ctx.vm.getState().autoLoadImages).toBe(false);
+
+    await ctx.settings.updatePrefs({ autoLoadImages: true });
+    await ctx.vm.refresh();
+    expect(ctx.vm.getState().autoLoadImages).toBe(true);
+  });
+
   it("re-reads the list when the sync engine emits a change for the active mailbox", async () => {
     await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
     await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1)]);

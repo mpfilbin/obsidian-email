@@ -45,6 +45,15 @@ const POLL_OPTIONS: Array<[string, string]> = [
 ];
 
 export class EmailSettingTab extends PluginSettingTab {
+  // "Add account" form state lives on the instance, NOT in `display()`.
+  // `display()` re-enters itself (the provider dropdown rebuilds the form so
+  // the client-secret field can appear or disappear), and locals would be
+  // reset by that re-entry — which made "Microsoft 365" snap back to Google
+  // and left `handleConnect({kind:"ms-graph"})` unreachable.
+  private addKind: ProviderKind = "gmail";
+  private addClientId = "";
+  private addClientSecret = "";
+
   constructor(
     plugin: Plugin,
     private ctx: PluginContext,
@@ -53,6 +62,7 @@ export class EmailSettingTab extends PluginSettingTab {
     super(plugin.app, plugin);
   }
 
+  /** `display()` must stay idempotent: it re-enters itself (see fields above). */
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
@@ -89,29 +99,26 @@ export class EmailSettingTab extends PluginSettingTab {
     }
 
     containerEl.createEl("h2", { text: "Add account" });
-    let kind: ProviderKind = "gmail";
-    let clientId = "";
-    let clientSecret = "";
     new Setting(containerEl).setName("Provider").addDropdown((d) =>
       d
         .addOption("gmail", "Google (Gmail)")
         .addOption("ms-graph", "Microsoft 365")
-        .setValue(kind)
+        .setValue(this.addKind)
         .onChange((v) => {
-          kind = v as ProviderKind;
+          this.addKind = v as ProviderKind;
           this.display();
         }),
     );
     new Setting(containerEl)
       .setName("Client ID")
-      .addText((t) => t.onChange((v) => (clientId = v)));
-    if (kind === "gmail") {
+      .addText((t) => t.setValue(this.addClientId).onChange((v) => (this.addClientId = v)));
+    if (this.addKind === "gmail") {
       new Setting(containerEl)
         .setName("Client secret")
         .setDesc("Required for Google Desktop-app OAuth clients.")
         .addText((t) => {
           t.inputEl.type = "password";
-          t.onChange((v) => (clientSecret = v));
+          t.setValue(this.addClientSecret).onChange((v) => (this.addClientSecret = v));
         });
     }
     new Setting(containerEl).addButton((b) =>
@@ -120,12 +127,16 @@ export class EmailSettingTab extends PluginSettingTab {
         .setButtonText("Connect")
         .onClick(async () => {
           const r = await handleConnect(this.ctx, {
-            kind,
-            clientId,
-            clientSecret: clientSecret || undefined,
+            kind: this.addKind,
+            clientId: this.addClientId,
+            clientSecret: this.addClientSecret || undefined,
           });
           new Notice(r.message);
-          if (r.ok) this.display();
+          if (r.ok) {
+            this.addClientId = "";
+            this.addClientSecret = "";
+            this.display();
+          }
         }),
     );
 

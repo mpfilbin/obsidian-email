@@ -2,10 +2,12 @@
   import type { AttachmentMeta, MessageBody, MessageSummary } from "../../providers/types";
   import { renderMessageBody, type RenderHandle } from "../../render/message-renderer";
 
-  let { summary, body, expanded, renderDeps, onToggle, onDownload }: {
+  let { summary, body, expanded, autoLoadImages, renderDeps, onToggle, onDownload }: {
     summary: MessageSummary;
     body?: MessageBody;
     expanded: boolean;
+    /** `prefs.autoLoadImages` — when true, remote content renders immediately. */
+    autoLoadImages: boolean;
     renderDeps: { getInlineAttachment: (cid: string) => Promise<Blob | undefined>; openExternal: (url: string) => void };
     onToggle: () => void;
     onDownload: (att: AttachmentMeta) => void;
@@ -17,7 +19,7 @@
 
   $effect(() => {
     if (!expanded || !body || !bodyEl) return;
-    const h = renderMessageBody(bodyEl, body, { allowRemote: false }, renderDeps);
+    const h = renderMessageBody(bodyEl, body, { allowRemote: autoLoadImages }, renderDeps);
     handle = h;
     blocked = h.blockedRemoteContent;
     return () => { h.dispose(); handle = null; };

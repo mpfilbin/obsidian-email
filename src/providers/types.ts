@@ -84,8 +84,24 @@ export class AuthError extends Error {
 
 /** Thrown for transient provider/network failures worth retrying later. */
 export class ProviderError extends Error {
+  /** Provider-specific error code from the response body, when one was given. */
+  code?: string;
   constructor(message: string, readonly status?: number, readonly retryable = false) {
     super(message);
     this.name = "ProviderError";
+  }
+}
+
+/**
+ * Thrown by `syncSince` when the stored cursor is too old for the provider to
+ * diff from (Gmail `history.list` 404, Graph delta 410 `resyncRequired`).
+ *
+ * This is recoverable, not an error state: the SyncEngine drops the cursor and
+ * re-runs a backfill rather than leaving the account permanently stuck.
+ */
+export class CursorExpiredError extends Error {
+  constructor(message = "sync cursor expired", readonly cause?: unknown) {
+    super(message);
+    this.name = "CursorExpiredError";
   }
 }

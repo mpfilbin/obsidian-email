@@ -4,7 +4,7 @@ import { MailCache } from "../../src/cache/mail-cache";
 import { CursorStore } from "../../src/cache/cursor-store";
 import { FakeProvider } from "../../src/providers/fake-provider";
 import { Logger } from "../../src/util/logger";
-import { AuthError } from "../../src/providers/types";
+import { AuthError, CursorExpiredError } from "../../src/providers/types";
 import type { MailProvider, MessageSummary } from "../../src/providers/types";
 
 const logger = new Logger("test", { debug: () => false });
@@ -83,6 +83,36 @@ describe("SyncEngine", () => {
     const { engine } = await harness(provider);
     await engine.syncAccount("a1");
     expect(engine.getState("a1").status).toBe("needs-reauth");
+  });
+
+  it("recovers from an expired cursor by re-backfilling instead of getting stuck in error", async () => {
+    const provider = new FakeProvider({ mailboxes: [{ id: "INBOX", name: "Inbox", kind: "inbox" }] });
+    provider.addMessage(summary("m1", 1));
+    const { cache, cursors, engine } = await harness(provider);
+    await engine.syncAccount("a1"); // backfill, cursor stored
+
+    // The provider can no longer diff from the stored cursor (Gmail history
+    // 404 / Graph delta 410) — exactly once, as after a resync it can again.
+    const sync = vi.spyOn(provider, "syncSince")
+      .mockRejectedValueOnce(new CursorExpiredError("history 900 expired"));
+    provider.addMessage(summary("m2", 2));
+
+    const changes: unknown[] = [];
+    engine.changes.on((e) => changes.push(e));
+    await engine.syncAccount("a1");
+
+    expect(engine.getState("a1").status).toBe("idle");
+    expect(engine.getState("a1").lastError).toBeUndefined();
+    // The backfill re-read the mailbox, so the message added while the cursor
+    // was stale is present.
+    expect((await cache.listMailboxMessages("a1", "INBOX")).map((m) => m.id).sort()).toEqual(["m1", "m2"]);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toMatchObject({ accountId: "a1", reason: "backfill" });
+    // A usable cursor is stored again, so the next run is incremental.
+    expect(await cursors.get("a1")).toMatchObject({ backfillDone: true });
+    sync.mockRestore();
+    await engine.syncAccount("a1");
+    expect(engine.getState("a1").status).toBe("idle");
   });
 
   it("sets error status on a transient failure", async () => {

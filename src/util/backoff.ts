@@ -35,7 +35,10 @@ export async function withRetry<T>(
     lastError = result.error;
     if (attempt === opts.retries) break;
     const expo = Math.min(opts.maxMs, opts.baseMs * 2 ** attempt);
-    const delay = result.afterMs ?? expo * (0.5 + 0.5 * jitter());
+    // `maxMs` caps an explicit Retry-After too: an unclamped `Retry-After:
+    // 86400` would park the sync for a day while holding SyncEngine's
+    // `inFlight` promise, which blocks every later sync for that account.
+    const delay = Math.min(result.afterMs ?? expo * (0.5 + 0.5 * jitter()), opts.maxMs);
     await sleep(delay);
   }
   throw lastError;

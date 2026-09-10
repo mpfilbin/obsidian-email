@@ -3,8 +3,9 @@
   import type { ViewState } from "../../../src/view/view-model";
   import ReadingPane from "../../../src/view/components/ReadingPane.svelte";
 
-  let { initial, renderDeps, onClose, onDownload }: {
+  let { initial, autoLoadImages = false, renderDeps, onClose, onDownload }: {
     initial: ViewState["openMessages"];
+    autoLoadImages?: boolean;
     renderDeps: { getInlineAttachment: (cid: string) => Promise<Blob | undefined>; openExternal: (url: string) => void };
     onClose: () => void;
     onDownload: (messageId: string, att: AttachmentMeta) => void;
@@ -15,4 +16,4 @@
   export function set(m: ViewState["openMessages"]): void { messages = m; }
 </script>
 
-<ReadingPane openMessages={messages} {renderDeps} {onClose} {onDownload} />
+<ReadingPane openMessages={messages} {autoLoadImages} {renderDeps} {onClose} {onDownload} />

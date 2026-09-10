@@ -1,4 +1,4 @@
-import { AuthError, ProviderError } from "../types";
+import { AuthError, CursorExpiredError, ProviderError } from "../types";
 import type { MailProvider, Mailbox, MessageBody, MessageSummary, Page, SyncCursor, SyncResult } from "../types";
 import type { HttpClient, HttpResponse } from "../http";
 import { withRetry, parseRetryAfter, type RetryableResult } from "../../util/backoff";
@@ -16,6 +16,37 @@ export interface GmailProviderDeps {
 
 const DEFAULT_BASE = "https://gmail.googleapis.com/gmail/v1/users/me";
 const PAGE_SIZE = 25;
+
+// Gmail overloads HTTP 403 for both "you may not do this" and "you are going
+// too fast". Only the former is an auth problem; treating quota exhaustion as
+// one flips a perfectly healthy account to `needs-reauth`.
+const AUTH_403_REASONS = new Set([
+  "insufficientpermissions",
+  "forbidden",
+  "accessnotconfigured",
+  "authorizationerror",
+  "domainpolicy",
+]);
+
+interface GmailErrorBody {
+  error?: {
+    status?: string;
+    errors?: Array<{ reason?: string; domain?: string }>;
+  };
+}
+
+/**
+ * Decide whether a Gmail 403 is a genuine permission failure. Unknown or
+ * missing reasons are treated as retryable quota — the safe default, since a
+ * needless retry costs a backoff while a needless re-auth prompt costs the
+ * user their session.
+ */
+export function isGmailAuthForbidden(json: unknown): boolean {
+  const err = (json as GmailErrorBody | undefined)?.error;
+  if (!err) return false;
+  const reasons = (err.errors ?? []).map((e) => (e.reason ?? "").toLowerCase());
+  return reasons.some((r) => AUTH_403_REASONS.has(r));
+}
 
 export class GmailProvider implements MailProvider {
   readonly kind = "gmail" as const;
@@ -35,10 +66,13 @@ export class GmailProvider implements MailProvider {
         method: "GET",
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (res.status === 401 || res.status === 403) {
-        throw new AuthError(`Gmail ${res.status}`);
+      if (res.status === 401) throw new AuthError("Gmail 401");
+      if (res.status === 403 && isGmailAuthForbidden(res.json)) {
+        throw new AuthError("Gmail 403 (insufficient permissions)");
       }
-      if (res.status === 429 || res.status >= 500) {
+      // 403 without an auth reason is rateLimitExceeded / userRateLimitExceeded
+      // / dailyLimitExceeded — retryable quota, not a credential problem.
+      if (res.status === 403 || res.status === 429 || res.status >= 500) {
         return {
           retry: true,
           afterMs: parseRetryAfter(res.headers["retry-after"], Date.now()),
@@ -130,11 +164,18 @@ export class GmailProvider implements MailProvider {
         params.append("historyTypes", t);
       }
       if (pageToken) params.set("pageToken", pageToken);
+      // Gmail answers 404 when `startHistoryId` has aged out of the history
+      // window. That is recoverable via a fresh backfill, not a sync failure.
       const data = await this.get<{
         history?: Array<Record<string, unknown>>;
         historyId?: string;
         nextPageToken?: string;
-      }>(`/history?${params.toString()}`);
+      }>(`/history?${params.toString()}`).catch((err: unknown) => {
+        if (err instanceof ProviderError && err.status === 404) {
+          throw new CursorExpiredError(`Gmail history ${cursor.historyId} expired`, err);
+        }
+        throw err;
+      });
       for (const h of data.history ?? []) {
         if (typeof h.id === "string") latestHistoryId = h.id;
         for (const a of (h.messagesAdded as Array<{ message: { id: string } }>) ?? []) addedIds.add(a.message.id);

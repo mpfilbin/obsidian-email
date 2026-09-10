@@ -85,6 +85,50 @@ describe("GmailProvider", () => {
     const p = new GmailProvider({ http, getAccessToken: async () => "at" });
     await expect(p.listMailboxes()).rejects.toMatchObject({ name: "AuthError" });
   });
+
+  it("treats a 403 quota error as retryable, not as an auth failure", async () => {
+    const quota = {
+      error: {
+        code: 403,
+        status: "PERMISSION_DENIED",
+        errors: [{ domain: "usageLimits", reason: "rateLimitExceeded" }],
+      },
+    };
+    let calls = 0;
+    const http: HttpClient = {
+      request: vi.fn(async () => {
+        calls++;
+        return calls === 1 ? resp(quota, 403, { "retry-after": "0" }) : resp(fx("profile.json"));
+      }),
+    };
+    const p = new GmailProvider({ http, getAccessToken: async () => "at" });
+    await expect(p.initialCursor()).resolves.toEqual({ kind: "gmail", historyId: "900" });
+    expect(calls).toBe(2);
+  });
+
+  it("gives up on a 403 quota error as a retryable ProviderError, never AuthError", async () => {
+    const http = router([
+      [/./, () => resp({ error: { errors: [{ reason: "userRateLimitExceeded" }] } }, 403, { "retry-after": "0" })],
+    ]);
+    const p = new GmailProvider({ http, getAccessToken: async () => "at" });
+    await expect(p.listMailboxes()).rejects.toMatchObject({ name: "ProviderError", status: 403, retryable: true });
+  });
+
+  it("still throws AuthError for a 403 with a permission reason", async () => {
+    const http = router([
+      [/./, () => resp({ error: { errors: [{ reason: "insufficientPermissions" }] } }, 403)],
+    ]);
+    const p = new GmailProvider({ http, getAccessToken: async () => "at" });
+    await expect(p.listMailboxes()).rejects.toMatchObject({ name: "AuthError" });
+  });
+
+  it("throws CursorExpiredError when history.list 404s on a stale cursor", async () => {
+    const http = router([[/history\?/, () => resp({ error: { code: 404 } }, 404)]]);
+    const p = new GmailProvider({ http, getAccessToken: async () => "at" });
+    await expect(p.syncSince({ kind: "gmail", historyId: "1" })).rejects.toMatchObject({
+      name: "CursorExpiredError",
+    });
+  });
 });
 
 runMailProviderContract("GmailProvider", async () => {

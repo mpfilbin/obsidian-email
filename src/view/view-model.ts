@@ -19,6 +19,8 @@ export interface ViewState {
   threads: ThreadView[];
   hasMore: boolean;
   loadingList: boolean;
+  /** Mirrors `prefs.autoLoadImages`; drives the renderer's `allowRemote`. */
+  autoLoadImages: boolean;
   search: { query: string; active: boolean };
   openThreadId: string | null;
   openMessages: Array<{ summary: MessageSummary; body?: MessageBody }>;
@@ -62,7 +64,7 @@ function groupThreads(messages: MessageSummary[]): ThreadView[] {
 export class ViewModel {
   private state: ViewState = {
     accounts: [], activeAccountId: null, mailboxes: [], activeMailboxId: null,
-    threads: [], hasMore: false, loadingList: false,
+    threads: [], hasMore: false, loadingList: false, autoLoadImages: false,
     search: { query: "", active: false },
     openThreadId: null, openMessages: [], notice: null,
   };
@@ -70,6 +72,8 @@ export class ViewModel {
   private unsubSync: Array<() => void> = [];
   private providerListToken: string | undefined;
   private providerListExhausted = false;
+  /** Monotonic guard so a slow cache read can't paint over a newer one. */
+  private reloadSeq = 0;
   private readonly _renderDeps: {
     getInlineAttachment: (cid: string) => Promise<Blob | undefined>;
     openExternal: (url: string) => void;
@@ -121,8 +125,19 @@ export class ViewModel {
     });
   }
 
+  /**
+   * Pull preference-derived state out of the settings store. Settings have no
+   * change emitter, so this is re-read at the points where the user can have
+   * been in the settings tab since we last looked.
+   */
+  private syncPrefs(): void {
+    const { autoLoadImages } = this.deps.settings.get().prefs;
+    if (autoLoadImages !== this.state.autoLoadImages) this.set({ autoLoadImages });
+  }
+
   async init(): Promise<void> {
     const cfg = this.deps.settings.get();
+    this.set({ autoLoadImages: cfg.prefs.autoLoadImages });
     const accounts = cfg.accounts.map((a) => ({
       id: a.id, email: a.email, provider: a.provider, status: this.deps.sync.getState(a.id).status,
     }));
@@ -134,6 +149,7 @@ export class ViewModel {
   }
 
   async selectAccount(id: string): Promise<void> {
+    this.syncPrefs();
     const mailboxes = await this.deps.cache.getMailboxes(id);
     const inbox = mailboxes.find((m) => m.kind === "inbox") ?? mailboxes[0];
     this.set({
@@ -157,11 +173,22 @@ export class ViewModel {
     const acct = this.state.activeAccountId;
     const mb = this.state.activeMailboxId;
     if (!acct || !mb) return;
+    // Switching mailbox A -> B fires two overlapping reads; without this guard
+    // a slow read for A that lands after B's would paint A's rows under B's
+    // header.
+    const seq = ++this.reloadSeq;
     this.set({ loadingList: true });
-    const rows = await this.deps.cache.listMailboxMessages(acct, mb, { limit: PAGE * 4 });
+    const limit = PAGE * 4;
+    const rows = await this.deps.cache.listMailboxMessages(acct, mb, { limit });
+    if (seq !== this.reloadSeq) return;
     this.set({
       threads: groupThreads(rows),
-      hasMore: !this.providerListExhausted,
+      // Only offer "load more" once the cache actually filled a page. Deriving
+      // this from `providerListExhausted` made it true immediately after
+      // init(), and MessageList's IntersectionObserver sentinel is visible on
+      // any short list — so opening the view fired an unrequested provider
+      // round-trip that just refetched page 1.
+      hasMore: rows.length >= limit && !this.providerListExhausted,
       loadingList: false,
     });
   }
@@ -231,6 +258,7 @@ export class ViewModel {
   }
 
   async refresh(): Promise<void> {
+    this.syncPrefs();
     if (this.state.activeAccountId) await this.deps.sync.syncAccount(this.state.activeAccountId);
   }
 

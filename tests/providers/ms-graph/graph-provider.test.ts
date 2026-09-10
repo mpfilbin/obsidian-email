@@ -44,6 +44,33 @@ describe("GraphProvider", () => {
     const p = new GraphProvider({ http, getAccessToken: async () => "at" });
     await expect(p.listMailboxes()).rejects.toMatchObject({ name: "AuthError" });
   });
+
+  const staleCursor = {
+    kind: "ms-graph" as const,
+    deltaLinks: { AAAInbox: "https://graph.microsoft.com/v1.0/me/mailFolders/AAAInbox/messages/delta?$deltatoken=OLD" },
+  };
+
+  it("throws CursorExpiredError on a 410 Gone delta token", async () => {
+    const http: HttpClient = {
+      request: vi.fn(async () => resp({ error: { code: "resyncRequired" } }, 410)),
+    };
+    const p = new GraphProvider({ http, getAccessToken: async () => "at" });
+    await expect(p.syncSince(staleCursor)).rejects.toMatchObject({ name: "CursorExpiredError" });
+  });
+
+  it("throws CursorExpiredError on a resyncRequired body without a 410", async () => {
+    const http: HttpClient = {
+      request: vi.fn(async () => resp({ error: { code: "resyncRequired" } }, 400)),
+    };
+    const p = new GraphProvider({ http, getAccessToken: async () => "at" });
+    await expect(p.syncSince(staleCursor)).rejects.toMatchObject({ name: "CursorExpiredError" });
+  });
+
+  it("leaves an unrelated 400 as a plain ProviderError", async () => {
+    const http: HttpClient = { request: vi.fn(async () => resp({ error: { code: "badRequest" } }, 400)) };
+    const p = new GraphProvider({ http, getAccessToken: async () => "at" });
+    await expect(p.syncSince(staleCursor)).rejects.toMatchObject({ name: "ProviderError", status: 400 });
+  });
 });
 
 runMailProviderContract("GraphProvider", async () => {

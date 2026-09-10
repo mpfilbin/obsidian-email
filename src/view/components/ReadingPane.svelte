@@ -3,8 +3,10 @@
   import type { ViewState } from "../view-model";
   import MessageBlock from "./MessageBlock.svelte";
 
-  let { openMessages, renderDeps, onClose, onDownload }: {
+  let { openMessages, autoLoadImages, renderDeps, onClose, onDownload }: {
     openMessages: ViewState["openMessages"];
+    /** `prefs.autoLoadImages` — when true, remote content renders immediately. */
+    autoLoadImages: boolean;
     renderDeps: { getInlineAttachment: (cid: string) => Promise<Blob | undefined>; openExternal: (url: string) => void };
     onClose: () => void;
     onDownload: (messageId: string, att: AttachmentMeta) => void;
@@ -42,6 +44,7 @@
         summary={m.summary}
         body={m.body}
         expanded={isExpanded(m.summary.id)}
+        {autoLoadImages}
         {renderDeps}
         onToggle={() => (expandedId = expandedId === m.summary.id ? null : m.summary.id)}
         onDownload={(att) => onDownload(m.summary.id, att)}

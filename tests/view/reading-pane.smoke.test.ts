@@ -30,7 +30,7 @@ describe("ReadingPane smoke", () => {
     const host = document.createElement("div");
     const app = mount(ReadingPane, {
       target: host,
-      props: { openMessages: open(), renderDeps, onClose: () => {}, onDownload: vi.fn() },
+      props: { openMessages: open(), autoLoadImages: false, renderDeps, onClose: () => {}, onDownload: vi.fn() },
     });
     flushSync();
     expect(host.textContent).toContain("Hello");
@@ -42,7 +42,7 @@ describe("ReadingPane smoke", () => {
   it("shows an empty state with no open thread", () => {
     const host = document.createElement("div");
     const app = mount(ReadingPane, {
-      target: host, props: { openMessages: [], renderDeps, onClose: () => {}, onDownload: vi.fn() },
+      target: host, props: { openMessages: [], autoLoadImages: false, renderDeps, onClose: () => {}, onDownload: vi.fn() },
     });
     flushSync();
     expect(host.textContent).toMatch(/select a message|nothing/i);
@@ -53,7 +53,7 @@ describe("ReadingPane smoke", () => {
     const onDownload = vi.fn();
     const host = document.createElement("div");
     const app = mount(ReadingPane, {
-      target: host, props: { openMessages: open(), renderDeps, onClose: () => {}, onDownload },
+      target: host, props: { openMessages: open(), autoLoadImages: false, renderDeps, onClose: () => {}, onDownload },
     });
     flushSync();
     host.querySelector<HTMLElement>(".oe-attachment")!.click();
@@ -92,10 +92,23 @@ describe("ReadingPane smoke", () => {
     const msgs = open();
     msgs[0].body!.html = '<img src="https://tracker.example/p.gif">';
     const app = mount(ReadingPane, {
-      target: host, props: { openMessages: msgs, renderDeps, onClose: () => {}, onDownload: vi.fn() },
+      target: host, props: { openMessages: msgs, autoLoadImages: false, renderDeps, onClose: () => {}, onDownload: vi.fn() },
     });
     flushSync();
     expect(host.textContent).toMatch(/load remote images/i);
+    unmount(app);
+  });
+
+  it("honours autoLoadImages: renders remote images with no banner", () => {
+    const host = document.createElement("div");
+    const msgs = open();
+    msgs[0].body!.html = '<img src="https://cdn.example/p.gif">';
+    const app = mount(ReadingPane, {
+      target: host, props: { openMessages: msgs, autoLoadImages: true, renderDeps, onClose: () => {}, onDownload: vi.fn() },
+    });
+    flushSync();
+    expect(host.textContent).not.toMatch(/load remote images/i);
+    expect(host.querySelector("img")?.getAttribute("src")).toBe("https://cdn.example/p.gif");
     unmount(app);
   });
 });

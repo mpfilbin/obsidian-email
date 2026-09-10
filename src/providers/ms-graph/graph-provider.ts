@@ -1,4 +1,4 @@
-import { AuthError, ProviderError } from "../types";
+import { AuthError, CursorExpiredError, ProviderError } from "../types";
 import type { MailProvider, Mailbox, MessageBody, MessageSummary, Page, SyncCursor, SyncResult } from "../types";
 import type { HttpClient, HttpResponse } from "../http";
 import { withRetry, parseRetryAfter, type RetryableResult } from "../../util/backoff";
@@ -15,6 +15,12 @@ const DEFAULT_BASE = "https://graph.microsoft.com/v1.0";
 const SUMMARY_SELECT =
   "id,conversationId,subject,bodyPreview,from,toRecipients,ccRecipients,receivedDateTime,isRead,hasAttachments,flag";
 const TOP = 25;
+
+/** Pull `error.code` out of a Graph error body, e.g. "resyncRequired". */
+function graphErrorCode(json: unknown): string | undefined {
+  const code = (json as { error?: { code?: unknown } } | undefined)?.error?.code;
+  return typeof code === "string" ? code : undefined;
+}
 
 export class GraphProvider implements MailProvider {
   readonly kind = "ms-graph" as const;
@@ -44,7 +50,10 @@ export class GraphProvider implements MailProvider {
         };
       }
       if (res.status < 200 || res.status >= 300) {
-        throw new ProviderError(`Graph ${res.status}`, res.status);
+        const err = new ProviderError(`Graph ${res.status}`, res.status);
+        // Carried so `syncSince` can recognize a `resyncRequired` delta link.
+        err.code = graphErrorCode(res.json);
+        throw err;
       }
       return { retry: false, value: res.json as T };
     }, { retries: 4, baseMs: 500, maxMs: 8000 });
@@ -124,11 +133,18 @@ export class GraphProvider implements MailProvider {
     for (const [folderId, deltaLink] of Object.entries(cursor.deltaLinks)) {
       let url: string = deltaLink;
       for (let i = 0; i < 1000; i++) {
+        // Graph answers 410 Gone / `resyncRequired` when a delta token is too
+        // old. That is recoverable via a fresh backfill, not a sync failure.
         const data = await this.get<{
           value?: Array<GraphMessage & { "@removed"?: unknown }>;
           "@odata.nextLink"?: string;
           "@odata.deltaLink"?: string;
-        }>(url);
+        }>(url).catch((err: unknown) => {
+          if (err instanceof ProviderError && (err.status === 410 || err.code === "resyncRequired")) {
+            throw new CursorExpiredError(`Graph delta token for ${folderId} expired`, err);
+          }
+          throw err;
+        });
         for (const item of data.value ?? []) {
           if (item["@removed"]) deletions.push(item.id);
           else upserts.push(mapGraphSummary(item, folderId));
