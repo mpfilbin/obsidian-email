@@ -1,0 +1,139 @@
+import type { IDBPDatabase } from "idb";
+import type { Mailbox, MessageBody, MessageSummary } from "../providers/types";
+import { RETENTION, openMailDb, type MailDb, type StoredMessage } from "./schema";
+
+const DAY_MS = 24 * 3600 * 1000;
+const key = (accountId: string, id: string) => `${accountId}/${id}`;
+
+export class MailCache {
+  private lastCachedAt = 0;
+
+  private constructor(private db: IDBPDatabase<MailDb>) {}
+
+  static async open(name?: string): Promise<MailCache> {
+    return new MailCache(await openMailDb(name));
+  }
+
+  async putMailboxes(accountId: string, boxes: Mailbox[]): Promise<void> {
+    const tx = this.db.transaction("mailboxes", "readwrite");
+    await Promise.all(
+      boxes.map((b) => tx.store.put({ ...b, key: key(accountId, b.id), accountId })),
+    );
+    await tx.done;
+  }
+
+  async getMailboxes(accountId: string): Promise<Mailbox[]> {
+    const rows = await this.db.getAllFromIndex("mailboxes", "by-account", accountId);
+    return rows.map(({ key: _k, accountId: _a, ...box }) => box);
+  }
+
+  async upsertMessages(accountId: string, msgs: MessageSummary[]): Promise<void> {
+    const tx = this.db.transaction("messages", "readwrite");
+    await Promise.all(
+      msgs.map((m) => {
+        const merged: StoredMessage = {
+          ...m,
+          mailboxIds: [...new Set(m.mailboxIds)],
+          key: key(accountId, m.id),
+          accountId,
+        };
+        return tx.store.put(merged);
+      }),
+    );
+    await tx.done;
+  }
+
+  async deleteMessages(accountId: string, ids: string[]): Promise<void> {
+    const tx = this.db.transaction("messages", "readwrite");
+    await Promise.all(ids.map((id) => tx.store.delete(key(accountId, id))));
+    await tx.done;
+  }
+
+  async listMailboxMessages(
+    accountId: string,
+    mailboxId: string,
+    opts: { limit?: number; before?: number } = {},
+  ): Promise<MessageSummary[]> {
+    const limit = opts.limit ?? 50;
+    const range = IDBKeyRange.bound(
+      [accountId, -Infinity],
+      [accountId, opts.before ?? Infinity],
+      false,
+      true,
+    );
+    // Ascending by [accountId, date]; walk from the newest end.
+    const rows = await this.db.getAllFromIndex("messages", "by-account-date", range);
+    const out: MessageSummary[] = [];
+    for (let i = rows.length - 1; i >= 0 && out.length < limit; i--) {
+      const v = rows[i];
+      if (v.mailboxIds.includes(mailboxId)) {
+        const { key: _k, accountId: _a, ...summary } = v;
+        out.push(summary);
+      }
+    }
+    return out;
+  }
+
+  async getThreadMessages(accountId: string, threadId: string): Promise<MessageSummary[]> {
+    const rows = await this.db.getAllFromIndex("messages", "by-account-thread", [accountId, threadId]);
+    return rows
+      .map(({ key: _k, accountId: _a, ...s }) => s)
+      .sort((a, b) => a.date - b.date);
+  }
+
+  async putBody(accountId: string, body: MessageBody): Promise<void> {
+    const cachedAt = Math.max(Date.now(), this.lastCachedAt + 1);
+    this.lastCachedAt = cachedAt;
+    await this.db.put("bodies", { ...body, key: key(accountId, body.id), accountId, cachedAt });
+  }
+
+  async getBody(accountId: string, id: string): Promise<MessageBody | undefined> {
+    const row = await this.db.get("bodies", key(accountId, id));
+    if (!row) return undefined;
+    const { key: _k, accountId: _a, cachedAt: _c, ...body } = row;
+    return body;
+  }
+
+  async pruneAccount(accountId: string, now: number = Date.now()): Promise<void> {
+    await this.pruneSummaries(accountId, now);
+    await this.pruneBodies(accountId, now);
+  }
+
+  private async pruneSummaries(accountId: string, now: number): Promise<void> {
+    const rows = await this.db.getAllFromIndex("messages", "by-account", accountId);
+    const perMailbox = new Map<string, number>();
+    for (const r of rows) for (const mb of r.mailboxIds) perMailbox.set(mb, (perMailbox.get(mb) ?? 0) + 1);
+    const overCap = [...perMailbox.values()].some((c) => c > RETENTION.summaryPerMailbox);
+    if (!overCap) return;
+    const cutoff = now - RETENTION.summaryDays * DAY_MS;
+    const tx = this.db.transaction("messages", "readwrite");
+    await Promise.all(rows.filter((r) => r.date < cutoff).map((r) => tx.store.delete(r.key)));
+    await tx.done;
+  }
+
+  private async pruneBodies(accountId: string, now: number): Promise<void> {
+    const rows = (await this.db.getAllFromIndex("bodies", "by-account", accountId))
+      .sort((a, b) => b.cachedAt - a.cachedAt);
+    const ageCutoff = now - RETENTION.bodyMaxAgeDays * DAY_MS;
+    const tx = this.db.transaction("bodies", "readwrite");
+    const doomed = rows.filter((r, i) => i >= RETENTION.bodyPerAccount || r.cachedAt < ageCutoff);
+    await Promise.all(doomed.map((r) => tx.store.delete(r.key)));
+    await tx.done;
+  }
+
+  async clearAccount(accountId: string): Promise<void> {
+    for (const storeName of ["messages", "bodies", "mailboxes"] as const) {
+      const tx = this.db.transaction(storeName, "readwrite");
+      const keys = await tx.store.index("by-account").getAllKeys(accountId);
+      await Promise.all(keys.map((k) => tx.store.delete(k)));
+      await tx.done;
+    }
+    await this.db.delete("cursors", accountId);
+  }
+
+  async clearAll(): Promise<void> {
+    for (const storeName of ["messages", "bodies", "mailboxes", "cursors", "meta"] as const) {
+      await this.db.clear(storeName);
+    }
+  }
+}
