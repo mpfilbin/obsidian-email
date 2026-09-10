@@ -1,0 +1,12 @@
+{
+  "id": "MSG1", "conversationId": "CONV1",
+  "subject": "Quarterly report",
+  "bodyPreview": "Here is the summary",
+  "receivedDateTime": "2026-09-03T21:05:00Z",
+  "isRead": false,
+  "hasAttachments": true,
+  "flag": { "flagStatus": "flagged" },
+  "from": { "emailAddress": { "name": "Jane Doe", "address": "jane@example.com" } },
+  "toRecipients": [{ "emailAddress": { "address": "me@example.com" } }],
+  "ccRecipients": [{ "emailAddress": { "name": "Team", "address": "team@example.com" } }]
+}

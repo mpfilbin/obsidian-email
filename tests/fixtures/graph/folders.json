@@ -1,0 +1,8 @@
+{ "value": [
+  { "id": "AAAInbox", "displayName": "Inbox", "wellKnownName": "inbox", "unreadItemCount": 3 },
+  { "id": "AAASent", "displayName": "Sent Items", "wellKnownName": "sentitems" },
+  { "id": "AAADrafts", "displayName": "Drafts", "wellKnownName": "drafts" },
+  { "id": "AAADel", "displayName": "Deleted Items", "wellKnownName": "deleteditems" },
+  { "id": "AAAJunk", "displayName": "Junk Email", "wellKnownName": "junkemail" },
+  { "id": "AAAProj", "displayName": "Projects", "wellKnownName": null }
+] }
