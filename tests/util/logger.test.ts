@@ -12,7 +12,7 @@ describe("Logger", () => {
   it("emits debug when the flag is true, prefixed with scope", () => {
     const spy = vi.spyOn(console, "debug").mockImplementation(() => {});
     new Logger("auth", { debug: () => true }).debug("hello");
-    expect(spy).toHaveBeenCalledWith("[obsidian-email-auth] hello");
+    expect(spy).toHaveBeenCalledWith("[obsidian-email:auth] hello");
     spy.mockRestore();
   });
 
