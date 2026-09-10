@@ -13,6 +13,7 @@
     "release": "bash scripts/release.sh"
   },
   "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^4.0.4",
     "@tsconfig/svelte": "^5.0.4",
     "@types/node": "^20.14.0",
     "esbuild": "^0.21.5",

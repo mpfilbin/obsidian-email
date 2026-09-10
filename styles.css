@@ -1,2 +1,30 @@
 /* Obsidian Email plugin styles. Populated by later tasks. */
 .obsidian-email-view { height: 100%; }
+
+/* --- Mail view shell (Task 24) --- */
+.oe-grid {
+  display: grid;
+  grid-template-columns: 56px 200px minmax(260px, 1fr) minmax(320px, 1.4fr);
+  height: 100%;
+  overflow: hidden;
+}
+.oe-accounts { display: flex; flex-direction: column; gap: 6px; padding: 8px; border-right: 1px solid var(--background-modifier-border); }
+.oe-account { position: relative; width: 40px; height: 40px; border-radius: 8px; background: var(--background-secondary); color: var(--text-normal); cursor: pointer; }
+.oe-account.is-active { outline: 2px solid var(--interactive-accent); }
+.oe-warn { position: absolute; top: -4px; right: -4px; background: var(--text-error); color: white; border-radius: 50%; width: 16px; height: 16px; font-size: 11px; }
+.oe-mailboxes { display: flex; flex-direction: column; padding: 8px; border-right: 1px solid var(--background-modifier-border); overflow-y: auto; }
+.oe-mailbox { display: flex; justify-content: space-between; padding: 6px 8px; border-radius: 6px; background: transparent; color: var(--text-normal); cursor: pointer; text-align: left; }
+.oe-mailbox.is-active { background: var(--background-modifier-hover); }
+.oe-list-col { display: flex; flex-direction: column; border-right: 1px solid var(--background-modifier-border); overflow: hidden; }
+.oe-notice { padding: 6px 10px; background: var(--background-modifier-error); color: var(--text-on-accent); font-size: 12px; }
+.oe-message-list { overflow-y: auto; flex: 1; }
+.oe-thread-row { padding: 8px 10px; border-bottom: 1px solid var(--background-modifier-border); cursor: pointer; }
+.oe-thread-row.is-unread .oe-thread-subject { font-weight: 600; }
+.oe-thread-row.is-open { background: var(--background-modifier-hover); }
+.oe-reading-pane { overflow-y: auto; padding: 12px 16px; }
+.obsidian-email-message-body { max-width: 800px; overflow-x: auto; contain: content; }
+.obsidian-email-message-body img { max-width: 100%; height: auto; }
+.obsidian-email-plaintext { white-space: pre-wrap; word-break: break-word; font-family: var(--font-text); }
+.oe-load-images { margin: 8px 0; padding: 6px 10px; border: 1px solid var(--background-modifier-border); border-radius: 6px; cursor: pointer; background: var(--background-secondary); }
+.oe-search { display: flex; gap: 6px; padding: 8px; border-bottom: 1px solid var(--background-modifier-border); }
+.oe-search input { flex: 1; }
