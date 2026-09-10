@@ -22,7 +22,7 @@
 - **esbuild externals:** `["obsidian", "electron", "@codemirror/*"]`. Output `main.js` (CJS) at repo root.
 - **Commit style:** end commit messages with `Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>`. Conventional-commit prefixes (`feat:`, `test:`, `chore:`, `docs:`).
 - **TDD:** every behavioral unit gets a failing test first. Commit after each green step group.
-- **Secrets namespace:** `app.secretStorage` keys are `obsidian-email:<accountId>:refresh` and `obsidian-email:<accountId>:secret`.
+- **Secrets namespace:** `app.secretStorage` keys are `obsidian-email-<accountId>:refresh` and `obsidian-email-<accountId>:secret`.
 
 ---
 
@@ -256,11 +256,11 @@ import { Plugin } from "obsidian";
 
 export default class EmailPlugin extends Plugin {
   async onload(): Promise<void> {
-    console.log("obsidian-email: loaded");
+    console.log("obsidian-email loaded");
   }
 
   onunload(): void {
-    console.log("obsidian-email: unloaded");
+    console.log("obsidian-email unloaded");
   }
 }
 ```
@@ -694,7 +694,7 @@ describe("Logger", () => {
   it("emits debug when the flag is true, prefixed with scope", () => {
     const spy = vi.spyOn(console, "debug").mockImplementation(() => {});
     new Logger("auth", { debug: () => true }).debug("hello");
-    expect(spy).toHaveBeenCalledWith("[obsidian-email:auth] hello");
+    expect(spy).toHaveBeenCalledWith("[obsidian-email-auth] hello");
     spy.mockRestore();
   });
 
@@ -721,7 +721,7 @@ export class Logger {
   ) {}
 
   private prefix(): string {
-    return `[obsidian-email:${this.scope}]`;
+    return `[obsidian-email-${this.scope}]`;
   }
 
   private emit(level: Level, msg: string, args: unknown[]): void {
@@ -737,7 +737,7 @@ export class Logger {
 }
 ```
 
-Note: `console[level](fmt, ...args)` called with zero extra args must still match the test's `toHaveBeenCalledWith("[obsidian-email:auth] hello")` — `vi` treats trailing spread of `[]` as no args, so this passes.
+Note: `console[level](fmt, ...args)` called with zero extra args must still match the test's `toHaveBeenCalledWith("[obsidian-email-auth] hello")` — `vi` treats trailing spread of `[]` as no args, so this passes.
 
 - [ ] **Step 8: Run — expect PASS**
 
@@ -1734,7 +1734,7 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
     - `async storeInitialTokens(t: TokenResponse, clientSecret?: string): Promise<void>`
     - `async getAccessToken(): Promise<string>` — cached until 60 s before expiry; single-flight refresh; throws `AuthError` on failure
     - `async clear(): Promise<void>` — best-effort wipe of the two secret keys
-  - Secret keys: `obsidian-email:<accountId>:refresh`, `obsidian-email:<accountId>:secret`.
+  - Secret keys: `obsidian-email-<accountId>:refresh`, `obsidian-email-<accountId>:secret`.
 
 - [ ] **Step 1: Write failing tests**
 
@@ -1753,7 +1753,7 @@ function makeSecrets(initial: Record<string, string> = {}) {
   };
 }
 
-const KEY = (id: string, s: string) => `obsidian-email:${id}:${s}`;
+const KEY = (id: string, s: string) => `obsidian-email-${id}:${s}`;
 
 describe("TokenManager", () => {
   it("returns the cached access token until near expiry", async () => {
@@ -1856,7 +1856,7 @@ export class TokenManager {
   ) {}
 
   private key(suffix: "refresh" | "secret"): string {
-    return `obsidian-email:${this.accountId}:${suffix}`;
+    return `obsidian-email-${this.accountId}:${suffix}`;
   }
 
   async storeInitialTokens(t: TokenResponse, clientSecret?: string): Promise<void> {
@@ -4323,8 +4323,8 @@ describe("addAccount", () => {
       close: vi.fn(),
     });
     await addAccount({ kind: "gmail", clientId: "cid", clientSecret: "goog" }, { ...deps, makeLoopback: factory });
-    expect(deps.secrets.setSecret).toHaveBeenCalledWith("obsidian-email:acct-1:secret", "goog");
-    expect(deps.secrets.setSecret).toHaveBeenCalledWith("obsidian-email:acct-1:refresh", "rt");
+    expect(deps.secrets.setSecret).toHaveBeenCalledWith("obsidian-email-acct-1:secret", "goog");
+    expect(deps.secrets.setSecret).toHaveBeenCalledWith("obsidian-email-acct-1:refresh", "rt");
   });
 
   it("throws AuthError on a state mismatch and closes the loopback", async () => {
@@ -5995,7 +5995,7 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
       - `applyPollInterval(): void` — `sync.setInterval(settings.pollIntervalMs())`
       - `dispose(): void`
   - `src/main.ts`:
-    - `onload`: load `SettingsStore`; build `ContextHostDeps` from Obsidian (`makeObsidianHttp(requestUrl)`, `this.app.secretStorage`, a `post` built on `requestUrl` with form-encoding, `shell.openExternal` via `require("electron")`); `PluginContext.create`; register `MAIL_VIEW_TYPE` with a factory that passes `ctx.vm` and an `addAccount` callback that opens the settings tab; add ribbon icon `"mail"` + command `"obsidian-email:open"` → `activateView()`; `addSettingTab(new EmailSettingTab(this, ctx, settings))`; `ctx.sync.start(settings.pollIntervalMs())`.
+    - `onload`: load `SettingsStore`; build `ContextHostDeps` from Obsidian (`makeObsidianHttp(requestUrl)`, `this.app.secretStorage`, a `post` built on `requestUrl` with form-encoding, `shell.openExternal` via `require("electron")`); `PluginContext.create`; register `MAIL_VIEW_TYPE` with a factory that passes `ctx.vm` and an `addAccount` callback that opens the settings tab; add ribbon icon `"mail"` + command `"obsidian-email-open"` → `activateView()`; `addSettingTab(new EmailSettingTab(this, ctx, settings))`; `ctx.sync.start(settings.pollIntervalMs())`.
     - `onunload`: `ctx.dispose()`, detach leaves of `MAIL_VIEW_TYPE`.
     - `activateView()`: reveal an existing leaf or create one in the main workspace (`getLeaf(false)` / right split — main area, this is a full client).
 
@@ -6047,7 +6047,7 @@ describe("PluginContext", () => {
     ctx.rebuildProviders();
     await ctx.removeAccountFlow("a1");
     expect(settings.get().accounts).toHaveLength(0);
-    expect(deps.secrets.setSecret).toHaveBeenCalledWith("obsidian-email:a1:refresh", "");
+    expect(deps.secrets.setSecret).toHaveBeenCalledWith("obsidian-email-a1:refresh", "");
   });
 });
 ```
@@ -6522,7 +6522,7 @@ Note: `Result<T,E>` (Task 3) is defined and available; the provider/sync code ch
 
 **Placeholder scan:** no "TBD"/"implement later". Two explicit "when implementing, verify X" notes remain (esbuild `node:http` external in Task 9; `secretStorage` type augmentation in Task 27) — these are verification instructions with the fallback spelled out, not placeholders. Task 24 Step 8 instructs creating throwaway stub `.svelte` files if executing strictly in order — acceptable scaffolding, replaced in Tasks 25–26.
 
-**Type consistency:** `MailProvider` method names/signatures are identical across Tasks 5, 6, 11–15, 18, 23. `SyncCursor` discriminated union is consistent (Tasks 5, 12, 14, 17, 18). `CacheChange` / `AccountState` shapes match between Task 18 (producer) and Task 23 (consumer). `ViewState` shape matches between Task 23 (producer) and Tasks 24–26 (consumers). Secret key format `obsidian-email:<accountId>:{refresh,secret}` is identical in Tasks 10, 20, 27, 28 tests.
+**Type consistency:** `MailProvider` method names/signatures are identical across Tasks 5, 6, 11–15, 18, 23. `SyncCursor` discriminated union is consistent (Tasks 5, 12, 14, 17, 18). `CacheChange` / `AccountState` shapes match between Task 18 (producer) and Task 23 (consumer). `ViewState` shape matches between Task 23 (producer) and Tasks 24–26 (consumers). Secret key format `obsidian-email-<accountId>:{refresh,secret}` is identical in Tasks 10, 20, 27, 28 tests.
 
 ---
 

@@ -63,8 +63,8 @@ describe("addAccount", () => {
       close: vi.fn(),
     });
     await addAccount({ kind: "gmail", clientId: "cid", clientSecret: "goog" }, { ...deps, makeLoopback: factory });
-    expect(deps.secrets.setSecret).toHaveBeenCalledWith("obsidian-email:acct-1:secret", "goog");
-    expect(deps.secrets.setSecret).toHaveBeenCalledWith("obsidian-email:acct-1:refresh", "rt");
+    expect(deps.secrets.setSecret).toHaveBeenCalledWith("obsidian-email-acct-1-secret", "goog");
+    expect(deps.secrets.setSecret).toHaveBeenCalledWith("obsidian-email-acct-1-refresh", "rt");
   });
 
   it("throws AuthError on a state mismatch and closes the loopback", async () => {

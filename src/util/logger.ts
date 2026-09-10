@@ -7,7 +7,7 @@ export class Logger {
   ) {}
 
   private prefix(): string {
-    return `[obsidian-email:${this.scope}]`;
+    return `[obsidian-email-${this.scope}]`;
   }
 
   private emit(level: Level, msg: string, args: unknown[]): void {

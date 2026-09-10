@@ -29,6 +29,9 @@ export interface ContextHostDeps {
  * no persistence. This literal implements the handful of `MailCache` methods
  * that `ViewModel` and `SyncEngine` actually call.
  */
+// `satisfies Partial<…>` keeps the shims honest: a renamed cache method or a
+// drifted signature fails to compile here. (Catching a *new* consumer-called
+// method would need the consumers to accept a narrower type — out of scope.)
 const DEGRADED_CACHE = {
   async getMailboxes() { return []; },
   async putMailboxes() {},
@@ -41,13 +44,13 @@ const DEGRADED_CACHE = {
   async pruneAccount() {},
   async clearAccount() {},
   async clearAll() {},
-} as unknown as MailCache;
+} satisfies Partial<MailCache> as unknown as MailCache;
 
 const DEGRADED_CURSORS = {
   async get() { return undefined; },
   async set() {},
   async delete() {},
-} as unknown as CursorStore;
+} satisfies Partial<CursorStore> as unknown as CursorStore;
 
 export class PluginContext {
   private now: () => number;

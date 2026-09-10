@@ -29,7 +29,10 @@ export class TokenManager {
   ) {}
 
   private key(suffix: "refresh" | "secret"): string {
-    return `obsidian-email:${this.accountId}:${suffix}`;
+    // SecretStorage IDs must be lowercase alphanumeric with optional dashes
+    // (Obsidian >= 1.11.4 throws on colons). `accountId` is a lowercase
+    // `crypto.randomUUID()`, so a dash-joined key stays valid.
+    return `obsidian-email-${this.accountId}-${suffix}`;
   }
 
   async storeInitialTokens(t: TokenResponse, clientSecret?: string): Promise<void> {

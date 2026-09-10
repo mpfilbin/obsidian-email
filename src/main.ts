@@ -63,11 +63,14 @@ export default class EmailPlugin extends Plugin {
         await this.app.vault.adapter.writeBinary(path, await blob.arrayBuffer());
         return;
       }
+      const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
+      a.href = url;
       a.download = filename;
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(a.href);
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
     };
 
     this.ctx = await PluginContext.create(
@@ -105,7 +108,7 @@ export default class EmailPlugin extends Plugin {
   private async activateView(): Promise<void> {
     const { workspace } = this.app;
     const existing = workspace.getLeavesOfType(MAIL_VIEW_TYPE)[0];
-    const leaf: WorkspaceLeaf = existing ?? workspace.getLeaf(true);
+    const leaf: WorkspaceLeaf = existing ?? workspace.getLeaf("tab");
     if (!existing) await leaf.setViewState({ type: MAIL_VIEW_TYPE, active: true });
     await workspace.revealLeaf(leaf);
   }

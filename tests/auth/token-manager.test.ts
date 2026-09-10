@@ -11,7 +11,7 @@ function makeSecrets(initial: Record<string, string> = {}) {
   };
 }
 
-const KEY = (id: string, s: string) => `obsidian-email:${id}:${s}`;
+const KEY = (id: string, s: string) => `obsidian-email-${id}-${s}`;
 
 describe("TokenManager", () => {
   it("returns the cached access token until near expiry", async () => {

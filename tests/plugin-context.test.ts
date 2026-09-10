@@ -1,7 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
+import * as obsidian from "obsidian";
 import { PluginContext } from "../src/plugin-context";
 import { SettingsStore } from "../src/settings/settings-store";
 import { Logger } from "../src/util/logger";
+import { MailCache } from "../src/cache/mail-cache";
+import { CursorStore } from "../src/cache/cursor-store";
 
 // plugin-context.ts imports `Notice` from obsidian (Ruling F); the `obsidian`
 // module is aliased to tests/stubs/obsidian.ts in vitest.config.ts.
@@ -84,8 +87,41 @@ describe("PluginContext", () => {
     ctx.rebuildProviders();
     await ctx.removeAccountFlow("a1");
     expect(settings.get().accounts).toHaveLength(0);
-    expect(deps.secrets.setSecret).toHaveBeenCalledWith("obsidian-email:a1:refresh", "");
+    expect(deps.secrets.setSecret).toHaveBeenCalledWith("obsidian-email-a1-refresh", "");
     ctx.dispose();
+  });
+
+  it("Ruling F: survives an unavailable local cache in degraded mode", async () => {
+    const cacheOpen = vi
+      .spyOn(MailCache, "open")
+      .mockRejectedValueOnce(new Error("idb blocked"));
+    const cursorOpen = vi
+      .spyOn(CursorStore, "open")
+      .mockRejectedValueOnce(new Error("idb blocked"));
+    const notice = vi.spyOn(obsidian, "Notice").mockImplementation((() => ({})) as never);
+
+    const settings = await SettingsStore.load({ loadData: async () => null, saveData: async () => {} });
+    await settings.addAccount({ id: "a1", email: "a1@g.com", provider: "gmail", clientId: "c", addedAt: 0 });
+
+    let ctx!: PluginContext;
+    await expect(
+      (async () => {
+        ctx = await PluginContext.create(settings, hostDeps(), logger);
+      })(),
+    ).resolves.toBeUndefined();
+
+    expect(ctx.degraded).toBe(true);
+    expect(notice).toHaveBeenCalledTimes(1);
+
+    // vm and sync are still constructed and usable against the degraded shims.
+    expect(ctx.vm.getState()).toBeTruthy();
+    expect(ctx.sync.getState("x")).toBeTruthy();
+    await expect(ctx.vm.selectMailbox("INBOX")).resolves.toBeUndefined();
+
+    ctx.dispose();
+    notice.mockRestore();
+    cacheOpen.mockRestore();
+    cursorOpen.mockRestore();
   });
 
   it("applyPollInterval forwards the configured interval to the sync engine", async () => {
