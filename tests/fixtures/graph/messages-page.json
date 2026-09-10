@@ -1,0 +1,5 @@
+{ "value": [
+    { "id": "G1", "conversationId": "C1", "subject": "one", "receivedDateTime": "2026-09-01T00:00:00Z", "isRead": false },
+    { "id": "G2", "conversationId": "C2", "subject": "two", "receivedDateTime": "2026-09-02T00:00:00Z", "isRead": true }
+  ],
+  "@odata.nextLink": "https://graph.microsoft.com/v1.0/me/mailFolders/AAAInbox/messages?$skiptoken=PAGE2" }

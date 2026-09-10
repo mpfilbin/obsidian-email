@@ -1,0 +1,5 @@
+{ "value": [
+    { "id": "G3", "conversationId": "C3", "subject": "new", "receivedDateTime": "2026-09-04T00:00:00Z", "isRead": false },
+    { "id": "G1", "@removed": { "reason": "deleted" } }
+  ],
+  "@odata.deltaLink": "https://graph.microsoft.com/v1.0/me/mailFolders/AAAInbox/messages/delta?$deltatoken=NEXT" }
