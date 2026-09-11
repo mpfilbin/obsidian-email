@@ -329,6 +329,13 @@ export class ViewModel {
       const html = sanitizeEmailHtml(c.bodyHtml, { allowRemote: true }).html;
       if (c.mode === "new") {
         await provider.sendNewMessage(this.outgoingMessage(c));
+        if (c.draftId) {
+          try {
+            await provider.deleteDraft(c.draftId);
+          } catch {
+            /* best effort — the send already succeeded */
+          }
+        }
       } else if (c.mode === "reply" || c.mode === "replyAll") {
         await provider.replyToMessage(c.targetMessageId!, c.mode, html);
       } else if (c.mode === "forward") {

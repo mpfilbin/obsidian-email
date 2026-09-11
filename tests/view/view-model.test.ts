@@ -368,6 +368,24 @@ describe("ViewModel — composer", () => {
     expect(ctx.vm.getState().composer?.draftId).toBe(id); // composer stays open after a save
   });
 
+  it("send after autosave for mode=new cleans up the stale draft", async () => {
+    const ctx = await build();
+    await ctx.vm.init();
+    ctx.vm.openNewMessage();
+    ctx.vm.updateComposerFields({ to: [{ email: "a@x.com" }], subject: "Hi" });
+    ctx.vm.updateComposerBody("<p>hi</p>");
+    await ctx.vm.saveDraft();
+    const draftId = ctx.vm.getState().composer?.draftId!;
+    expect(ctx.provider.drafts.has(draftId)).toBe(true);
+
+    await ctx.vm.send();
+    expect(ctx.provider.drafts.has(draftId)).toBe(false);
+    expect(ctx.provider.sentLog).toContainEqual({
+      kind: "new",
+      message: { to: [{ email: "a@x.com" }], cc: [], bcc: [], subject: "Hi", bodyHtml: "<p>hi</p>" },
+    });
+  });
+
   it("discardDraft deletes a persisted draft and clears the composer", async () => {
     const ctx = await build();
     await ctx.vm.init();
