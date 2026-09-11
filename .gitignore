@@ -8,3 +8,4 @@ dev-vault/.obsidian/workspace.json
 dev-vault/.obsidian/workspace-mobile.json
 dev-vault/.obsidian/hotkeys.json
 dev-vault/*.md
+.worktrees/
