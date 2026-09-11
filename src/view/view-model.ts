@@ -1,7 +1,9 @@
 import type { Address, AttachmentMeta, Mailbox, MailProvider, MessageBody, MessageSummary, OutgoingMessage, ProviderKind } from "../providers/types";
+import { AuthError } from "../providers/types";
 import type { MailCache } from "../cache/mail-cache";
 import type { SyncEngine, SyncStatus } from "../sync/sync-engine";
 import type { SettingsStore } from "../settings/settings-store";
+import { sanitizeEmailHtml } from "../render/html-sanitizer";
 
 export interface ThreadView {
   threadId: string;
@@ -301,6 +303,97 @@ export class ViewModel {
 
   closeComposer(): void {
     this.set({ composer: null });
+  }
+
+  private errorMessage(err: unknown): string {
+    if (err instanceof AuthError) {
+      return "Reauthentication required — go to Settings → Email and click Re-authenticate.";
+    }
+    return err instanceof Error ? err.message : String(err);
+  }
+
+  private outgoingMessage(c: ComposerState): OutgoingMessage {
+    return {
+      to: c.to, cc: c.cc, bcc: c.bcc, subject: c.subject,
+      bodyHtml: sanitizeEmailHtml(c.bodyHtml, { allowRemote: true }).html,
+    };
+  }
+
+  async send(): Promise<void> {
+    const c = this.state.composer;
+    const acct = this.state.activeAccountId;
+    const provider = acct ? this.deps.getProvider(acct) : undefined;
+    if (!c || !provider) return;
+    this.set({ composer: { ...c, sending: true, error: null } });
+    try {
+      const html = sanitizeEmailHtml(c.bodyHtml, { allowRemote: true }).html;
+      if (c.mode === "new") {
+        await provider.sendNewMessage(this.outgoingMessage(c));
+      } else if (c.mode === "reply" || c.mode === "replyAll") {
+        await provider.replyToMessage(c.targetMessageId!, c.mode, html);
+      } else if (c.mode === "forward") {
+        await provider.forwardMessage(c.targetMessageId!, html, c.to);
+      } else {
+        // editDraft: push the latest edits, then send the draft as-is.
+        await provider.updateDraft(c.draftId!, this.outgoingMessage(c));
+        await provider.sendDraft(c.draftId!);
+      }
+      this.set({ composer: null, notice: "Sent." });
+    } catch (err) {
+      this.set({ composer: { ...this.state.composer!, sending: false, error: this.errorMessage(err) } });
+    }
+  }
+
+  async saveDraft(): Promise<void> {
+    const c = this.state.composer;
+    const acct = this.state.activeAccountId;
+    const provider = acct ? this.deps.getProvider(acct) : undefined;
+    if (!c || !provider || (c.mode !== "new" && c.mode !== "editDraft")) return;
+    this.set({ composer: { ...c, sending: true, error: null } });
+    try {
+      const msg = this.outgoingMessage(c);
+      let draftId = c.draftId;
+      if (draftId) await provider.updateDraft(draftId, msg);
+      else draftId = await provider.createDraft(msg);
+      this.set({ composer: { ...this.state.composer!, draftId, sending: false } });
+    } catch (err) {
+      this.set({ composer: { ...this.state.composer!, sending: false, error: this.errorMessage(err) } });
+    }
+  }
+
+  async discardDraft(): Promise<void> {
+    const c = this.state.composer;
+    const acct = this.state.activeAccountId;
+    const provider = acct ? this.deps.getProvider(acct) : undefined;
+    if (c?.draftId && provider) {
+      try {
+        await provider.deleteDraft(c.draftId);
+      } catch {
+        /* best effort — the composer closes either way */
+      }
+    }
+    this.set({ composer: null });
+  }
+
+  async openDraftForEdit(messageId: string): Promise<void> {
+    const acct = this.state.activeAccountId;
+    const provider = acct ? this.deps.getProvider(acct) : undefined;
+    if (!acct || !provider) return;
+    const summary = (await this.deps.cache.getThreadMessages(acct, messageId)).find((m) => m.id === messageId);
+    const body = await provider.getMessageBody(messageId);
+    this.set({
+      composer: {
+        mode: "editDraft",
+        draftId: messageId,
+        to: summary?.to ?? [],
+        cc: summary?.cc ?? [],
+        bcc: [],
+        subject: summary?.subject ?? "",
+        bodyHtml: body.html ?? "",
+        sending: false,
+        error: null,
+      },
+    });
   }
 
   renderDeps(): { getInlineAttachment: (cid: string) => Promise<Blob | undefined>; openExternal: (url: string) => void } {

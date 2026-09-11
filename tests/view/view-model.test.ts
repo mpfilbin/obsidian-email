@@ -6,6 +6,7 @@ import { SyncEngine } from "../../src/sync/sync-engine";
 import { SettingsStore } from "../../src/settings/settings-store";
 import { FakeProvider } from "../../src/providers/fake-provider";
 import { Logger } from "../../src/util/logger";
+import { AuthError } from "../../src/providers/types";
 import type { MessageSummary } from "../../src/providers/types";
 
 const logger = new Logger("t", { debug: () => false });
@@ -276,5 +277,140 @@ describe("ViewModel — composer", () => {
     expect(ctx.vm.getState().composer).toBeNull();
     expect(ctx.provider.sentLog).toEqual([]);
     expect(ctx.provider.drafts.size).toBe(0);
+  });
+
+  it("send sanitizes the body and dispatches to sendNewMessage for mode=new", async () => {
+    const ctx = await build();
+    await ctx.vm.init();
+    ctx.vm.openNewMessage();
+    ctx.vm.updateComposerFields({ to: [{ email: "a@x.com" }], subject: "Hi" });
+    ctx.vm.updateComposerBody('<p>hi<script>alert(1)</script></p>');
+    await ctx.vm.send();
+    expect(ctx.provider.sentLog).toEqual([{
+      kind: "new",
+      message: { to: [{ email: "a@x.com" }], cc: [], bcc: [], subject: "Hi", bodyHtml: "<p>hi</p>" },
+    }]);
+    expect(ctx.vm.getState().composer).toBeNull();
+    expect(ctx.vm.getState().notice).toMatch(/sent/i);
+  });
+
+  it("send dispatches to replyToMessage for mode=reply/replyAll", async () => {
+    const ctx = await build();
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1)]);
+    await ctx.vm.init();
+    ctx.vm.openReply("m1", "replyAll");
+    ctx.vm.updateComposerBody("<p>thanks</p>");
+    await ctx.vm.send();
+    expect(ctx.provider.sentLog).toEqual([{ kind: "reply", targetId: "m1", mode: "replyAll", commentHtml: "<p>thanks</p>" }]);
+  });
+
+  it("send dispatches to forwardMessage for mode=forward, using the to field", async () => {
+    const ctx = await build();
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1)]);
+    await ctx.vm.init();
+    ctx.vm.openForward("m1");
+    ctx.vm.updateComposerFields({ to: [{ email: "c@x.com" }] });
+    ctx.vm.updateComposerBody("<p>fyi</p>");
+    await ctx.vm.send();
+    expect(ctx.provider.sentLog).toEqual([{ kind: "forward", targetId: "m1", commentHtml: "<p>fyi</p>", to: [{ email: "c@x.com" }] }]);
+  });
+
+  it("send for mode=editDraft updates then sends the draft, then clears the composer", async () => {
+    const ctx = await build();
+    await ctx.vm.init();
+    const id = await ctx.provider.createDraft({ to: [], cc: [], bcc: [], subject: "old", bodyHtml: "<p>old</p>" });
+    await ctx.vm.openDraftForEdit(id);
+    ctx.vm.updateComposerFields({ subject: "new" });
+    ctx.vm.updateComposerBody("<p>new</p>");
+    await ctx.vm.send();
+    expect(ctx.provider.drafts.has(id)).toBe(false);
+    expect(ctx.provider.sentLog).toContainEqual({ kind: "draft", draftId: id });
+    expect(ctx.vm.getState().composer).toBeNull();
+  });
+
+  it("send keeps the composer open with an error on failure, without clearing content", async () => {
+    const ctx = await build();
+    await ctx.vm.init();
+    ctx.vm.openNewMessage();
+    ctx.vm.updateComposerBody("<p>hi</p>");
+    vi.spyOn(ctx.provider, "sendNewMessage").mockRejectedValue(new Error("network down"));
+    await ctx.vm.send();
+    expect(ctx.vm.getState().composer).toMatchObject({ bodyHtml: "<p>hi</p>", error: expect.stringContaining("network down") });
+  });
+
+  it("send surfaces a re-authenticate hint on AuthError", async () => {
+    const ctx = await build();
+    await ctx.vm.init();
+    ctx.vm.openNewMessage();
+    ctx.vm.updateComposerBody("<p>hi</p>");
+    vi.spyOn(ctx.provider, "sendNewMessage").mockRejectedValue(new AuthError("Graph 401"));
+    await ctx.vm.send();
+    expect(ctx.vm.getState().composer?.error).toMatch(/re-authenticate/i);
+  });
+
+  it("saveDraft creates a draft the first time and PATCHes the same id on the second save", async () => {
+    const ctx = await build();
+    await ctx.vm.init();
+    ctx.vm.openNewMessage();
+    ctx.vm.updateComposerFields({ subject: "S" });
+    ctx.vm.updateComposerBody("<p>v1</p>");
+    await ctx.vm.saveDraft();
+    const id = ctx.vm.getState().composer?.draftId;
+    expect(id).toBeTruthy();
+    expect(ctx.provider.drafts.get(id!)).toMatchObject({ bodyHtml: "<p>v1</p>" });
+
+    ctx.vm.updateComposerBody("<p>v2</p>");
+    await ctx.vm.saveDraft();
+    expect(ctx.provider.drafts.size).toBe(1); // same draft, updated in place
+    expect(ctx.provider.drafts.get(id!)).toMatchObject({ bodyHtml: "<p>v2</p>" });
+    expect(ctx.vm.getState().composer?.draftId).toBe(id); // composer stays open after a save
+  });
+
+  it("discardDraft deletes a persisted draft and clears the composer", async () => {
+    const ctx = await build();
+    await ctx.vm.init();
+    ctx.vm.openNewMessage();
+    ctx.vm.updateComposerBody("<p>v1</p>");
+    await ctx.vm.saveDraft();
+    const id = ctx.vm.getState().composer?.draftId!;
+    await ctx.vm.discardDraft();
+    expect(ctx.provider.drafts.has(id)).toBe(false);
+    expect(ctx.vm.getState().composer).toBeNull();
+  });
+
+  it("discardDraft on a never-saved composer just clears it (no provider call)", async () => {
+    const ctx = await build();
+    await ctx.vm.init();
+    ctx.vm.openReply("does-not-matter", "reply");
+    ctx.vm.updateComposerBody("<p>hi</p>");
+    await ctx.vm.discardDraft();
+    expect(ctx.vm.getState().composer).toBeNull();
+    expect(ctx.provider.drafts.size).toBe(0);
+  });
+
+  it("openDraftForEdit prefills the composer from the draft's stored fields", async () => {
+    const ctx = await build();
+    await ctx.vm.init();
+    const id = await ctx.provider.createDraft({
+      to: [{ email: "a@x.com" }], cc: [], bcc: [], subject: "Draft subject", bodyHtml: "<p>draft body</p>",
+    });
+    // openDraftForEdit prefills to/cc/subject from the cached MessageSummary
+    // (looked up by treating the draft id as its own threadId, per a lone
+    // draft's Graph behavior); simulate that summary having already been
+    // synced into the cache.
+    await ctx.cache.upsertMessages("a1", [{
+      id, threadId: id, mailboxIds: ["DRAFTS"], from: { email: "a1@x.com" },
+      to: [{ email: "a@x.com" }], cc: [], subject: "Draft subject", snippet: "",
+      date: 1, unread: false, hasAttachments: false, flagged: false,
+    }]);
+    ctx.provider.getMessageBody = vi.fn().mockResolvedValue({
+      id, html: "<p>draft body</p>", text: null, attachments: [], headers: {},
+    });
+    await ctx.vm.openDraftForEdit(id);
+    expect(ctx.vm.getState().composer).toMatchObject({
+      mode: "editDraft", draftId: id, to: [{ email: "a@x.com" }], subject: "Draft subject", bodyHtml: "<p>draft body</p>",
+    });
   });
 });
