@@ -1,7 +1,8 @@
 <script lang="ts">
-  let { query, active, onSearch, onClear, onRefresh }: {
+  let { query, active, syncing, onSearch, onClear, onRefresh }: {
     query: string;
     active: boolean;
+    syncing: boolean;
     onSearch: (q: string) => void;
     onClear: () => void;
     onRefresh: () => void;
@@ -17,7 +18,14 @@
 <form class="oe-search" onsubmit={(e) => { e.preventDefault(); if (value.trim()) onSearch(value.trim()); }}>
   <input type="search" placeholder="Search mail…" bind:value />
   <button type="submit">Search</button>
-  <button type="button" onclick={onRefresh} aria-label="Refresh">⟳</button>
+  <button
+    type="button"
+    class="oe-refresh"
+    class:is-syncing={syncing}
+    onclick={onRefresh}
+    aria-label={syncing ? "Syncing" : "Refresh"}
+    title={syncing ? "Syncing…" : "Refresh"}
+  >⟳</button>
   {#if active}
     <button type="button" class="oe-search-pill" onclick={onClear}>Search: {query} ✕</button>
   {/if}

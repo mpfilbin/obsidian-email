@@ -13,6 +13,10 @@
   // svelte-ignore state_referenced_locally
   let state = $state<ViewState>(vm.getState());
   $effect(() => vm.subscribe((s) => { state = s; }));
+
+  const activeSyncing = $derived(
+    state.accounts.find((a) => a.id === state.activeAccountId)?.status === "syncing",
+  );
 </script>
 
 <div class="obsidian-email-view oe-grid">
@@ -31,6 +35,7 @@
     <SearchBar
       query={state.search.query}
       active={state.search.active}
+      syncing={activeSyncing}
       onSearch={(q) => vm.runSearch(q)}
       onClear={() => vm.clearSearch()}
       onRefresh={() => vm.refresh()}

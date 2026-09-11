@@ -20,6 +20,7 @@
       onclick={() => onSelect(a.id)}
     >
       <span class="oe-avatar">{initials(a.email)}</span>
+      {#if a.status === "syncing"}<span class="oe-syncing-ring" title="Syncing…" aria-label="Syncing"></span>{/if}
       {#if a.status === "needs-reauth"}<span class="oe-warn" title="Needs re-authentication">!</span>{/if}
     </button>
   {/each}

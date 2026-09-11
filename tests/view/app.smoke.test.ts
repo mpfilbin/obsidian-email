@@ -48,4 +48,26 @@ describe("App.svelte smoke", () => {
     expect(host.textContent).toContain("Offline");
     unmount(app);
   });
+
+  it("shows a syncing indicator on the active account and the refresh button while syncing", () => {
+    const host = document.createElement("div");
+    const app = mount(App, {
+      target: host,
+      props: {
+        vm: fakeVm({ accounts: [{ id: "a1", email: "a1@x.com", provider: "ms-graph", status: "syncing" }] }),
+        onAddAccount: () => {},
+      },
+    });
+    expect(host.querySelector(".oe-syncing-ring")).not.toBeNull();
+    expect(host.querySelector(".oe-refresh.is-syncing")).not.toBeNull();
+    unmount(app);
+  });
+
+  it("shows neither syncing indicator when idle", () => {
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: { vm: fakeVm(), onAddAccount: () => {} } });
+    expect(host.querySelector(".oe-syncing-ring")).toBeNull();
+    expect(host.querySelector(".oe-refresh.is-syncing")).toBeNull();
+    unmount(app);
+  });
 });
