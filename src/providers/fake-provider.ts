@@ -1,6 +1,12 @@
 import type {
-  MailProvider, Mailbox, MessageBody, MessageSummary, Page, SyncCursor, SyncResult,
+  MailProvider, Mailbox, MessageBody, MessageSummary, Page, SyncCursor, SyncResult, OutgoingMessage, Address,
 } from "./types";
+
+type SentLogEntry =
+  | { kind: "new"; message: OutgoingMessage }
+  | { kind: "reply"; targetId: string; mode: "reply" | "replyAll"; commentHtml: string }
+  | { kind: "forward"; targetId: string; commentHtml: string; to: Address[] }
+  | { kind: "draft"; draftId: string };
 
 interface Seed {
   mailboxes?: Mailbox[];
@@ -18,6 +24,9 @@ export class FakeProvider implements MailProvider {
   private searchResults = new Map<string, MessageSummary[]>();
   private seq = 0;
   private log: Array<{ seq: number; type: "upsert" | "delete"; msg?: MessageSummary; id?: string }> = [];
+  readonly sentLog: SentLogEntry[] = [];
+  readonly drafts = new Map<string, OutgoingMessage>();
+  private draftSeq = 0;
 
   constructor(seed: Seed = {}) {
     this.mailboxes = seed.mailboxes ?? [];
@@ -89,5 +98,39 @@ export class FakeProvider implements MailProvider {
       upserts, deletions, mailboxChanges: [],
       cursor: { kind: "ms-graph", deltaLinks: { seq: String(this.seq) } },
     };
+  }
+
+  async sendNewMessage(message: OutgoingMessage): Promise<void> {
+    this.sentLog.push({ kind: "new", message });
+  }
+
+  async replyToMessage(id: string, mode: "reply" | "replyAll", commentHtml: string): Promise<void> {
+    this.sentLog.push({ kind: "reply", targetId: id, mode, commentHtml });
+  }
+
+  async forwardMessage(id: string, commentHtml: string, to: Address[]): Promise<void> {
+    this.sentLog.push({ kind: "forward", targetId: id, commentHtml, to });
+  }
+
+  async createDraft(msg: OutgoingMessage): Promise<string> {
+    const id = `draft-${++this.draftSeq}`;
+    this.drafts.set(id, msg);
+    return id;
+  }
+
+  async updateDraft(id: string, msg: OutgoingMessage): Promise<void> {
+    if (!this.drafts.has(id)) throw new Error(`no such draft: ${id}`);
+    this.drafts.set(id, msg);
+  }
+
+  async sendDraft(id: string): Promise<void> {
+    if (!this.drafts.has(id)) throw new Error(`no such draft: ${id}`);
+    this.drafts.delete(id);
+    this.sentLog.push({ kind: "draft", draftId: id });
+  }
+
+  async deleteDraft(id: string): Promise<void> {
+    if (!this.drafts.has(id)) throw new Error(`no such draft: ${id}`);
+    this.drafts.delete(id);
   }
 }

@@ -5,6 +5,14 @@ export interface Address {
   email: string;
 }
 
+export interface OutgoingMessage {
+  to: Address[];
+  cc: Address[];
+  bcc: Address[];
+  subject: string;
+  bodyHtml: string;
+}
+
 export type MailboxKind =
   | "inbox" | "sent" | "drafts" | "archive" | "trash" | "spam" | "custom";
 
@@ -70,6 +78,29 @@ export interface MailProvider {
   search(query: string, pageToken?: string): Promise<Page<MessageSummary>>;
   initialCursor(): Promise<SyncCursor>;
   syncSince(cursor: SyncCursor): Promise<SyncResult>;
+
+  /** POST /me/sendMail. Sends immediately; no server-side draft is created. */
+  sendNewMessage(msg: OutgoingMessage): Promise<void>;
+
+  /** POST /me/messages/{id}/reply or /replyAll. `commentHtml` is inlined
+   *  above the quoted original; the provider supplies recipients/threading. */
+  replyToMessage(id: string, mode: "reply" | "replyAll", commentHtml: string): Promise<void>;
+
+  /** POST /me/messages/{id}/forward. */
+  forwardMessage(id: string, commentHtml: string, to: Address[]): Promise<void>;
+
+  /** Creates a draft message; returns its id. */
+  createDraft(msg: OutgoingMessage): Promise<string>;
+
+  /** Overwrites an existing draft's fields. */
+  updateDraft(id: string, msg: OutgoingMessage): Promise<void>;
+
+  /** Sends an existing draft as-is. Caller must `updateDraft` first if the
+   *  user edited since the last save. */
+  sendDraft(id: string): Promise<void>;
+
+  /** Permanently deletes a draft. */
+  deleteDraft(id: string): Promise<void>;
 }
 
 /** Thrown when the account must re-authenticate (refresh failed / revoked). */
