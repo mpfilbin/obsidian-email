@@ -41,3 +41,16 @@ if (typeof (globalThis as { IntersectionObserver?: unknown }).IntersectionObserv
   (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver =
     IntersectionObserverStub as unknown;
 }
+
+// jsdom's Range has no getBoundingClientRect/getClientRects; Quill's
+// selection handling (setSelection, and any toolbar-button click that acts
+// on the current selection) calls both. Minimal zeroed-rect shims are enough
+// to let Quill run under jsdom.
+if (typeof Range.prototype.getBoundingClientRect !== "function") {
+  Range.prototype.getBoundingClientRect = () =>
+    ({ x: 0, y: 0, width: 0, height: 0, top: 0, left: 0, right: 0, bottom: 0, toJSON() {} }) as DOMRect;
+}
+if (typeof Range.prototype.getClientRects !== "function") {
+  Range.prototype.getClientRects = () =>
+    ({ length: 0, item: () => null, [Symbol.iterator]: function* () {} }) as unknown as DOMRectList;
+}
