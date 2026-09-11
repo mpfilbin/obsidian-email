@@ -54,7 +54,17 @@ You need a Microsoft Entra (Azure AD) app registration. Once, per Microsoft acco
 
 1. Go to the [Azure Portal](https://portal.azure.com/) →
    **Microsoft Entra ID → App registrations → New registration.**
-   - Name it, and pick single-tenant or multitenant to match your account type.
+   - Name it.
+   - Under **Supported account types**, choose **"Accounts in any organizational
+     directory (Any Microsoft Entra ID tenant – Multitenant)"** — or the
+     "...and personal Microsoft accounts" variant if you also want to sign in
+     with a personal `@outlook.com`/`@hotmail.com` account. **Do not** choose
+     "Accounts in this organizational directory only (Single tenant)": this
+     plugin authenticates through Microsoft's shared `/common` endpoint (it has
+     no way to know your tenant ID in advance), which single-tenant apps
+     reject with `AADSTS50194`. A single-tenant registration doesn't add any
+     real protection here anyway — your Client ID and this loopback flow are
+     already the only way to use the app, so multi-tenant costs you nothing.
    - Register.
 2. **Authentication → Add a platform → Mobile and desktop applications:**
    - Check the `http://localhost` redirect URI.
@@ -70,6 +80,14 @@ You need a Microsoft Entra (Azure AD) app registration. Once, per Microsoft acco
    - Provider: **Microsoft 365**.
    - Paste the **Application (client) ID** (no secret needed).
    - Click **Connect** and approve access in the browser.
+
+**Troubleshooting:** the browser tab always says "Authentication complete" once
+the redirect reaches Obsidian, whether or not the sign-in actually succeeded —
+check the Notice that appears in Obsidian for the real result. If it says
+`AADSTS50194`, your app registration was created as single-tenant: go to the
+app's **Authentication** page, change **Supported account types** to
+multitenant (see step 1), save, and click **Connect** again — no need to
+re-create the app or change the Client ID.
 
 ## Security notes
 

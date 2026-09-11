@@ -42,6 +42,16 @@ describe("exchangeCode", () => {
       redirectUri: "http://127.0.0.1:5000",
     })).rejects.toBeInstanceOf(AuthError);
   });
+
+  it("includes error_description in the AuthError message when present", async () => {
+    const post = vi.fn().mockResolvedValue({
+      status: 400,
+      json: { error: "invalid_request", error_description: "AADSTS50194: not multi-tenant" },
+    });
+    await expect(exchangeCode(OAUTH_CONFIG["ms-graph"], post, {
+      clientId: "cid", code: "c", verifier: "v", redirectUri: "http://localhost:5000",
+    })).rejects.toThrow("OAuth token request failed: invalid_request: AADSTS50194: not multi-tenant");
+  });
 });
 
 describe("refreshAccessToken", () => {

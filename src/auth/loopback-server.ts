@@ -52,6 +52,7 @@ export class LoopbackServer {
   private handle(req: IncomingMessage, res: ServerResponse): void {
     const url = new URL(req.url ?? "/", `http://${this.host}:${this.port}`);
     const error = url.searchParams.get("error");
+    const errorDescription = url.searchParams.get("error_description");
     const code = url.searchParams.get("code");
     const state = url.searchParams.get("state") ?? "";
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
@@ -60,8 +61,10 @@ export class LoopbackServer {
     if (this.timer) clearTimeout(this.timer);
     const settle = this.settle;
     this.settle = undefined;
-    if (error) settle.reject(new AuthError(`Authorization failed: ${error}`));
-    else if (code) settle.resolve({ code, state });
+    if (error) {
+      const detail = errorDescription ? `${error}: ${errorDescription}` : error;
+      settle.reject(new AuthError(`Authorization failed: ${detail}`));
+    } else if (code) settle.resolve({ code, state });
     else settle.reject(new AuthError("Redirect had neither code nor error."));
   }
 

@@ -39,7 +39,10 @@ function mapToken(json: Record<string, unknown>): TokenResponse {
 function assertOk(status: number, json: unknown): asserts json is Record<string, unknown> {
   const body = (json ?? {}) as Record<string, unknown>;
   if (status < 200 || status >= 300 || typeof body.access_token !== "string") {
-    const detail = typeof body.error === "string" ? body.error : `HTTP ${status}`;
+    const parts = [body.error, body.error_description].filter(
+      (x): x is string => typeof x === "string" && x.length > 0,
+    );
+    const detail = parts.length > 0 ? parts.join(": ") : `HTTP ${status}`;
     throw new AuthError(`OAuth token request failed: ${detail}`, body);
   }
 }

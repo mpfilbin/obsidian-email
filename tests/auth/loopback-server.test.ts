@@ -30,6 +30,22 @@ describe("LoopbackServer", () => {
     server.close();
   });
 
+  it("includes error_description in the rejection message when present", async () => {
+    const server = new LoopbackServer("127.0.0.1");
+    const { redirectUri } = await server.listen();
+    const waiting = server.waitForCode();
+    const expectation = expect(waiting).rejects.toThrow(
+      "Authorization failed: invalid_request: AADSTS50194: not multi-tenant",
+    );
+    await hit(
+      `${redirectUri}/?error=invalid_request&error_description=${encodeURIComponent(
+        "AADSTS50194: not multi-tenant",
+      )}`,
+    );
+    await expectation;
+    server.close();
+  });
+
   it("times out", async () => {
     const server = new LoopbackServer("127.0.0.1");
     await server.listen();
