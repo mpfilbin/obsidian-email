@@ -73,6 +73,104 @@ describe("GraphProvider", () => {
   });
 });
 
+describe("GraphProvider — send/draft", () => {
+  it("sendNewMessage POSTs to /sendMail with the full message shape", async () => {
+    const req = vi.fn(async () => resp({}, 202));
+    const p = new GraphProvider({ http: { request: req }, getAccessToken: async () => "at" });
+    await p.sendNewMessage({
+      to: [{ email: "a@x.com" }], cc: [{ name: "B", email: "b@x.com" }], bcc: [],
+      subject: "Hi", bodyHtml: "<p>hi</p>",
+    });
+    const call = req.mock.calls[0][0];
+    expect(call.url).toBe("https://graph.microsoft.com/v1.0/me/sendMail");
+    expect(call.method).toBe("POST");
+    expect(call.headers.Authorization).toBe("Bearer at");
+    expect(JSON.parse(call.body)).toEqual({
+      message: {
+        subject: "Hi",
+        body: { contentType: "HTML", content: "<p>hi</p>" },
+        toRecipients: [{ emailAddress: { address: "a@x.com" } }],
+        ccRecipients: [{ emailAddress: { address: "b@x.com", name: "B" } }],
+        bccRecipients: [],
+      },
+    });
+  });
+
+  it("replyToMessage POSTs to /reply for mode=reply", async () => {
+    const req = vi.fn(async () => resp({}, 202));
+    const p = new GraphProvider({ http: { request: req }, getAccessToken: async () => "at" });
+    await p.replyToMessage("m1", "reply", "<p>thanks</p>");
+    expect(req.mock.calls[0][0].url).toBe("https://graph.microsoft.com/v1.0/me/messages/m1/reply");
+    expect(JSON.parse(req.mock.calls[0][0].body)).toEqual({ comment: "<p>thanks</p>" });
+  });
+
+  it("replyToMessage POSTs to /replyAll for mode=replyAll", async () => {
+    const req = vi.fn(async () => resp({}, 202));
+    const p = new GraphProvider({ http: { request: req }, getAccessToken: async () => "at" });
+    await p.replyToMessage("m1", "replyAll", "<p>thanks</p>");
+    expect(req.mock.calls[0][0].url).toBe("https://graph.microsoft.com/v1.0/me/messages/m1/replyAll");
+  });
+
+  it("forwardMessage POSTs to /forward with comment and recipients", async () => {
+    const req = vi.fn(async () => resp({}, 202));
+    const p = new GraphProvider({ http: { request: req }, getAccessToken: async () => "at" });
+    await p.forwardMessage("m1", "<p>fyi</p>", [{ email: "c@x.com" }]);
+    expect(req.mock.calls[0][0].url).toBe("https://graph.microsoft.com/v1.0/me/messages/m1/forward");
+    expect(JSON.parse(req.mock.calls[0][0].body)).toEqual({
+      comment: "<p>fyi</p>",
+      toRecipients: [{ emailAddress: { address: "c@x.com" } }],
+    });
+  });
+
+  it("createDraft POSTs to /me/messages and returns the new id", async () => {
+    const req = vi.fn(async () => resp({ id: "draft-1" }, 201));
+    const p = new GraphProvider({ http: { request: req }, getAccessToken: async () => "at" });
+    const id = await p.createDraft({ to: [{ email: "a@x.com" }], cc: [], bcc: [], subject: "S", bodyHtml: "<p>b</p>" });
+    expect(id).toBe("draft-1");
+    expect(req.mock.calls[0][0].url).toBe("https://graph.microsoft.com/v1.0/me/messages");
+    expect(req.mock.calls[0][0].method).toBe("POST");
+  });
+
+  it("updateDraft PATCHes /me/messages/{id}", async () => {
+    const req = vi.fn(async () => resp({}, 200));
+    const p = new GraphProvider({ http: { request: req }, getAccessToken: async () => "at" });
+    await p.updateDraft("draft-1", { to: [], cc: [], bcc: [], subject: "S2", bodyHtml: "<p>b2</p>" });
+    expect(req.mock.calls[0][0].url).toBe("https://graph.microsoft.com/v1.0/me/messages/draft-1");
+    expect(req.mock.calls[0][0].method).toBe("PATCH");
+  });
+
+  it("sendDraft POSTs /me/messages/{id}/send", async () => {
+    const req = vi.fn(async () => resp({}, 202));
+    const p = new GraphProvider({ http: { request: req }, getAccessToken: async () => "at" });
+    await p.sendDraft("draft-1");
+    expect(req.mock.calls[0][0].url).toBe("https://graph.microsoft.com/v1.0/me/messages/draft-1/send");
+    expect(req.mock.calls[0][0].method).toBe("POST");
+  });
+
+  it("deleteDraft DELETEs /me/messages/{id}", async () => {
+    const req = vi.fn(async () => resp({}, 204));
+    const p = new GraphProvider({ http: { request: req }, getAccessToken: async () => "at" });
+    await p.deleteDraft("draft-1");
+    expect(req.mock.calls[0][0].url).toBe("https://graph.microsoft.com/v1.0/me/messages/draft-1");
+    expect(req.mock.calls[0][0].method).toBe("DELETE");
+  });
+
+  it("retries a send once on 429 then succeeds", async () => {
+    let calls = 0;
+    const req = vi.fn(async () => (++calls === 1 ? resp({}, 429, { "retry-after": "0" }) : resp({}, 202)));
+    const p = new GraphProvider({ http: { request: req }, getAccessToken: async () => "at" });
+    await p.sendNewMessage({ to: [], cc: [], bcc: [], subject: "S", bodyHtml: "<p>b</p>" });
+    expect(calls).toBe(2);
+  });
+
+  it("throws AuthError on 401", async () => {
+    const req = vi.fn(async () => resp({}, 401));
+    const p = new GraphProvider({ http: { request: req }, getAccessToken: async () => "at" });
+    await expect(p.sendNewMessage({ to: [], cc: [], bcc: [], subject: "S", bodyHtml: "<p>b</p>" }))
+      .rejects.toMatchObject({ name: "AuthError" });
+  });
+});
+
 runMailProviderContract("GraphProvider", async () => {
   const msgs = new Map<string, Record<string, unknown>>();
   const deltaLog: Array<{ seq: number; id: string; removed?: boolean }> = [];

@@ -1,8 +1,8 @@
 import { AuthError, CursorExpiredError, ProviderError } from "../types";
-import type { MailProvider, Mailbox, MessageBody, MessageSummary, Page, SyncCursor, SyncResult } from "../types";
+import type { Address, MailProvider, Mailbox, MessageBody, MessageSummary, OutgoingMessage, Page, SyncCursor, SyncResult } from "../types";
 import type { HttpClient, HttpResponse } from "../http";
 import { withRetry, parseRetryAfter, type RetryableResult } from "../../util/backoff";
-import { mapGraphBody, mapGraphFolders, mapGraphSummary, type GraphMessage } from "./graph-mappers";
+import { mapGraphBody, mapGraphFolders, mapGraphSummary, toGraphRecipients, type GraphMessage } from "./graph-mappers";
 
 export interface GraphProviderDeps {
   http: HttpClient;
@@ -30,14 +30,18 @@ export class GraphProvider implements MailProvider {
     this.base = deps.baseUrl ?? DEFAULT_BASE;
   }
 
-  private async get<T>(url: string): Promise<T> {
+  private async request<T>(url: string, method: string, body?: unknown): Promise<T> {
     const token = await this.deps.getAccessToken();
     const full = url.startsWith("http") ? url : `${this.base}${url}`;
     return withRetry<T>(async (): Promise<RetryableResult<T>> => {
       const res: HttpResponse = await this.deps.http.request({
         url: full,
-        method: "GET",
-        headers: { Authorization: `Bearer ${token}` },
+        method,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          ...(body !== undefined ? { "content-type": "application/json" } : {}),
+        },
+        body: body !== undefined ? JSON.stringify(body) : undefined,
       });
       if (res.status === 401 || res.status === 403) {
         throw new AuthError(`Graph ${res.status}`);
@@ -55,8 +59,14 @@ export class GraphProvider implements MailProvider {
         err.code = graphErrorCode(res.json);
         throw err;
       }
+      // 202/204 responses (reply/replyAll/forward/sendMail/send/delete) have
+      // no usable body; callers typed `Promise<void>` never read `value`.
       return { retry: false, value: res.json as T };
     }, { retries: 4, baseMs: 500, maxMs: 8000 });
+  }
+
+  private get<T>(url: string): Promise<T> {
+    return this.request<T>(url, "GET");
   }
 
   async listMailboxes(): Promise<Mailbox[]> {
@@ -98,6 +108,48 @@ export class GraphProvider implements MailProvider {
     );
     const bin = atob(data.contentBytes ?? "");
     return Uint8Array.from(bin, (c) => c.charCodeAt(0)).buffer;
+  }
+
+  private outgoingBody(msg: OutgoingMessage) {
+    return {
+      subject: msg.subject,
+      body: { contentType: "HTML", content: msg.bodyHtml },
+      toRecipients: toGraphRecipients(msg.to),
+      ccRecipients: toGraphRecipients(msg.cc),
+      bccRecipients: toGraphRecipients(msg.bcc),
+    };
+  }
+
+  async sendNewMessage(msg: OutgoingMessage): Promise<void> {
+    await this.request<void>("/me/sendMail", "POST", { message: this.outgoingBody(msg) });
+  }
+
+  async replyToMessage(id: string, mode: "reply" | "replyAll", commentHtml: string): Promise<void> {
+    await this.request<void>(`/me/messages/${id}/${mode}`, "POST", { comment: commentHtml });
+  }
+
+  async forwardMessage(id: string, commentHtml: string, to: Address[]): Promise<void> {
+    await this.request<void>(`/me/messages/${id}/forward`, "POST", {
+      comment: commentHtml,
+      toRecipients: toGraphRecipients(to),
+    });
+  }
+
+  async createDraft(msg: OutgoingMessage): Promise<string> {
+    const data = await this.request<{ id: string }>("/me/messages", "POST", this.outgoingBody(msg));
+    return data.id;
+  }
+
+  async updateDraft(id: string, msg: OutgoingMessage): Promise<void> {
+    await this.request<void>(`/me/messages/${id}`, "PATCH", this.outgoingBody(msg));
+  }
+
+  async sendDraft(id: string): Promise<void> {
+    await this.request<void>(`/me/messages/${id}/send`, "POST");
+  }
+
+  async deleteDraft(id: string): Promise<void> {
+    await this.request<void>(`/me/messages/${id}`, "DELETE");
   }
 
   private async syncFolders(): Promise<string[]> {
