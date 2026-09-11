@@ -28,19 +28,18 @@ export class TokenManager {
     private deps: TokenManagerDeps,
   ) {}
 
-  private key(suffix: "refresh" | "secret"): string {
+  private key(): string {
     // SecretStorage IDs must be lowercase alphanumeric with optional dashes
     // (Obsidian >= 1.11.4 throws on colons). `accountId` is a lowercase
     // `crypto.randomUUID()`, so a dash-joined key stays valid.
-    return `obsidian-email-${this.accountId}-${suffix}`;
+    return `obsidian-email-${this.accountId}-refresh`;
   }
 
-  async storeInitialTokens(t: TokenResponse, clientSecret?: string): Promise<void> {
+  async storeInitialTokens(t: TokenResponse): Promise<void> {
     if (!t.refreshToken) {
       throw new AuthError("Provider did not return a refresh token; re-consent is required.");
     }
-    await this.deps.secrets.setSecret(this.key("refresh"), t.refreshToken);
-    if (clientSecret) await this.deps.secrets.setSecret(this.key("secret"), clientSecret);
+    await this.deps.secrets.setSecret(this.key(), t.refreshToken);
     this.accessToken = t.accessToken;
     this.expiresAtMs = this.deps.now() + t.expiresInSec * 1000;
   }
@@ -58,19 +57,15 @@ export class TokenManager {
   }
 
   private async doRefresh(): Promise<string> {
-    const refreshToken = await this.deps.secrets.getSecret(this.key("refresh"));
+    const refreshToken = await this.deps.secrets.getSecret(this.key());
     if (!refreshToken) throw new AuthError("No stored refresh token for this account.");
     const cfg = OAUTH_CONFIG[this.kind];
-    const clientSecret = cfg.usesClientSecret
-      ? (await this.deps.secrets.getSecret(this.key("secret"))) ?? undefined
-      : undefined;
     const t = await refreshAccessToken(cfg, this.deps.post, {
       clientId: this.clientId,
-      clientSecret,
       refreshToken,
     });
     if (t.refreshToken && t.refreshToken !== refreshToken) {
-      await this.deps.secrets.setSecret(this.key("refresh"), t.refreshToken);
+      await this.deps.secrets.setSecret(this.key(), t.refreshToken);
     }
     this.accessToken = t.accessToken;
     this.expiresAtMs = this.deps.now() + t.expiresInSec * 1000;
@@ -80,8 +75,7 @@ export class TokenManager {
   async clear(): Promise<void> {
     // secretStorage has no delete in the public API; overwrite with empty.
     try {
-      await this.deps.secrets.setSecret(this.key("refresh"), "");
-      await this.deps.secrets.setSecret(this.key("secret"), "");
+      await this.deps.secrets.setSecret(this.key(), "");
     } catch {
       /* best effort */
     }

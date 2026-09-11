@@ -12,8 +12,7 @@ Open this folder as a vault in Obsidian to test the plugin.
    (Without Hot Reload, press Cmd/Ctrl+R in Obsidian after a rebuild.)
 
 ## Test checklist (SP1)
-- Add a Gmail account via Settings → Email → Add account.
-- Add a Microsoft 365 account.
+- Add a Microsoft 365 account via Settings → Email → Add account.
 - Inbox lists messages; opening one shows the sanitized body.
 - Remote images are blocked until "Load remote images" is clicked.
 - Search returns server results; clearing restores the list.

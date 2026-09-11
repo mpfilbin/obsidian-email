@@ -48,16 +48,16 @@ describe("PluginContext", () => {
 
   it("rebuildProviders exposes a provider for each configured account", async () => {
     const settings = await SettingsStore.load({ loadData: async () => null, saveData: async () => {} });
-    await settings.addAccount({ id: "a1", email: "a1@g.com", provider: "gmail", clientId: "c", addedAt: 0 });
+    await settings.addAccount({ id: "a1", email: "a1@g.com", provider: "ms-graph", clientId: "c", addedAt: 0 });
     const ctx = await PluginContext.create(settings, hostDeps(), logger);
     ctx.rebuildProviders();
-    expect(ctx.providerFor("a1")?.kind).toBe("gmail");
+    expect(ctx.providerFor("a1")?.kind).toBe("ms-graph");
     ctx.dispose();
   });
 
   it("rebuildProviders drops providers for removed accounts", async () => {
     const settings = await SettingsStore.load({ loadData: async () => null, saveData: async () => {} });
-    await settings.addAccount({ id: "a1", email: "a1@g.com", provider: "gmail", clientId: "c", addedAt: 0 });
+    await settings.addAccount({ id: "a1", email: "a1@g.com", provider: "ms-graph", clientId: "c", addedAt: 0 });
     await settings.addAccount({ id: "a2", email: "a2@o.com", provider: "ms-graph", clientId: "c", addedAt: 0 });
     const ctx = await PluginContext.create(settings, hostDeps(), logger);
     expect(ctx.providerFor("a2")?.kind).toBe("ms-graph");
@@ -70,7 +70,7 @@ describe("PluginContext", () => {
 
   it("shares one provider registry between sync and view-model", async () => {
     const settings = await SettingsStore.load({ loadData: async () => null, saveData: async () => {} });
-    await settings.addAccount({ id: "a1", email: "a1@g.com", provider: "gmail", clientId: "c", addedAt: 0 });
+    await settings.addAccount({ id: "a1", email: "a1@g.com", provider: "ms-graph", clientId: "c", addedAt: 0 });
     const ctx = await PluginContext.create(settings, hostDeps(), logger);
     ctx.rebuildProviders();
     const fromCtx = ctx.providerFor("a1");
@@ -82,7 +82,7 @@ describe("PluginContext", () => {
   it("removeAccountFlow clears secrets, settings and cache", async () => {
     const deps = hostDeps();
     const settings = await SettingsStore.load({ loadData: async () => null, saveData: async () => {} });
-    await settings.addAccount({ id: "a1", email: "a1@g.com", provider: "gmail", clientId: "c", addedAt: 0 });
+    await settings.addAccount({ id: "a1", email: "a1@g.com", provider: "ms-graph", clientId: "c", addedAt: 0 });
     const ctx = await PluginContext.create(settings, deps, logger);
     ctx.rebuildProviders();
     await ctx.removeAccountFlow("a1");
@@ -101,7 +101,7 @@ describe("PluginContext", () => {
     const notice = vi.spyOn(obsidian, "Notice").mockImplementation((() => ({})) as never);
 
     const settings = await SettingsStore.load({ loadData: async () => null, saveData: async () => {} });
-    await settings.addAccount({ id: "a1", email: "a1@g.com", provider: "gmail", clientId: "c", addedAt: 0 });
+    await settings.addAccount({ id: "a1", email: "a1@g.com", provider: "ms-graph", clientId: "c", addedAt: 0 });
 
     let ctx!: PluginContext;
     await expect(
@@ -124,9 +124,9 @@ describe("PluginContext", () => {
     cursorOpen.mockRestore();
   });
 
-  it("reauthAccount refreshes in place, reusing the account id and stored secret", async () => {
+  it("reauthAccount refreshes in place, reusing the account id", async () => {
     const settings = await SettingsStore.load({ loadData: async () => null, saveData: async () => {} });
-    await settings.addAccount({ id: "acct-1", email: "old@g.com", provider: "gmail", clientId: "cid", addedAt: 0 });
+    await settings.addAccount({ id: "acct-1", email: "old@x.com", provider: "ms-graph", clientId: "cid", addedAt: 0 });
 
     const captured = { state: "" };
     const deps = {
@@ -134,17 +134,11 @@ describe("PluginContext", () => {
       http: {
         request: vi.fn().mockResolvedValue({
           status: 200,
-          json: { emailAddress: "new@g.com" },
+          json: { mail: "new@x.com" },
           text: "{}",
           arrayBuffer: new ArrayBuffer(0),
           headers: {},
         }),
-      },
-      secrets: {
-        getSecret: vi.fn(async (k: string) =>
-          k === "obsidian-email-acct-1-secret" ? "goog-secret" : null,
-        ),
-        setSecret: vi.fn().mockResolvedValue(undefined),
       },
       post: vi.fn().mockResolvedValue({
         status: 200,
@@ -154,7 +148,7 @@ describe("PluginContext", () => {
         captured.state = new URL(url).searchParams.get("state")!;
       }),
       makeLoopback: () => ({
-        listen: async () => ({ port: 1, redirectUri: "http://127.0.0.1:1" }),
+        listen: async () => ({ port: 1, redirectUri: "http://localhost:1" }),
         waitForCode: async () => ({ code: "C", state: captured.state }),
         close: vi.fn(),
       }),
@@ -165,12 +159,11 @@ describe("PluginContext", () => {
 
     const r = await ctx.reauthAccount("acct-1");
 
-    expect(r).toEqual({ ok: true, message: expect.stringContaining("new@g.com") });
-    expect(deps.secrets.getSecret).toHaveBeenCalledWith("obsidian-email-acct-1-secret");
+    expect(r).toEqual({ ok: true, message: expect.stringContaining("new@x.com") });
     // no duplicate — same id replaced in place
     expect(settings.get().accounts).toHaveLength(1);
     expect(settings.get().accounts[0].id).toBe("acct-1");
-    expect(settings.get().accounts[0].email).toBe("new@g.com");
+    expect(settings.get().accounts[0].email).toBe("new@x.com");
     expect(syncSpy).toHaveBeenCalledWith("acct-1");
     ctx.dispose();
   });

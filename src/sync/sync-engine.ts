@@ -98,10 +98,10 @@ export class SyncEngine {
           await this.incremental(accountId, provider, saved.cursor);
         } catch (err) {
           if (!(err instanceof CursorExpiredError)) throw err;
-          // The provider can no longer diff from our cursor (Gmail history
-          // aged out / Graph delta token gone). Drop it and re-backfill in
-          // this same cycle, rather than parking the account in `error` until
-          // the user finds "Clear local cache".
+          // The provider can no longer diff from our cursor (the Graph delta
+          // token expired / a resync was required). Drop it and re-backfill
+          // in this same cycle, rather than parking the account in `error`
+          // until the user finds "Clear local cache".
           this.deps.logger.warn(`sync cursor expired for ${accountId}; re-running backfill`, err.message);
           await this.deps.cursors.delete(accountId);
           await this.backfill(accountId, provider);

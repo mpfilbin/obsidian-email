@@ -1,6 +1,6 @@
 # Email
 
-A full email client for **Gmail** and **Microsoft 365** inside an Obsidian view. Desktop only.
+A full **Microsoft 365** email client inside an Obsidian view. Desktop only.
 
 This is Sprint 1 (SP1): **reading and search**. You can connect one or more
 accounts, browse mailboxes and threads, read sanitized message bodies, open
@@ -11,8 +11,8 @@ mailbox mutations, are **not** in SP1 — see the [Roadmap](#roadmap).
 
 - A four-column mail client (accounts, mailboxes, message list, reading pane)
   that lives in a normal Obsidian leaf.
-- Works against the Gmail API and the Microsoft Graph API using your own OAuth
-  client credentials — there is no shared backend or proxy.
+- Works against the Microsoft Graph API using your own OAuth client
+  credentials — there is no shared backend or proxy.
 - Offline-friendly: synced mail is cached locally (IndexedDB) so the inbox opens
   instantly, then a background sync refreshes it.
 - Message bodies are sanitized before rendering; remote images are blocked by
@@ -26,27 +26,6 @@ From a release:
 2. Copy all three into `<vault>/.obsidian/plugins/obsidian-email/`
    (create the folder if it does not exist).
 3. In Obsidian: **Settings → Community plugins**, then enable **Email**.
-
-## Google (Gmail) setup
-
-You need a Google Cloud OAuth **Desktop app** client. Once, per Google account:
-
-1. Go to the [Google Cloud Console](https://console.cloud.google.com/) and
-   **create a new project** (or pick an existing one).
-2. **APIs & Services → Library →** search for **Gmail API** and click **Enable**.
-3. **APIs & Services → OAuth consent screen:**
-   - User type: **External**.
-   - Fill in the required app name / support email fields.
-   - **Test users:** add your own Google address.
-   - **Scopes:** add `https://www.googleapis.com/auth/gmail.modify`.
-4. **APIs & Services → Credentials → Create credentials → OAuth client ID:**
-   - Application type: **Desktop app**.
-   - Create, then copy the **Client ID** and **Client secret**.
-5. In Obsidian: **Settings → Email → Add account:**
-   - Provider: **Google (Gmail)**.
-   - Paste the **Client ID** and **Client secret**.
-   - Click **Connect** and approve access in the browser window that opens.
-   - When the loopback page says authentication is complete, return to Obsidian.
 
 ## Microsoft 365 setup
 
@@ -77,7 +56,6 @@ You need a Microsoft Entra (Azure AD) app registration. Once, per Microsoft acco
    - `User.Read`
 4. From the app's **Overview**, copy the **Application (client) ID**.
 5. In Obsidian: **Settings → Email → Add account:**
-   - Provider: **Microsoft 365**.
    - Paste the **Application (client) ID** (no secret needed).
    - Click **Connect** and approve access in the browser.
 
@@ -91,19 +69,18 @@ re-create the app or change the Client ID.
 
 ## Security notes
 
-- **Tokens** (refresh tokens, and the Google client secret) are stored in
-  Obsidian's `secretStorage`, which is backed by the OS keychain on desktop.
-  They are **never** written to `data.json`. `data.json` holds only account
-  metadata (id, email, provider, client ID) and your preferences.
+- **Refresh tokens** are stored in Obsidian's `secretStorage`, which is backed
+  by the OS keychain on desktop. They are **never** written to `data.json`.
+  `data.json` holds only account metadata (id, email, provider, client ID)
+  and your preferences.
 - **Remote images are blocked by default.** Each message with remote content
   shows a "Load remote images" button; there is also a global opt-in toggle in
   settings.
 - **Links open in your system browser**, not inside Obsidian.
 - Message HTML is sanitized (scripts, iframes, event handlers, and
   `javascript:` URLs are stripped) before it is rendered.
-- **No telemetry.** The plugin talks only to Google's and Microsoft's APIs and
-  to a loopback address (`127.0.0.1` for Google, `localhost` for Microsoft) for
-  the OAuth loopback.
+- **No telemetry.** The plugin talks only to Microsoft's APIs and to a
+  `localhost` loopback address for the OAuth redirect.
 
 ## Development
 

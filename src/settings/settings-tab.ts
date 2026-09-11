@@ -2,12 +2,9 @@ import { PluginSettingTab, Setting, Notice } from "obsidian";
 import type { Plugin } from "obsidian";
 import type { PluginContext } from "../plugin-context";
 import type { SettingsStore } from "./settings-store";
-import type { ProviderKind } from "../providers/types";
 
 export interface ConnectInput {
-  kind: ProviderKind;
   clientId: string;
-  clientSecret?: string;
 }
 
 /**
@@ -19,11 +16,8 @@ export async function handleConnect(
   input: ConnectInput,
 ): Promise<{ ok: boolean; message: string }> {
   if (!input.clientId.trim()) return { ok: false, message: "Client ID is required." };
-  if (input.kind === "gmail" && !input.clientSecret?.trim()) {
-    return { ok: false, message: "A client secret is required for Google." };
-  }
   try {
-    const account = await ctx.addAccountFlow(input);
+    const account = await ctx.addAccountFlow({ kind: "ms-graph", clientId: input.clientId });
     return { ok: true, message: `Connected ${account.email}.` };
   } catch (err) {
     return { ok: false, message: `Could not connect: ${(err as Error).message}` };
@@ -45,14 +39,10 @@ const POLL_OPTIONS: Array<[string, string]> = [
 ];
 
 export class EmailSettingTab extends PluginSettingTab {
-  // "Add account" form state lives on the instance, NOT in `display()`.
-  // `display()` re-enters itself (the provider dropdown rebuilds the form so
-  // the client-secret field can appear or disappear), and locals would be
-  // reset by that re-entry — which made "Microsoft 365" snap back to Google
-  // and left `handleConnect({kind:"ms-graph"})` unreachable.
-  private addKind: ProviderKind = "gmail";
+  // "Add account" form state lives on the instance, NOT in `display()`, so a
+  // re-entrant `display()` call (e.g. after Connect) doesn't lose what the
+  // user typed.
   private addClientId = "";
-  private addClientSecret = "";
 
   constructor(
     plugin: Plugin,
@@ -62,7 +52,6 @@ export class EmailSettingTab extends PluginSettingTab {
     super(plugin.app, plugin);
   }
 
-  /** `display()` must stay idempotent: it re-enters itself (see fields above). */
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
@@ -78,7 +67,7 @@ export class EmailSettingTab extends PluginSettingTab {
       const status = this.ctx.sync.getState(a.id).status;
       new Setting(containerEl)
         .setName(a.email)
-        .setDesc(`${a.provider} · ${status}`)
+        .setDesc(status)
         .addButton((b) =>
           b.setButtonText("Re-authenticate").onClick(async () => {
             const r = await this.ctx.reauthAccount(a.id);
@@ -98,43 +87,20 @@ export class EmailSettingTab extends PluginSettingTab {
         );
     }
 
-    containerEl.createEl("h2", { text: "Add account" });
-    new Setting(containerEl).setName("Provider").addDropdown((d) =>
-      d
-        .addOption("gmail", "Google (Gmail)")
-        .addOption("ms-graph", "Microsoft 365")
-        .setValue(this.addKind)
-        .onChange((v) => {
-          this.addKind = v as ProviderKind;
-          this.display();
-        }),
-    );
+    containerEl.createEl("h2", { text: "Add Microsoft 365 account" });
     new Setting(containerEl)
       .setName("Client ID")
+      .setDesc("The Application (client) ID from your Microsoft Entra app registration.")
       .addText((t) => t.setValue(this.addClientId).onChange((v) => (this.addClientId = v)));
-    if (this.addKind === "gmail") {
-      new Setting(containerEl)
-        .setName("Client secret")
-        .setDesc("Required for Google Desktop-app OAuth clients.")
-        .addText((t) => {
-          t.inputEl.type = "password";
-          t.setValue(this.addClientSecret).onChange((v) => (this.addClientSecret = v));
-        });
-    }
     new Setting(containerEl).addButton((b) =>
       b
         .setCta()
         .setButtonText("Connect")
         .onClick(async () => {
-          const r = await handleConnect(this.ctx, {
-            kind: this.addKind,
-            clientId: this.addClientId,
-            clientSecret: this.addClientSecret || undefined,
-          });
+          const r = await handleConnect(this.ctx, { clientId: this.addClientId });
           new Notice(r.message);
           if (r.ok) {
             this.addClientId = "";
-            this.addClientSecret = "";
             this.display();
           }
         }),

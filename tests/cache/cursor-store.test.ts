@@ -4,17 +4,23 @@ import { CursorStore } from "../../src/cache/cursor-store";
 const name = () => `cursor-db-${Date.now()}-${Math.random()}`;
 
 describe("CursorStore", () => {
-  it("round-trips a gmail cursor", async () => {
+  it("round-trips a ms-graph cursor", async () => {
     const s = await CursorStore.open(name());
-    await s.set("a1", { kind: "gmail", historyId: "42" }, false);
-    expect(await s.get("a1")).toEqual({ cursor: { kind: "gmail", historyId: "42" }, backfillDone: false });
+    await s.set("a1", { kind: "ms-graph", deltaLinks: { INBOX: "d1" } }, false);
+    expect(await s.get("a1")).toEqual({
+      cursor: { kind: "ms-graph", deltaLinks: { INBOX: "d1" } },
+      backfillDone: false,
+    });
   });
 
   it("overwrites and marks backfill done", async () => {
     const s = await CursorStore.open(name());
-    await s.set("a1", { kind: "gmail", historyId: "1" }, false);
-    await s.set("a1", { kind: "gmail", historyId: "9" }, true);
-    expect(await s.get("a1")).toMatchObject({ backfillDone: true, cursor: { historyId: "9" } });
+    await s.set("a1", { kind: "ms-graph", deltaLinks: { INBOX: "d1" } }, false);
+    await s.set("a1", { kind: "ms-graph", deltaLinks: { INBOX: "d9" } }, true);
+    expect(await s.get("a1")).toMatchObject({
+      backfillDone: true,
+      cursor: { deltaLinks: { INBOX: "d9" } },
+    });
   });
 
   it("returns undefined for unknown accounts and deletes", async () => {

@@ -63,16 +63,14 @@ describe("TokenManager", () => {
     await expect(tm.getAccessToken()).rejects.toBeInstanceOf(AuthError);
   });
 
-  it("sends the Google client secret from storage on refresh", async () => {
-    const secrets = makeSecrets({
-      [KEY("g1", "refresh")]: "rt", [KEY("g1", "secret")]: "goog-secret",
-    });
+  it("never sends a client secret on refresh", async () => {
+    const secrets = makeSecrets({ [KEY("a1", "refresh")]: "rt" });
     const post = vi.fn().mockResolvedValue({
       status: 200, json: { access_token: "at", expires_in: 3600 },
     });
-    const tm = new TokenManager("g1", "gmail", "cid", { secrets, post, now: () => 0 });
+    const tm = new TokenManager("a1", "ms-graph", "cid", { secrets, post, now: () => 0 });
     await tm.getAccessToken();
     const [, form] = post.mock.calls[0];
-    expect(form.client_secret).toBe("goog-secret");
+    expect(form.client_secret).toBeUndefined();
   });
 });

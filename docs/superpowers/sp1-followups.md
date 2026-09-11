@@ -4,6 +4,19 @@ Captured at the end of Sub-project 1 (foundation + reading). None of these block
 they are inputs to SP2 planning. The task-by-task and whole-branch reviews are the
 source; this is the durable digest.
 
+## 2026-09-11: Gmail support removed
+
+The plugin is now Microsoft 365-only. `GmailProvider` and its mappers/tests/
+fixtures, the `gmail` OAuth config, and all `clientSecret`/`usesClientSecret`
+plumbing (which existed solely for Google's confidential-client flow) were
+deleted; the settings UI no longer has a provider picker. The `MailProvider`/
+`ProviderKind` abstraction was kept (now single-valued) rather than collapsed,
+so re-adding a provider later isn't a bigger lift than it has to be.
+
+This makes every Gmail-specific item below (attachments, `cid:` asymmetry, the
+Gmail mapper reference in the OAuth-scopes note) **moot** — left in place as
+history, not because they still apply.
+
 ## Plan → code deviations (deliberate, made during implementation)
 
 - **secretStorage key format:** the plan's Global Constraints specify

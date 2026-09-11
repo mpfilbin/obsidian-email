@@ -91,8 +91,8 @@ describe("SyncEngine", () => {
     const { cache, cursors, engine } = await harness(provider);
     await engine.syncAccount("a1"); // backfill, cursor stored
 
-    // The provider can no longer diff from the stored cursor (Gmail history
-    // 404 / Graph delta 410) — exactly once, as after a resync it can again.
+    // The provider can no longer diff from the stored cursor (Graph delta
+    // 410) — exactly once, as after a resync it can again.
     const sync = vi.spyOn(provider, "syncSince")
       .mockRejectedValueOnce(new CursorExpiredError("history 900 expired"));
     provider.addMessage(summary("m2", 2));

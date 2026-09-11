@@ -169,7 +169,6 @@ export class PluginContext {
   async addAccountFlow(input: {
     kind: ProviderKind;
     clientId: string;
-    clientSecret?: string;
   }): Promise<AccountConfig> {
     const { account } = await addAccount(
       input,
@@ -190,12 +189,8 @@ export class PluginContext {
     const account = this.settings.get().accounts.find((a) => a.id === accountId);
     if (!account) return { ok: false, message: "Account not found." };
     try {
-      const storedSecret =
-        account.provider === "gmail"
-          ? (await this.host.secrets.getSecret(`obsidian-email-${accountId}-secret`)) ?? undefined
-          : undefined;
       const { account: refreshed } = await addAccount(
-        { kind: account.provider, clientId: account.clientId, clientSecret: storedSecret },
+        { kind: account.provider, clientId: account.clientId },
         this.addAccountDeps(() => accountId),
       );
       await this.settings.addAccount(refreshed);

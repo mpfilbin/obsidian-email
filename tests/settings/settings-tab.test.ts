@@ -8,26 +8,21 @@ import { DEFAULT_SETTINGS } from "../../src/settings/settings-store";
 describe("handleConnect", () => {
   it("returns ok with the new account email on success", async () => {
     const ctx = { addAccountFlow: vi.fn().mockResolvedValue({ email: "new@x.com" }) };
-    const r = await handleConnect(ctx as never, { kind: "gmail", clientId: "c", clientSecret: "s" });
+    const r = await handleConnect(ctx as never, { clientId: "c" });
     expect(r).toEqual({ ok: true, message: expect.stringContaining("new@x.com") });
+    expect(ctx.addAccountFlow).toHaveBeenCalledWith({ kind: "ms-graph", clientId: "c" });
   });
 
-  it("requires a client secret for Google", async () => {
+  it("requires a client ID", async () => {
     const ctx = { addAccountFlow: vi.fn() };
-    const r = await handleConnect(ctx as never, { kind: "gmail", clientId: "c" });
+    const r = await handleConnect(ctx as never, { clientId: "  " });
     expect(r.ok).toBe(false);
     expect(ctx.addAccountFlow).not.toHaveBeenCalled();
   });
 
-  it("does not require a secret for Microsoft", async () => {
-    const ctx = { addAccountFlow: vi.fn().mockResolvedValue({ email: "m@x.com" }) };
-    const r = await handleConnect(ctx as never, { kind: "ms-graph", clientId: "c" });
-    expect(r.ok).toBe(true);
-  });
-
   it("returns a failure message when the flow throws", async () => {
     const ctx = { addAccountFlow: vi.fn().mockRejectedValue(new Error("state mismatch")) };
-    const r = await handleConnect(ctx as never, { kind: "ms-graph", clientId: "c" });
+    const r = await handleConnect(ctx as never, { clientId: "c" });
     expect(r).toEqual({ ok: false, message: expect.stringContaining("state mismatch") });
   });
 });
@@ -59,37 +54,38 @@ function buildTab(addAccountFlow = vi.fn().mockResolvedValue({ email: "m@x.com" 
 const find = (pred: (c: StubComponent) => boolean): StubComponent =>
   [...settingComponents].reverse().find(pred)!;
 
-describe("EmailSettingTab — display() re-entrancy", () => {
+describe("EmailSettingTab — Add account", () => {
   beforeEach(() => resetSettingStubs());
 
-  it("keeps the selected provider across the display() re-entry the dropdown triggers", async () => {
+  it("has no provider picker or client-secret field — Microsoft 365 is the only provider", () => {
+    const { tab } = buildTab();
+    tab.display();
+    expect(settingComponents.some((c) => c.kind === "dropdown" && c.name === "Provider")).toBe(false);
+    expect(settingComponents.some((c) => c.name === "Client secret")).toBe(false);
+  });
+
+  it("connects with the typed Client ID and clears the field on success", async () => {
     const { tab, addAccountFlow } = buildTab();
     tab.display();
 
-    const provider = find((c) => c.kind === "dropdown" && c.options.includes("ms-graph"));
-    // onChange re-enters display(); the rebuilt dropdown must come back with
-    // "ms-graph" selected rather than snapping back to the Google default.
-    resetSettingStubs();
-    await provider.emitChange("ms-graph");
-    expect(find((c) => c.kind === "dropdown" && c.options.includes("ms-graph")).value).toBe("ms-graph");
-
-    // Microsoft 365 has no client-secret field, so Client ID alone must connect.
     await find((c) => c.kind === "text" && c.name === "Client ID").emitChange("client-123");
     await find((c) => c.kind === "button" && c.buttonText === "Connect").emitClick();
 
-    expect(addAccountFlow).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: "ms-graph", clientId: "client-123" }),
-    );
+    expect(addAccountFlow).toHaveBeenCalledWith({ kind: "ms-graph", clientId: "client-123" });
+
+    resetSettingStubs();
+    tab.display();
+    expect(find((c) => c.kind === "text" && c.name === "Client ID").value).toBe("");
   });
 
-  it("hides the client-secret field for Microsoft and shows it for Google", async () => {
-    const { tab } = buildTab();
+  it("keeps the typed Client ID across a re-entrant display() call after a failed Connect", async () => {
+    const { tab } = buildTab(vi.fn().mockRejectedValue(new Error("nope")));
     tab.display();
-    expect(settingComponents.some((c) => c.name === "Client secret")).toBe(true);
+    await find((c) => c.kind === "text" && c.name === "Client ID").emitChange("client-123");
+    await find((c) => c.kind === "button" && c.buttonText === "Connect").emitClick();
 
-    const provider = find((c) => c.kind === "dropdown" && c.options.includes("ms-graph"));
     resetSettingStubs();
-    await provider.emitChange("ms-graph");
-    expect(settingComponents.some((c) => c.name === "Client secret")).toBe(false);
+    tab.display();
+    expect(find((c) => c.kind === "text" && c.name === "Client ID").value).toBe("client-123");
   });
 });

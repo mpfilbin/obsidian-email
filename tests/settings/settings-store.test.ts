@@ -11,7 +11,7 @@ function host(initial: unknown = null) {
 }
 
 const acct = (id: string) =>
-  ({ id, email: `${id}@x.com`, provider: "gmail" as const, clientId: "c", addedAt: 1 });
+  ({ id, email: `${id}@x.com`, provider: "ms-graph" as const, clientId: "c", addedAt: 1 });
 
 describe("SettingsStore", () => {
   it("returns defaults for an empty vault", async () => {

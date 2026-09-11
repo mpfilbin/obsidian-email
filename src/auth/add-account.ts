@@ -19,13 +19,13 @@ export interface AddAccountDeps {
   secrets: SecretStore;
   openBrowser: (url: string) => void;
   now: () => number;
-  fetchProfileEmail: (kind: ProviderKind, accessToken: string, post: HttpPost) => Promise<string>;
+  fetchProfileEmail: (accessToken: string, post: HttpPost) => Promise<string>;
   genId: () => string;
   makeLoopback?: (host: "127.0.0.1" | "localhost") => LoopbackLike;
 }
 
 export async function addAccount(
-  input: { kind: ProviderKind; clientId: string; clientSecret?: string },
+  input: { kind: ProviderKind; clientId: string },
   deps: AddAccountDeps,
 ): Promise<{ account: AccountConfig; token: TokenManager }> {
   const cfg = OAUTH_CONFIG[input.kind];
@@ -44,7 +44,6 @@ export async function addAccount(
 
     const tokens = await exchangeCode(cfg, deps.post, {
       clientId: input.clientId,
-      clientSecret: input.clientSecret,
       code,
       verifier,
       redirectUri,
@@ -54,9 +53,9 @@ export async function addAccount(
     const token = new TokenManager(id, input.kind, input.clientId, {
       secrets: deps.secrets, post: deps.post, now: deps.now,
     });
-    await token.storeInitialTokens(tokens, cfg.usesClientSecret ? input.clientSecret : undefined);
+    await token.storeInitialTokens(tokens);
 
-    const email = await deps.fetchProfileEmail(input.kind, tokens.accessToken, deps.post);
+    const email = await deps.fetchProfileEmail(tokens.accessToken, deps.post);
     const account: AccountConfig = {
       id, email, provider: input.kind, clientId: input.clientId, addedAt: deps.now(),
     };
@@ -67,18 +66,11 @@ export async function addAccount(
 }
 
 export function defaultFetchProfileEmail(http: HttpClient) {
-  return async (kind: ProviderKind, accessToken: string): Promise<string> => {
-    const auth = { Authorization: `Bearer ${accessToken}` };
-    if (kind === "gmail") {
-      const res = await http.request({
-        url: "https://gmail.googleapis.com/gmail/v1/users/me/profile", method: "GET", headers: auth,
-      });
-      const j = (res.json ?? {}) as { emailAddress?: string };
-      if (!j.emailAddress) throw new AuthError("Could not read the Gmail profile email.");
-      return j.emailAddress;
-    }
+  return async (accessToken: string): Promise<string> => {
     const res = await http.request({
-      url: "https://graph.microsoft.com/v1.0/me", method: "GET", headers: auth,
+      url: "https://graph.microsoft.com/v1.0/me",
+      method: "GET",
+      headers: { Authorization: `Bearer ${accessToken}` },
     });
     const j = (res.json ?? {}) as { mail?: string; userPrincipalName?: string };
     const email = j.mail ?? j.userPrincipalName;

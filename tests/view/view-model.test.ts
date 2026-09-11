@@ -27,7 +27,7 @@ async function build() {
     { id: "SENT", name: "Sent", kind: "sent" },
   ] });
   const settings = await SettingsStore.load({ loadData: async () => null, saveData: async () => {} });
-  await settings.addAccount({ id: "a1", email: "a1@x.com", provider: "gmail", clientId: "c", addedAt: 0 });
+  await settings.addAccount({ id: "a1", email: "a1@x.com", provider: "ms-graph", clientId: "c", addedAt: 0 });
   const sync = new SyncEngine({
     cache, cursors, getProvider: () => provider, listAccountIds: () => ["a1"], logger,
   });
@@ -91,7 +91,7 @@ describe("ViewModel", () => {
 
   it("runSearch offline sets a notice and does not clear the list", async () => {
     const offlineVm = new ViewModel({
-      cache: ctx.cache, sync: ctx.sync, settings: (ctx as never as { settings: SettingsStore }).settings ?? await SettingsStore.load({ loadData: async () => ({ accounts: [{ id: "a1", email: "e", provider: "gmail", clientId: "c", addedAt: 0 }] }), saveData: async () => {} }),
+      cache: ctx.cache, sync: ctx.sync, settings: (ctx as never as { settings: SettingsStore }).settings ?? await SettingsStore.load({ loadData: async () => ({ accounts: [{ id: "a1", email: "e", provider: "ms-graph", clientId: "c", addedAt: 0 }] }), saveData: async () => {} }),
       getProvider: () => ctx.provider, isOnline: () => false,
       openExternal: () => {}, saveBlob: async () => {},
     });

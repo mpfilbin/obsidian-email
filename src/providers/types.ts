@@ -1,4 +1,4 @@
-export type ProviderKind = "gmail" | "ms-graph";
+export type ProviderKind = "ms-graph";
 
 export interface Address {
   name?: string;
@@ -52,9 +52,7 @@ export interface Page<T> {
   nextPageToken?: string;
 }
 
-export type SyncCursor =
-  | { kind: "gmail"; historyId: string }
-  | { kind: "ms-graph"; deltaLinks: Record<string, string> };
+export type SyncCursor = { kind: "ms-graph"; deltaLinks: Record<string, string> };
 
 export interface SyncResult {
   upserts: MessageSummary[];
@@ -94,7 +92,7 @@ export class ProviderError extends Error {
 
 /**
  * Thrown by `syncSince` when the stored cursor is too old for the provider to
- * diff from (Gmail `history.list` 404, Graph delta 410 `resyncRequired`).
+ * diff from (Graph delta 410 `resyncRequired`).
  *
  * This is recoverable, not an error state: the SyncEngine drops the cursor and
  * re-runs a backfill rather than leaving the account permanently stuck.

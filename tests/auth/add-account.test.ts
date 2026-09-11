@@ -37,40 +37,40 @@ describe("addAccount", () => {
     });
     // The loopback must echo back the same state the authorize URL used.
     const factory = () => ({
-      listen: async () => ({ port: 1, redirectUri: "http://127.0.0.1:1" }),
+      listen: async () => ({ port: 1, redirectUri: "http://localhost:1" }),
       waitForCode: async () => ({ code: "CODE", state: capturedState.value }),
       close: vi.fn(),
     });
     const { account } = await addAccount(
-      { kind: "gmail", clientId: "cid", clientSecret: "sec" },
+      { kind: "ms-graph", clientId: "cid" },
       { ...deps, makeLoopback: factory },
     );
-    expect(account).toMatchObject({ id: "acct-1", email: "me@example.com", provider: "gmail", clientId: "cid" });
+    expect(account).toMatchObject({ id: "acct-1", email: "me@example.com", provider: "ms-graph", clientId: "cid" });
     expect(deps.openBrowser).toHaveBeenCalledOnce();
     const [, form] = (deps.post as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(form.code).toBe("CODE");
-    expect(form.client_secret).toBe("sec");
+    expect(form.client_secret).toBeUndefined();
   });
 
-  it("stores the Google client secret via TokenManager", async () => {
+  it("stores only the refresh token via TokenManager", async () => {
     const capturedState = { value: "" };
     const deps = baseDeps({
       openBrowser: (url: string) => { capturedState.value = new URL(url).searchParams.get("state")!; },
     });
     const factory = () => ({
-      listen: async () => ({ port: 1, redirectUri: "http://127.0.0.1:1" }),
+      listen: async () => ({ port: 1, redirectUri: "http://localhost:1" }),
       waitForCode: async () => ({ code: "C", state: capturedState.value }),
       close: vi.fn(),
     });
-    await addAccount({ kind: "gmail", clientId: "cid", clientSecret: "goog" }, { ...deps, makeLoopback: factory });
-    expect(deps.secrets.setSecret).toHaveBeenCalledWith("obsidian-email-acct-1-secret", "goog");
+    await addAccount({ kind: "ms-graph", clientId: "cid" }, { ...deps, makeLoopback: factory });
     expect(deps.secrets.setSecret).toHaveBeenCalledWith("obsidian-email-acct-1-refresh", "rt");
+    expect(deps.secrets.setSecret).toHaveBeenCalledOnce();
   });
 
   it("throws AuthError on a state mismatch and closes the loopback", async () => {
     const close = vi.fn();
     const factory = () => ({
-      listen: async () => ({ port: 1, redirectUri: "http://127.0.0.1:1" }),
+      listen: async () => ({ port: 1, redirectUri: "http://localhost:1" }),
       waitForCode: async () => ({ code: "C", state: "WRONG" }),
       close,
     });

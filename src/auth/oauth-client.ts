@@ -50,7 +50,7 @@ function assertOk(status: number, json: unknown): asserts json is Record<string,
 export async function exchangeCode(
   cfg: OAuthProviderConfig,
   post: HttpPost,
-  args: { clientId: string; clientSecret?: string; code: string; verifier: string; redirectUri: string },
+  args: { clientId: string; code: string; verifier: string; redirectUri: string },
 ): Promise<TokenResponse> {
   const form: Record<string, string> = {
     grant_type: "authorization_code",
@@ -59,7 +59,6 @@ export async function exchangeCode(
     code_verifier: args.verifier,
     redirect_uri: args.redirectUri,
   };
-  if (cfg.usesClientSecret && args.clientSecret) form.client_secret = args.clientSecret;
   const { status, json } = await post(cfg.tokenUrl, form);
   assertOk(status, json);
   return mapToken(json);
@@ -68,14 +67,13 @@ export async function exchangeCode(
 export async function refreshAccessToken(
   cfg: OAuthProviderConfig,
   post: HttpPost,
-  args: { clientId: string; clientSecret?: string; refreshToken: string },
+  args: { clientId: string; refreshToken: string },
 ): Promise<TokenResponse> {
   const form: Record<string, string> = {
     grant_type: "refresh_token",
     client_id: args.clientId,
     refresh_token: args.refreshToken,
   };
-  if (cfg.usesClientSecret && args.clientSecret) form.client_secret = args.clientSecret;
   const { status, json } = await post(cfg.tokenUrl, form);
   assertOk(status, json);
   return mapToken(json);

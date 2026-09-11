@@ -5,7 +5,7 @@ import type { ViewModel, ViewState } from "../../src/view/view-model";
 
 function fakeVm(state: Partial<ViewState> = {}): ViewModel {
   const full: ViewState = {
-    accounts: [{ id: "a1", email: "a1@x.com", provider: "gmail", status: "idle" }],
+    accounts: [{ id: "a1", email: "a1@x.com", provider: "ms-graph", status: "idle" }],
     activeAccountId: "a1",
     mailboxes: [{ id: "INBOX", name: "Inbox", kind: "inbox" }],
     activeMailboxId: "INBOX",

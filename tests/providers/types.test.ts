@@ -10,9 +10,9 @@ describe("types", () => {
     expect(p.retryable).toBe(true);
   });
 
-  it("SyncCursor discriminates on kind", () => {
-    const c: SyncCursor = { kind: "gmail", historyId: "1" };
-    expect(c.kind === "gmail" && c.historyId).toBe("1");
+  it("SyncCursor carries per-folder delta links", () => {
+    const c: SyncCursor = { kind: "ms-graph", deltaLinks: { INBOX: "d1" } };
+    expect(c.kind === "ms-graph" && c.deltaLinks.INBOX).toBe("d1");
   });
 
   it("MessageSummary is structurally usable", () => {

@@ -9,7 +9,7 @@ interface Seed {
 }
 
 export class FakeProvider implements MailProvider {
-  readonly kind = "gmail" as const;
+  readonly kind = "ms-graph" as const;
   pageSize = 2;
 
   private mailboxes: Mailbox[];
@@ -69,12 +69,15 @@ export class FakeProvider implements MailProvider {
     return { items, nextPageToken: next < all.length ? String(next) : undefined };
   }
 
+  // A single synthetic "seq" key stands in for the real per-folder delta
+  // links a live provider tracks; it's enough to exercise the shared
+  // MailProvider contract without modeling Graph's per-folder deltas.
   async initialCursor(): Promise<SyncCursor> {
-    return { kind: "gmail", historyId: String(this.seq) };
+    return { kind: "ms-graph", deltaLinks: { seq: String(this.seq) } };
   }
 
   async syncSince(cursor: SyncCursor): Promise<SyncResult> {
-    const since = cursor.kind === "gmail" ? Number(cursor.historyId) : 0;
+    const since = Number(cursor.deltaLinks.seq ?? 0);
     const upserts: MessageSummary[] = [];
     const deletions: string[] = [];
     for (const entry of this.log) {
@@ -84,7 +87,7 @@ export class FakeProvider implements MailProvider {
     }
     return {
       upserts, deletions, mailboxChanges: [],
-      cursor: { kind: "gmail", historyId: String(this.seq) },
+      cursor: { kind: "ms-graph", deltaLinks: { seq: String(this.seq) } },
     };
   }
 }
