@@ -4,9 +4,18 @@
 /* --- Mail view shell (Task 24) --- */
 .oe-grid {
   display: grid;
-  grid-template-columns: 56px 200px minmax(260px, 1fr) minmax(320px, 1.4fr);
   height: 100%;
   overflow: hidden;
+}
+/* Obsidian's base theme sizes bare <button> elements for one-line labels
+   (fixed height, no-wrap). Every row/tile below is a <button> that needs to
+   size to its own (often multi-line) content instead — without this, later
+   rows visibly overlap earlier ones because the button box is shorter than
+   what's rendered inside it. `.oe-account` is the one deliberate exception
+   (a fixed 40x40 avatar tile) and keeps its own explicit height. */
+.oe-grid button {
+  box-sizing: border-box;
+  font: inherit;
 }
 .oe-accounts { display: flex; flex-direction: column; gap: 6px; padding: 8px; border-right: 1px solid var(--background-modifier-border); }
 .oe-account { position: relative; width: 40px; height: 40px; border-radius: 8px; background: var(--background-secondary); color: var(--text-normal); cursor: pointer; }
@@ -23,16 +32,49 @@
 }
 .oe-avatar { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; font-size: 12px; font-weight: 600; }
 .oe-account.oe-add { display: flex; align-items: center; justify-content: center; font-size: 18px; color: var(--text-muted); }
-.oe-mailboxes { display: flex; flex-direction: column; padding: 8px; border-right: 1px solid var(--background-modifier-border); overflow-y: auto; }
-.oe-mailbox { display: flex; justify-content: space-between; padding: 6px 8px; border-radius: 6px; background: transparent; color: var(--text-normal); cursor: pointer; text-align: left; }
+.oe-mailboxes { display: flex; flex-direction: column; gap: 2px; padding: 8px; border-right: 1px solid var(--background-modifier-border); overflow-y: auto; }
+.oe-mailbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: auto;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-normal);
+  cursor: pointer;
+  text-align: left;
+  line-height: 1.3;
+}
 .oe-mailbox.is-active { background: var(--background-modifier-hover); }
-.oe-list-col { display: flex; flex-direction: column; border-right: 1px solid var(--background-modifier-border); overflow: hidden; }
+.oe-mailbox-icon { display: flex; align-items: center; justify-content: center; width: 16px; height: 16px; flex-shrink: 0; color: var(--text-muted); }
+.oe-mailbox-icon svg { width: 14px; height: 14px; }
+.oe-mailbox.is-active .oe-mailbox-icon { color: var(--text-normal); }
+.oe-mailbox-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.oe-resizer { cursor: col-resize; background: transparent; }
+.oe-resizer:hover, .oe-resizer:active { background: var(--interactive-accent); opacity: 0.5; }
+
+.oe-list-col { display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
 .oe-notice { padding: 6px 10px; background: var(--background-modifier-error); color: var(--text-on-accent); font-size: 12px; }
 .oe-message-list { overflow-y: auto; flex: 1; }
-.oe-thread-row { padding: 8px 10px; border-bottom: 1px solid var(--background-modifier-border); cursor: pointer; }
+.oe-thread-row {
+  display: block;
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  padding: 8px 10px;
+  border: none;
+  border-bottom: 1px solid var(--background-modifier-border);
+  text-align: left;
+  white-space: normal;
+  line-height: 1.3;
+  background: transparent;
+  color: var(--text-normal);
+  cursor: pointer;
+}
 .oe-thread-row.is-unread .oe-thread-subject { font-weight: 600; }
 .oe-thread-row.is-open { background: var(--background-modifier-hover); }
-.oe-thread-row { display: block; width: 100%; text-align: left; background: transparent; color: var(--text-normal); }
 .oe-thread-line1, .oe-thread-line2 { display: flex; align-items: baseline; gap: 6px; }
 .oe-thread-sender { font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .oe-thread-date { color: var(--text-muted); font-size: 11px; flex-shrink: 0; }
@@ -42,18 +84,19 @@
 .oe-dot { color: var(--interactive-accent); font-size: 9px; }
 .oe-clip { font-size: 0.85em; opacity: 0.7; }
 .oe-empty, .oe-loading { padding: 12px; color: var(--text-muted); font-size: 13px; }
-.oe-load-more { margin: 8px; padding: 6px 10px; border: 1px solid var(--background-modifier-border); border-radius: 6px; background: var(--background-secondary); color: var(--text-normal); cursor: pointer; }
-.oe-mailbox-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.oe-load-more { height: auto; margin: 8px; padding: 6px 10px; border: 1px solid var(--background-modifier-border); border-radius: 6px; background: var(--background-secondary); color: var(--text-normal); cursor: pointer; }
 .oe-count { background: var(--background-modifier-border); border-radius: 8px; padding: 0 6px; font-size: 11px; }
-.oe-reading-pane { overflow-y: auto; padding: 12px 16px; }
+.oe-reading-pane { overflow-y: auto; padding: 12px 16px; border-left: 1px solid var(--background-modifier-border); min-width: 0; }
 .obsidian-email-message-body { max-width: 800px; overflow-x: auto; contain: content; }
 .obsidian-email-message-body img { max-width: 100%; height: auto; }
 .obsidian-email-plaintext { white-space: pre-wrap; word-break: break-word; font-family: var(--font-text); }
-.oe-load-images { margin: 8px 0; padding: 6px 10px; border: 1px solid var(--background-modifier-border); border-radius: 6px; cursor: pointer; background: var(--background-secondary); }
+.oe-load-images { height: auto; margin: 8px 0; padding: 6px 10px; border: 1px solid var(--background-modifier-border); border-radius: 6px; cursor: pointer; background: var(--background-secondary); }
 .oe-search { display: flex; gap: 6px; padding: 8px; border-bottom: 1px solid var(--background-modifier-border); flex-wrap: wrap; }
 .oe-search input { flex: 1; }
-.oe-search-pill { background: var(--background-modifier-hover); border: 1px solid var(--background-modifier-border); border-radius: 12px; padding: 2px 10px; font-size: 12px; color: var(--text-normal); cursor: pointer; }
+.oe-search-pill { height: auto; background: var(--background-modifier-hover); border: 1px solid var(--background-modifier-border); border-radius: 12px; padding: 2px 10px; font-size: 12px; color: var(--text-normal); cursor: pointer; }
 .oe-refresh.is-syncing { display: inline-block; animation: oe-spin 0.8s linear infinite; color: var(--interactive-accent); }
+.oe-toggle-reading { height: auto; background: transparent; border: 1px solid var(--background-modifier-border); border-radius: 4px; padding: 2px 8px; color: var(--text-muted); cursor: pointer; font-size: 12px; }
+.oe-toggle-reading:hover { color: var(--text-normal); }
 
 @keyframes oe-spin {
   from { transform: rotate(0deg); }
@@ -64,7 +107,7 @@
 .oe-reading-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
 .oe-reading-head h3 { flex: 1; margin: 0; font-size: 15px; }
 .oe-reading-head span { color: var(--text-muted); font-size: 12px; }
-.oe-close { background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 13px; }
+.oe-close { height: auto; background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 13px; }
 .oe-message-block { border: 1px solid var(--background-modifier-border); border-radius: 6px; margin-bottom: 8px; overflow: hidden; }
 .oe-message-head { display: flex; align-items: baseline; gap: 8px; padding: 8px 10px; cursor: pointer; background: var(--background-secondary); }
 .oe-message-block.is-expanded .oe-message-head { border-bottom: 1px solid var(--background-modifier-border); }
@@ -73,4 +116,4 @@
 .oe-message-meta { padding: 6px 10px; font-size: 12px; color: var(--text-muted); }
 .oe-message-body-host { padding: 6px 10px; }
 .oe-attachments { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px; }
-.oe-attachment { border: 1px solid var(--background-modifier-border); border-radius: 6px; padding: 4px 8px; font-size: 12px; background: var(--background-secondary); color: var(--text-normal); cursor: pointer; }
+.oe-attachment { height: auto; border: 1px solid var(--background-modifier-border); border-radius: 6px; padding: 4px 8px; font-size: 12px; background: var(--background-secondary); color: var(--text-normal); cursor: pointer; }

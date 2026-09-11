@@ -149,3 +149,9 @@ export const requestUrl = async (): Promise<unknown> => ({
   arrayBuffer: new ArrayBuffer(0),
   headers: {},
 });
+
+// Real `setIcon` injects an inline Lucide `<svg>`; the stub just records what
+// was requested, on the element itself, so a test can assert on it directly.
+export function setIcon(parent: HTMLElement, iconId: string): void {
+  parent.setAttribute("data-icon", iconId);
+}

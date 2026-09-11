@@ -1,11 +1,13 @@
 <script lang="ts">
-  let { query, active, syncing, onSearch, onClear, onRefresh }: {
+  let { query, active, syncing, readingPaneCollapsed, onSearch, onClear, onRefresh, onToggleReadingPane }: {
     query: string;
     active: boolean;
     syncing: boolean;
+    readingPaneCollapsed: boolean;
     onSearch: (q: string) => void;
     onClear: () => void;
     onRefresh: () => void;
+    onToggleReadingPane: () => void;
   } = $props();
 
   // Seed the local editable value from the initial prop; the $effect below
@@ -26,6 +28,13 @@
     aria-label={syncing ? "Syncing" : "Refresh"}
     title={syncing ? "Syncing…" : "Refresh"}
   >⟳</button>
+  <button
+    type="button"
+    class="oe-toggle-reading"
+    onclick={onToggleReadingPane}
+    aria-label={readingPaneCollapsed ? "Show reading pane" : "Hide reading pane"}
+    title={readingPaneCollapsed ? "Show reading pane" : "Hide reading pane"}
+  >{readingPaneCollapsed ? "☐" : "▣"}</button>
   {#if active}
     <button type="button" class="oe-search-pill" onclick={onClear}>Search: {query} ✕</button>
   {/if}

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { mount, unmount } from "svelte";
+import { mount, unmount, flushSync } from "svelte";
 import App from "../../src/view/App.svelte";
 import type { ViewModel, ViewState } from "../../src/view/view-model";
 
@@ -68,6 +68,49 @@ describe("App.svelte smoke", () => {
     const app = mount(App, { target: host, props: { vm: fakeVm(), onAddAccount: () => {} } });
     expect(host.querySelector(".oe-syncing-ring")).toBeNull();
     expect(host.querySelector(".oe-refresh.is-syncing")).toBeNull();
+    unmount(app);
+  });
+
+  it("renders two resizers and a reading pane by default", () => {
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: { vm: fakeVm(), onAddAccount: () => {} } });
+    expect(host.querySelectorAll('[role="separator"]')).toHaveLength(2);
+    expect(host.querySelector(".oe-reading-pane")).not.toBeNull();
+    unmount(app);
+  });
+
+  it("collapses and re-expands the reading pane via the toolbar toggle", () => {
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: { vm: fakeVm(), onAddAccount: () => {} } });
+    const toggle = host.querySelector<HTMLButtonElement>(".oe-toggle-reading")!;
+
+    toggle.click();
+    flushSync();
+    expect(host.querySelector(".oe-reading-pane")).toBeNull();
+    expect(host.querySelectorAll('[role="separator"]')).toHaveLength(1);
+
+    toggle.click();
+    flushSync();
+    expect(host.querySelector(".oe-reading-pane")).not.toBeNull();
+    expect(host.querySelectorAll('[role="separator"]')).toHaveLength(2);
+    unmount(app);
+  });
+
+  it("widens the mailbox column when its resizer is dragged", () => {
+    localStorage.clear();
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: { vm: fakeVm(), onAddAccount: () => {} } });
+    const grid = host.querySelector<HTMLElement>(".oe-grid")!;
+    const resizer = host.querySelectorAll('[role="separator"]')[0] as HTMLElement;
+    const widthBefore = grid.style.gridTemplateColumns;
+
+    resizer.dispatchEvent(new PointerEvent("pointerdown", { pointerId: 1, clientX: 100, bubbles: true }));
+    resizer.dispatchEvent(new PointerEvent("pointermove", { pointerId: 1, clientX: 160, bubbles: true }));
+    resizer.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1, bubbles: true }));
+    flushSync();
+
+    expect(grid.style.gridTemplateColumns).not.toBe(widthBefore);
+    expect(grid.style.gridTemplateColumns).toContain("260px"); // 200 default + 60px drag
     unmount(app);
   });
 });
