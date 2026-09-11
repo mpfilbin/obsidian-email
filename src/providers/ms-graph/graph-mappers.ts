@@ -83,3 +83,9 @@ export function mapGraphFolders(folders: GraphFolder[]): Mailbox[] {
     unreadCount: f.unreadItemCount,
   }));
 }
+
+export function toGraphRecipients(addresses: Address[]): Array<{ emailAddress: { address: string; name?: string } }> {
+  return addresses.map((a) =>
+    a.name ? { emailAddress: { address: a.email, name: a.name } } : { emailAddress: { address: a.email } },
+  );
+}

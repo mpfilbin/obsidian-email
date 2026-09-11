@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { mapGraphSummary, mapGraphBody, mapGraphFolders } from "../../../src/providers/ms-graph/graph-mappers";
+import { mapGraphSummary, mapGraphBody, mapGraphFolders, toGraphRecipients } from "../../../src/providers/ms-graph/graph-mappers";
 
 const fx = (p: string) => JSON.parse(readFileSync(`tests/fixtures/graph/${p}`, "utf8"));
 
@@ -46,5 +46,18 @@ describe("mapGraphFolders", () => {
     expect(byId.AAADel.kind).toBe("trash");
     expect(byId.AAAJunk.kind).toBe("spam");
     expect(byId.AAAProj.kind).toBe("custom");
+  });
+});
+
+describe("toGraphRecipients", () => {
+  it("maps addresses with and without a display name", () => {
+    expect(toGraphRecipients([{ email: "a@x.com" }, { name: "Bea", email: "b@x.com" }])).toEqual([
+      { emailAddress: { address: "a@x.com" } },
+      { emailAddress: { address: "b@x.com", name: "Bea" } },
+    ]);
+  });
+
+  it("maps an empty list to an empty array", () => {
+    expect(toGraphRecipients([])).toEqual([]);
   });
 });
