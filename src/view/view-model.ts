@@ -1,4 +1,4 @@
-import type { AttachmentMeta, Mailbox, MailProvider, MessageBody, MessageSummary, ProviderKind } from "../providers/types";
+import type { Address, AttachmentMeta, Mailbox, MailProvider, MessageBody, MessageSummary, OutgoingMessage, ProviderKind } from "../providers/types";
 import type { MailCache } from "../cache/mail-cache";
 import type { SyncEngine, SyncStatus } from "../sync/sync-engine";
 import type { SettingsStore } from "../settings/settings-store";
@@ -9,6 +9,19 @@ export interface ThreadView {
   lastDate: number;
   messages: MessageSummary[];
   unread: boolean;
+}
+
+export interface ComposerState {
+  mode: "reply" | "replyAll" | "forward" | "new" | "editDraft";
+  targetMessageId?: string;
+  draftId?: string;
+  to: Address[];
+  cc: Address[];
+  bcc: Address[];
+  subject: string;
+  bodyHtml: string;
+  sending: boolean;
+  error: string | null;
 }
 
 export interface ViewState {
@@ -25,6 +38,7 @@ export interface ViewState {
   openThreadId: string | null;
   openMessages: Array<{ summary: MessageSummary; body?: MessageBody }>;
   notice: string | null;
+  composer: ComposerState | null;
 }
 
 export interface ViewModelDeps {
@@ -67,6 +81,7 @@ export class ViewModel {
     threads: [], hasMore: false, loadingList: false, autoLoadImages: false,
     search: { query: "", active: false },
     openThreadId: null, openMessages: [], notice: null,
+    composer: null,
   };
   private listeners = new Set<(s: ViewState) => void>();
   private unsubSync: Array<() => void> = [];
@@ -240,6 +255,52 @@ export class ViewModel {
 
   closeThread(): void {
     this.set({ openThreadId: null, openMessages: [] });
+  }
+
+  private openComposer(state: Omit<ComposerState, "to" | "cc" | "bcc" | "subject" | "bodyHtml" | "sending" | "error">): void {
+    this.set({
+      composer: {
+        // Explicit undefined defaults (rather than omitting the keys) so
+        // consumers can rely on `targetMessageId`/`draftId` always being
+        // present on the composer object, even when not applicable to `mode`.
+        targetMessageId: undefined, draftId: undefined,
+        ...state,
+        to: [], cc: [], bcc: [], subject: "", bodyHtml: "", sending: false, error: null,
+      },
+    });
+  }
+
+  openReply(messageId: string, mode: "reply" | "replyAll"): void {
+    this.openComposer({ mode, targetMessageId: messageId });
+  }
+
+  openForward(messageId: string): void {
+    this.openComposer({ mode: "forward", targetMessageId: messageId });
+  }
+
+  openNewMessage(): void {
+    this.openComposer({ mode: "new" });
+  }
+
+  updateComposerFields(patch: Partial<Pick<ComposerState, "to" | "cc" | "bcc" | "subject">>): void {
+    if (!this.state.composer) return;
+    this.set({ composer: { ...this.state.composer, ...patch } });
+  }
+
+  updateComposerBody(html: string): void {
+    if (!this.state.composer) return;
+    this.set({ composer: { ...this.state.composer, bodyHtml: html } });
+  }
+
+  hasUnsavedComposerContent(): boolean {
+    const c = this.state.composer;
+    if (!c) return false;
+    // Quill's empty-editor markup is "<p><br></p>"; anything else is content.
+    return c.bodyHtml.trim() !== "" && c.bodyHtml.trim() !== "<p><br></p>";
+  }
+
+  closeComposer(): void {
+    this.set({ composer: null });
   }
 
   renderDeps(): { getInlineAttachment: (cid: string) => Promise<Blob | undefined>; openExternal: (url: string) => void } {

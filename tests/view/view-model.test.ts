@@ -207,3 +207,74 @@ describe("ViewModel", () => {
     expect(ctx.vm.getState().threads.map((t) => t.threadId)).toEqual(["t2", "t1"]);
   });
 });
+
+describe("ViewModel — composer", () => {
+  it("openReply sets mode/targetMessageId and empty recipient/subject fields", async () => {
+    const ctx = await build();
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1)]);
+    await ctx.vm.init();
+    ctx.vm.openReply("m1", "reply");
+    expect(ctx.vm.getState().composer).toEqual({
+      mode: "reply", targetMessageId: "m1", draftId: undefined,
+      to: [], cc: [], bcc: [], subject: "", sending: false, error: null, bodyHtml: "",
+    });
+  });
+
+  it("openForward sets mode=forward with the same shape", async () => {
+    const ctx = await build();
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1)]);
+    await ctx.vm.init();
+    ctx.vm.openForward("m1");
+    expect(ctx.vm.getState().composer).toEqual({
+      mode: "forward", targetMessageId: "m1", draftId: undefined,
+      to: [], cc: [], bcc: [], subject: "", sending: false, error: null, bodyHtml: "",
+    });
+  });
+
+  it("openNewMessage has no targetMessageId or draftId", async () => {
+    const ctx = await build();
+    await ctx.vm.init();
+    ctx.vm.openNewMessage();
+    expect(ctx.vm.getState().composer).toMatchObject({ mode: "new", targetMessageId: undefined, draftId: undefined });
+  });
+
+  it("updateComposerFields patches only the given fields", async () => {
+    const ctx = await build();
+    await ctx.vm.init();
+    ctx.vm.openNewMessage();
+    ctx.vm.updateComposerFields({ subject: "Hi" });
+    ctx.vm.updateComposerFields({ to: [{ email: "a@x.com" }] });
+    expect(ctx.vm.getState().composer).toMatchObject({ subject: "Hi", to: [{ email: "a@x.com" }] });
+  });
+
+  it("updateComposerBody mirrors the live Quill HTML into state", async () => {
+    const ctx = await build();
+    await ctx.vm.init();
+    ctx.vm.openNewMessage();
+    ctx.vm.updateComposerBody("<p>draft text</p>");
+    expect(ctx.vm.getState().composer?.bodyHtml).toBe("<p>draft text</p>");
+  });
+
+  it("hasUnsavedComposerContent is false with nothing open, true once body text exists", async () => {
+    const ctx = await build();
+    await ctx.vm.init();
+    expect(ctx.vm.hasUnsavedComposerContent()).toBe(false);
+    ctx.vm.openNewMessage();
+    expect(ctx.vm.hasUnsavedComposerContent()).toBe(false); // empty editor
+    ctx.vm.updateComposerBody("<p>hi</p>");
+    expect(ctx.vm.hasUnsavedComposerContent()).toBe(true);
+  });
+
+  it("closeComposer clears composer with no provider calls", async () => {
+    const ctx = await build();
+    await ctx.vm.init();
+    ctx.vm.openNewMessage();
+    ctx.vm.updateComposerBody("<p>hi</p>");
+    ctx.vm.closeComposer();
+    expect(ctx.vm.getState().composer).toBeNull();
+    expect(ctx.provider.sentLog).toEqual([]);
+    expect(ctx.provider.drafts.size).toBe(0);
+  });
+});
