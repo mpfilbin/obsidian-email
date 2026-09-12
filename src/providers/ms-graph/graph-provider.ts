@@ -149,7 +149,15 @@ export class GraphProvider implements MailProvider {
   }
 
   async deleteDraft(id: string): Promise<void> {
+    await this.deleteMessage(id);
+  }
+
+  async deleteMessage(id: string): Promise<void> {
     await this.request<void>(`/me/messages/${id}`, "DELETE");
+  }
+
+  async archiveMessage(id: string): Promise<void> {
+    await this.request<void>(`/me/messages/${id}/move`, "POST", { destinationId: "archive" });
   }
 
   private async syncFolders(): Promise<string[]> {

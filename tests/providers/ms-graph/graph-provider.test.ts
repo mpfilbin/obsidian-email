@@ -178,6 +178,47 @@ describe("GraphProvider — send/draft", () => {
   });
 });
 
+describe("GraphProvider — delete/archive", () => {
+  it("deleteMessage DELETEs /me/messages/{id}", async () => {
+    const req = vi.fn(async () => resp({}, 204));
+    const p = new GraphProvider({ http: { request: req }, getAccessToken: async () => "at" });
+    await p.deleteMessage("m1");
+    expect(req.mock.calls[0][0].url).toBe("https://graph.microsoft.com/v1.0/me/messages/m1");
+    expect(req.mock.calls[0][0].method).toBe("DELETE");
+  });
+
+  it("archiveMessage POSTs /me/messages/{id}/move with destinationId: archive", async () => {
+    const req = vi.fn(async () => resp({}, 200));
+    const p = new GraphProvider({ http: { request: req }, getAccessToken: async () => "at" });
+    await p.archiveMessage("m1");
+    expect(req.mock.calls[0][0].url).toBe("https://graph.microsoft.com/v1.0/me/messages/m1/move");
+    expect(req.mock.calls[0][0].method).toBe("POST");
+    expect(JSON.parse(req.mock.calls[0][0].body)).toEqual({ destinationId: "archive" });
+  });
+
+  it("deleteDraft still DELETEs /me/messages/{id} after the refactor", async () => {
+    const req = vi.fn(async () => resp({}, 204));
+    const p = new GraphProvider({ http: { request: req }, getAccessToken: async () => "at" });
+    await p.deleteDraft("draft-1");
+    expect(req.mock.calls[0][0].url).toBe("https://graph.microsoft.com/v1.0/me/messages/draft-1");
+    expect(req.mock.calls[0][0].method).toBe("DELETE");
+  });
+
+  it("deleteMessage throws AuthError on 401", async () => {
+    const req = vi.fn(async () => resp({}, 401));
+    const p = new GraphProvider({ http: { request: req }, getAccessToken: async () => "at" });
+    await expect(p.deleteMessage("m1")).rejects.toMatchObject({ name: "AuthError" });
+  });
+
+  it("archiveMessage retries once on 429 then succeeds", async () => {
+    let calls = 0;
+    const req = vi.fn(async () => (++calls === 1 ? resp({}, 429, { "retry-after": "0" }) : resp({}, 200)));
+    const p = new GraphProvider({ http: { request: req }, getAccessToken: async () => "at" });
+    await p.archiveMessage("m1");
+    expect(calls).toBe(2);
+  });
+});
+
 runMailProviderContract("GraphProvider", async () => {
   const msgs = new Map<string, Record<string, unknown>>();
   const deltaLog: Array<{ seq: number; id: string; removed?: boolean }> = [];
