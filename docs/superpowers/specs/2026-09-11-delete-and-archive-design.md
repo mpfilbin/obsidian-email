@@ -47,7 +47,7 @@ async archiveMessage(id: string): Promise<void> {
 
 Both reuse the exact same auth/retry/error-classification path already proven in SP2 (401/403 → `AuthError`, 429/5xx → retry via `withRetry`, other non-2xx → `ProviderError`).
 
-**`FakeProvider`** gets matching in-memory implementations: a `deleteMessage(id)` that removes the message from its fake store (or moves it to a fake "deleted" bucket so tests can assert on permanent-vs-recoverable behavior if needed), and an `archiveMessage(id)` that moves it to a fake "archive" bucket — mirroring the existing `sentLog`/`drafts` pattern from SP2's `FakeProvider` additions, so `ViewModel` tests exercise real state transitions rather than assertions against a mock.
+**`FakeProvider`** gets matching in-memory implementations: `deleteMessage(id)` unconditionally removes the message from its in-memory store, and `archiveMessage(id)` moves it to a fake "archive" bucket. The provider layer never distinguishes soft from permanent delete — that distinction is entirely Graph's server-side behavior based on the message's current folder, invisible to and unneeded by the client — so `FakeProvider` doesn't simulate it either. (The client-visible soft-vs-permanent distinction is the `isTrashMailbox`-gated confirmation prompt in §4, which is tested at the `App.svelte`/component level against the *mailbox kind*, not against provider behavior.) This mirrors the existing `sentLog`/`drafts` pattern from SP2's `FakeProvider` additions, so `ViewModel` tests exercise real state transitions rather than assertions against a mock.
 
 ## 3. ViewModel actions
 
@@ -63,7 +63,7 @@ async archiveThread(threadId: string): Promise<void>;
 **Single-message actions** (`deleteMessage`, `archiveMessage`):
 1. Call the provider method for `messageId`.
 2. On success, remove the message from the local cache (`cache.deleteMessages(accountId, [messageId])`) and reload the current list (`reloadList()`), matching the existing refresh pattern used elsewhere in the file.
-3. If the acted-on message's thread was open in the reading pane, close it (`closeThread()`-equivalent), since the message it was showing no longer belongs in the current mailbox view.
+3. If the acted-on message's thread was open in the reading pane, close it (call the existing `closeThread()`), since the message it was showing no longer belongs in the current mailbox view.
 4. On failure, set `notice` following the existing error-message conventions (including the `AuthError` → re-authenticate hint already established in SP2).
 
 **Thread-level actions** (`deleteThread`, `archiveThread`):
@@ -71,7 +71,7 @@ async archiveThread(threadId: string): Promise<void>;
 2. Call the provider method for each message **concurrently** (`Promise.allSettled`, not sequential) — these are independent Graph calls with their own retry logic, so there's no reason to serialize them.
 3. Remove only the successfully-acted-on messages from the cache, then reload the list.
 4. If any calls failed, report partial failure explicitly via `notice` (e.g. `"Archived 2 of 3 messages — 1 failed."`) rather than silently claiming full success. Never leave the user believing an action fully succeeded when it partially didn't.
-5. If the acted-on thread was open in the reading pane, close it.
+5. If the acted-on thread was open in the reading pane, close it (call the existing `closeThread()`) — even on partial failure, since at least one message in that thread has moved out of the current mailbox view.
 
 ## 4. Confirmation for permanent delete
 
