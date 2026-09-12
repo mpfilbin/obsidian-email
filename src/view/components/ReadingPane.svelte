@@ -5,7 +5,7 @@
   import Composer from "./Composer.svelte";
   import MessageBlock from "./MessageBlock.svelte";
 
-  let { openMessages, autoLoadImages, renderDeps, onClose, onDownload, isDraftsMailbox, activeComposerMessageId, composerMode, composerProps, onOpenReply, onOpenForward, onEditDraft }: {
+  let { openMessages, autoLoadImages, renderDeps, onClose, onDownload, isDraftsMailbox, isArchiveMailbox, isTrashMailbox, activeComposerMessageId, composerMode, composerProps, onOpenReply, onOpenForward, onEditDraft, onArchiveMessage, onDeleteMessage }: {
     openMessages: ViewState["openMessages"];
     /** `prefs.autoLoadImages` — when true, remote content renders immediately. */
     autoLoadImages: boolean;
@@ -13,12 +13,16 @@
     onClose: () => void;
     onDownload: (messageId: string, att: AttachmentMeta) => void;
     isDraftsMailbox: boolean;
+    isArchiveMailbox: boolean;
+    isTrashMailbox: boolean;
     activeComposerMessageId: string | null;
     composerMode: "reply" | "replyAll" | "forward" | "new" | "editDraft" | null;
     composerProps: ComposerFieldProps | null;
     onOpenReply: (messageId: string, mode: "reply" | "replyAll") => void;
     onOpenForward: (messageId: string) => void;
     onEditDraft: (messageId: string) => void;
+    onArchiveMessage: (messageId: string) => void;
+    onDeleteMessage: (messageId: string) => void;
   } = $props();
 
   let expandedId = $state<string | null>(null);
@@ -60,11 +64,15 @@
         onToggle={() => (expandedId = expandedId === m.summary.id ? null : m.summary.id)}
         onDownload={(att) => onDownload(m.summary.id, att)}
         {isDraftsMailbox}
+        {isArchiveMailbox}
+        {isTrashMailbox}
         composerMode={activeComposerMessageId === m.summary.id ? composerMode : null}
         composerProps={activeComposerMessageId === m.summary.id ? composerProps : null}
         onOpenReply={(mode) => onOpenReply(m.summary.id, mode)}
         onOpenForward={() => onOpenForward(m.summary.id)}
         onEditDraft={() => onEditDraft(m.summary.id)}
+        onArchive={() => onArchiveMessage(m.summary.id)}
+        onDelete={() => onDeleteMessage(m.summary.id)}
       />
     {/each}
   {/if}

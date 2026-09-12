@@ -201,3 +201,73 @@ describe("ReadingPane — reply/forward/edit actions", () => {
     unmount(app);
   });
 });
+
+describe("ReadingPane — archive/delete actions", () => {
+  const baseProps = (over: Partial<Record<string, unknown>> = {}) => ({
+    openMessages: open(), autoLoadImages: false, renderDeps, onClose: () => {}, onDownload: vi.fn(),
+    isDraftsMailbox: false, isArchiveMailbox: false, isTrashMailbox: false,
+    activeComposerMessageId: null, composerMode: null, composerProps: null,
+    onOpenReply: vi.fn(), onOpenForward: vi.fn(), onEditDraft: vi.fn(),
+    onArchiveMessage: vi.fn(), onDeleteMessage: vi.fn(),
+    ...over,
+  });
+
+  it("shows Archive and Delete on a message in a normal mailbox", () => {
+    const host = document.createElement("div");
+    const app = mount(ReadingPane, { target: host, props: baseProps() });
+    flushSync();
+    expect(host.querySelector('[data-action="archive"]')).not.toBeNull();
+    expect(host.querySelector('[data-action="delete"]')).not.toBeNull();
+    unmount(app);
+  });
+
+  it("hides Reply/Reply-all/Forward and Archive in the Trash mailbox, but keeps Delete", () => {
+    const host = document.createElement("div");
+    const app = mount(ReadingPane, { target: host, props: baseProps({ isTrashMailbox: true }) });
+    flushSync();
+    expect(host.querySelector('[data-action="reply"]')).toBeNull();
+    expect(host.querySelector('[data-action="archive"]')).toBeNull();
+    expect(host.querySelector('[data-action="delete"]')).not.toBeNull();
+    unmount(app);
+  });
+
+  it("hides Archive (but not Delete) in the Archive mailbox, keeping Reply/Reply-all/Forward", () => {
+    const host = document.createElement("div");
+    const app = mount(ReadingPane, { target: host, props: baseProps({ isArchiveMailbox: true }) });
+    flushSync();
+    expect(host.querySelector('[data-action="reply"]')).not.toBeNull();
+    expect(host.querySelector('[data-action="archive"]')).toBeNull();
+    expect(host.querySelector('[data-action="delete"]')).not.toBeNull();
+    unmount(app);
+  });
+
+  it("in Drafts, shows Edit and Delete but not Archive", () => {
+    const host = document.createElement("div");
+    const app = mount(ReadingPane, { target: host, props: baseProps({ isDraftsMailbox: true }) });
+    flushSync();
+    expect(host.querySelector('[data-action="edit-draft"]')).not.toBeNull();
+    expect(host.querySelector('[data-action="archive"]')).toBeNull();
+    expect(host.querySelector('[data-action="delete"]')).not.toBeNull();
+    unmount(app);
+  });
+
+  it("clicking Archive calls onArchiveMessage(m1)", () => {
+    const onArchiveMessage = vi.fn();
+    const host = document.createElement("div");
+    const app = mount(ReadingPane, { target: host, props: baseProps({ onArchiveMessage }) });
+    flushSync();
+    host.querySelector<HTMLElement>('[data-action="archive"]')!.click();
+    expect(onArchiveMessage).toHaveBeenCalledWith("m1");
+    unmount(app);
+  });
+
+  it("clicking Delete calls onDeleteMessage(m1)", () => {
+    const onDeleteMessage = vi.fn();
+    const host = document.createElement("div");
+    const app = mount(ReadingPane, { target: host, props: baseProps({ onDeleteMessage }) });
+    flushSync();
+    host.querySelector<HTMLElement>('[data-action="delete"]')!.click();
+    expect(onDeleteMessage).toHaveBeenCalledWith("m1");
+    unmount(app);
+  });
+});
