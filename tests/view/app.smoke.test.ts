@@ -96,6 +96,15 @@ describe("App.svelte smoke", () => {
     unmount(app);
   });
 
+  it("clicking New message opens the new-message composer", () => {
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: { vm: fakeVm(), onAddAccount: () => {} } });
+    flushSync();
+    host.querySelector<HTMLElement>(".oe-new-message")!.click();
+    expect(host.querySelector(".oe-composer")).not.toBeNull();
+    unmount(app);
+  });
+
   it("widens the mailbox column when its resizer is dragged", () => {
     localStorage.clear();
     const host = document.createElement("div");
