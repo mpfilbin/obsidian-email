@@ -26,6 +26,10 @@
 
   let pendingSwitch = $state<(() => void) | null>(null);
 
+  // Guards every action that would replace or hide the open composer: the
+  // compose actions themselves, and the navigations (account/mailbox/thread)
+  // that make the ViewModel drop it. Without the guard those navigations would
+  // silently discard unsaved content.
   function requestSwitch(open: () => void): void {
     if (vm.hasUnsavedComposerContent()) pendingSwitch = open;
     else open();
@@ -84,13 +88,13 @@
   <AccountSwitcher
     accounts={state.accounts}
     activeId={state.activeAccountId}
-    onSelect={(id) => vm.selectAccount(id)}
+    onSelect={(id) => requestSwitch(() => vm.selectAccount(id))}
     {onAddAccount}
   />
   <MailboxList
     mailboxes={state.mailboxes}
     activeId={state.activeMailboxId}
-    onSelect={(id) => vm.selectMailbox(id)}
+    onSelect={(id) => requestSwitch(() => vm.selectMailbox(id))}
   />
   <Resizer label="Resize mailbox list" onDrag={resizeMailboxes} />
   <section class="oe-list-col">
@@ -113,7 +117,7 @@
       openThreadId={state.openThreadId}
       hasMore={state.hasMore}
       loading={state.loadingList}
-      onOpen={(id) => vm.openThread(id)}
+      onOpen={(id) => requestSwitch(() => vm.openThread(id))}
       onLoadMore={() => vm.loadMore()}
     />
   </section>
@@ -123,7 +127,7 @@
       openMessages={state.openMessages}
       autoLoadImages={state.autoLoadImages}
       renderDeps={vm.renderDeps()}
-      onClose={() => vm.closeThread()}
+      onClose={() => requestSwitch(() => vm.closeThread())}
       onDownload={(id, att) => vm.downloadAttachmentToDisk(id, att)}
       {isDraftsMailbox}
       activeComposerMessageId={state.composer?.targetMessageId ?? null}

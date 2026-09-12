@@ -208,12 +208,14 @@ export class ViewModel {
       activeMailboxId: inbox?.id ?? null,
       search: { query: "", active: false },
       openThreadId: null, openMessages: [],
+      // Navigation always drops the composer (see `closeThread`).
+      composer: null,
     });
     if (inbox) await this.selectMailbox(inbox.id);
   }
 
   async selectMailbox(id: string): Promise<void> {
-    this.set({ activeMailboxId: id, search: { query: "", active: false } });
+    this.set({ activeMailboxId: id, search: { query: "", active: false }, composer: null });
     this.providerListToken = undefined;
     this.providerListExhausted = false;
     await this.reloadList();
@@ -267,7 +269,11 @@ export class ViewModel {
     const acct = this.state.activeAccountId;
     if (!acct) return;
     const summaries = await this.deps.cache.getThreadMessages(acct, threadId);
-    this.set({ openThreadId: threadId, openMessages: summaries.map((s) => ({ summary: s })) });
+    this.set({
+      openThreadId: threadId, openMessages: summaries.map((s) => ({ summary: s })),
+      // Navigation always drops the composer (see `closeThread`).
+      composer: null,
+    });
     const provider = this.deps.getProvider(acct);
     for (const s of summaries) {
       let body = await this.deps.cache.getBody(acct, s.id);
@@ -288,8 +294,18 @@ export class ViewModel {
     }
   }
 
+  /**
+   * Navigating away always drops the composer, which the view otherwise can't
+   * render: a `new`/`editDraft` composer takes over the whole reading pane
+   * (hiding the thread that was just opened), and a reply/forward composer
+   * lives inside the `MessageBlock` for its `targetMessageId`, which a
+   * different thread, mailbox or account no longer shows. Clearing is safe
+   * because it has no provider side effects (no `deleteDraft`) and because
+   * App.svelte routes these navigations through the same save/discard prompt
+   * as the compose actions, so unsaved content is resolved before we get here.
+   */
   closeThread(): void {
-    this.set({ openThreadId: null, openMessages: [] });
+    this.set({ openThreadId: null, openMessages: [], composer: null });
   }
 
   private openComposer(state: Omit<ComposerState, "to" | "cc" | "bcc" | "subject" | "bodyHtml" | "sending" | "error" | "savedSnapshot">): void {

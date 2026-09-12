@@ -218,6 +218,66 @@ describe("App.svelte — composer wiring", () => {
     unmount(app);
   });
 
+  it("opening a thread with an unmodified composer open goes straight through", () => {
+    const openThread = vi.fn();
+    const vm = fakeVm({ composer: {
+      mode: "new", to: [], cc: [], bcc: [], subject: "", bodyHtml: "", sending: false, error: null, savedSnapshot: null,
+    } });
+    Object.assign(vm, { openThread });
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    flushSync();
+    host.querySelector<HTMLElement>(".oe-thread-row")!.click();
+    flushSync();
+    // The ViewModel drops the (empty) composer itself, so no prompt and no
+    // orphaned composer hiding the thread that just opened.
+    expect(openThread).toHaveBeenCalledWith("t1");
+    expect(host.querySelector(".oe-composer-prompt")).toBeNull();
+    unmount(app);
+  });
+
+  it("selecting a mailbox with an unmodified composer open goes straight through", () => {
+    const selectMailbox = vi.fn();
+    const vm = fakeVm({
+      mailboxes: [{ id: "INBOX", name: "Inbox", kind: "inbox" }, { id: "SENT", name: "Sent", kind: "sent" }],
+      composer: { mode: "new", to: [], cc: [], bcc: [], subject: "", bodyHtml: "", sending: false, error: null, savedSnapshot: null },
+    });
+    Object.assign(vm, { selectMailbox });
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    flushSync();
+    host.querySelectorAll<HTMLElement>(".oe-mailbox")[1].click();
+    flushSync();
+    expect(selectMailbox).toHaveBeenCalledWith("SENT");
+    expect(host.querySelector(".oe-composer-prompt")).toBeNull();
+    unmount(app);
+  });
+
+  it("navigating away with unsaved composer content prompts instead of discarding it", () => {
+    const selectMailbox = vi.fn();
+    const openThread = vi.fn();
+    const vm = fakeVm({
+      mailboxes: [{ id: "INBOX", name: "Inbox", kind: "inbox" }, { id: "SENT", name: "Sent", kind: "sent" }],
+      composer: { mode: "new", to: [], cc: [], bcc: [], subject: "", bodyHtml: "<p>hi</p>", sending: false, error: null, savedSnapshot: null },
+    });
+    Object.assign(vm, { selectMailbox, openThread, hasUnsavedComposerContent: () => true });
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    flushSync();
+    host.querySelectorAll<HTMLElement>(".oe-mailbox")[1].click();
+    flushSync();
+    expect(selectMailbox).not.toHaveBeenCalled();
+    expect(host.querySelector(".oe-composer-prompt")).not.toBeNull();
+
+    host.querySelector<HTMLElement>(".oe-composer-prompt-cancel")!.click();
+    flushSync();
+    host.querySelector<HTMLElement>(".oe-thread-row")!.click();
+    flushSync();
+    expect(openThread).not.toHaveBeenCalled();
+    expect(host.querySelector(".oe-composer-prompt")).not.toBeNull();
+    unmount(app);
+  });
+
   it("passes isDraftsMailbox=true to ReadingPane when the active mailbox kind is drafts", () => {
     // fakeVm's base fixture has an "m1" message but leaves openMessages empty
     // by default (no thread auto-opened); open it explicitly here so a

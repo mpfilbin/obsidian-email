@@ -234,6 +234,62 @@ describe("ViewModel", () => {
   });
 });
 
+describe("ViewModel — navigation closes the composer", () => {
+  let ctx: Awaited<ReturnType<typeof build>>;
+  beforeEach(async () => {
+    ctx = await build();
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1), sum("m2", "t2", 2)]);
+    await ctx.vm.init();
+  });
+
+  it("openThread clears an untouched composer so the reading pane shows the thread", async () => {
+    ctx.vm.openNewMessage();
+    await ctx.vm.openThread("t1");
+    // ReadingPane renders a new/editDraft composer *instead of* the message
+    // list, so a stale one left open hides the thread that just loaded.
+    expect(ctx.vm.getState().composer).toBeNull();
+    expect(ctx.vm.getState().openMessages.map((m) => m.summary.id)).toEqual(["m1"]);
+  });
+
+  it("openThread clears a reply composer whose target is no longer rendered", async () => {
+    await ctx.vm.openThread("t1");
+    ctx.vm.openReply("m1", "reply");
+    await ctx.vm.openThread("t2");
+    expect(ctx.vm.getState().composer).toBeNull();
+  });
+
+  it("closeThread clears the composer", async () => {
+    await ctx.vm.openThread("t1");
+    ctx.vm.openReply("m1", "reply");
+    ctx.vm.closeThread();
+    expect(ctx.vm.getState().composer).toBeNull();
+  });
+
+  it("selectMailbox clears the composer and still loads the new mailbox", async () => {
+    ctx.vm.openNewMessage();
+    await ctx.vm.selectMailbox("SENT");
+    expect(ctx.vm.getState().composer).toBeNull();
+    expect(ctx.vm.getState().activeMailboxId).toBe("SENT");
+  });
+
+  it("selectAccount clears the composer", async () => {
+    ctx.vm.openNewMessage();
+    await ctx.vm.selectAccount("a1");
+    expect(ctx.vm.getState().composer).toBeNull();
+  });
+
+  it("clearing the composer on navigation never deletes the draft behind it", async () => {
+    ctx.vm.openNewMessage();
+    ctx.vm.updateComposerBody("<p>saved once</p>");
+    await ctx.vm.saveDraft();
+    const draftId = ctx.vm.getState().composer?.draftId!;
+    await ctx.vm.selectMailbox("SENT");
+    expect(ctx.vm.getState().composer).toBeNull();
+    expect(ctx.provider.drafts.has(draftId)).toBe(true);
+  });
+});
+
 describe("ViewModel — composer", () => {
   it("openReply sets mode/targetMessageId and empty recipient/subject fields", async () => {
     const ctx = await build();
