@@ -94,6 +94,18 @@
     pendingDelete = null;
   }
 
+  // Archive/Delete on a row are navigation-like: when the acted-on message or
+  // thread is the open one, the ViewModel calls `closeThread()`, which drops
+  // the composer along with the reading pane (see its doc comment) — so they
+  // have to pass through the same save/discard prompt as every other
+  // navigation. They also inherit requestDelete's "one prompt at a time" rule:
+  // a click landing while a switch prompt is already up is ignored rather than
+  // replacing the navigation the user is being asked about.
+  function requestRowAction(run: () => void): void {
+    if (pendingSwitch) return;
+    requestSwitch(run);
+  }
+
   const composerFieldProps = $derived(state.composer ? {
     to: state.composer.to, cc: state.composer.cc, bcc: state.composer.bcc,
     subject: state.composer.subject, bodyHtml: state.composer.bodyHtml,
@@ -164,8 +176,8 @@
       {isDraftsMailbox}
       {isArchiveMailbox}
       {isTrashMailbox}
-      onArchiveThread={(id) => vm.archiveThread(id)}
-      onDeleteThread={(id) => requestDelete("thread", () => vm.deleteThread(id))}
+      onArchiveThread={(id) => requestRowAction(() => vm.archiveThread(id))}
+      onDeleteThread={(id) => requestRowAction(() => requestDelete("thread", () => vm.deleteThread(id)))}
     />
   </section>
   {#if !readingPaneCollapsed}
@@ -185,8 +197,8 @@
       onOpenReply={(id, mode) => requestSwitch(() => vm.openReply(id, mode))}
       onOpenForward={(id) => requestSwitch(() => vm.openForward(id))}
       onEditDraft={(id) => requestSwitch(() => vm.openDraftForEdit(id))}
-      onArchiveMessage={(id) => vm.archiveMessage(id)}
-      onDeleteMessage={(id) => requestDelete("message", () => vm.deleteMessage(id))}
+      onArchiveMessage={(id) => requestRowAction(() => vm.archiveMessage(id))}
+      onDeleteMessage={(id) => requestRowAction(() => requestDelete("message", () => vm.deleteMessage(id)))}
     />
   {/if}
   {#if pendingSwitch}

@@ -1,7 +1,20 @@
 import { describe, it, expect, vi } from "vitest";
 import { mount, unmount, flushSync } from "svelte";
 import App from "../../src/view/App.svelte";
-import type { ViewModel, ViewState } from "../../src/view/view-model";
+import type { ThreadView, ViewModel, ViewState } from "../../src/view/view-model";
+
+/** A one-message thread shaped like the fixture's default row, for the tests
+ *  below that need a second row to act on. */
+function threadView(threadId: string, messageId: string, subject: string): ThreadView {
+  return {
+    threadId, subject, lastDate: 1, unread: true,
+    messages: [{
+      id: messageId, threadId, mailboxIds: ["INBOX"], from: { name: "Jane", email: "j@x.com" },
+      to: [], cc: [], subject, snippet: "hi there", date: 1,
+      unread: true, hasAttachments: false, flagged: false,
+    }],
+  };
+}
 
 function fakeVm(state: Partial<ViewState> = {}): ViewModel {
   let full: ViewState = {
@@ -474,6 +487,97 @@ describe("App.svelte — delete/archive wiring", () => {
     // The stale delete-confirm must be gone, and the delete must never have fired.
     expect(host.querySelector(".oe-delete-confirm")).toBeNull();
     expect(deleteThread).not.toHaveBeenCalled();
+    unmount(app);
+  });
+
+  it("archiving another thread with unsaved composer content prompts first, then proceeds once resolved", async () => {
+    const archiveThread = vi.fn();
+    const discardDraft = vi.fn().mockResolvedValue(undefined);
+    // A reply composer open on t1 with typed content, acting on t2's row: the
+    // ViewModel would close the thread (and with it the composer) behind the
+    // user's back, so the save/discard prompt has to come first.
+    const vm = fakeVm({
+      threads: [threadView("t1", "m1", "Hello"), threadView("t2", "m2", "Second")],
+      openThreadId: "t1",
+      composer: { mode: "reply", targetMessageId: "m1", to: [], cc: [], bcc: [], subject: "", bodyHtml: "<p>typed reply</p>", sending: false, error: null, savedSnapshot: null },
+    });
+    Object.assign(vm, { archiveThread, discardDraft, hasUnsavedComposerContent: () => true });
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    flushSync();
+
+    host.querySelectorAll<HTMLElement>('[data-action="archive"]')[1].click();
+    flushSync();
+    expect(archiveThread).not.toHaveBeenCalled();
+    expect(host.querySelector(".oe-composer-prompt")).not.toBeNull();
+
+    host.querySelector<HTMLElement>(".oe-composer-prompt-discard")!.click();
+    // Two microtask ticks to drain the async handler's `await vm.discardDraft()`
+    // continuation — matching the existing pattern above.
+    await Promise.resolve();
+    await Promise.resolve();
+    flushSync();
+    expect(discardDraft).toHaveBeenCalledOnce();
+    expect(archiveThread).toHaveBeenCalledWith("t2");
+    unmount(app);
+  });
+
+  it("deleting another thread with unsaved composer content prompts first, then proceeds once resolved", async () => {
+    const deleteThread = vi.fn();
+    const discardDraft = vi.fn().mockResolvedValue(undefined);
+    const vm = fakeVm({
+      threads: [threadView("t1", "m1", "Hello"), threadView("t2", "m2", "Second")],
+      openThreadId: "t1",
+      composer: { mode: "reply", targetMessageId: "m1", to: [], cc: [], bcc: [], subject: "", bodyHtml: "<p>typed reply</p>", sending: false, error: null, savedSnapshot: null },
+    });
+    Object.assign(vm, { deleteThread, discardDraft, hasUnsavedComposerContent: () => true });
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    flushSync();
+
+    host.querySelectorAll<HTMLElement>('[data-action="delete"]')[1].click();
+    flushSync();
+    expect(deleteThread).not.toHaveBeenCalled();
+    expect(host.querySelector(".oe-composer-prompt")).not.toBeNull();
+
+    host.querySelector<HTMLElement>(".oe-composer-prompt-discard")!.click();
+    await Promise.resolve();
+    await Promise.resolve();
+    flushSync();
+    // Outside Trash and outside search, the delete needs no second prompt.
+    expect(deleteThread).toHaveBeenCalledWith("t2");
+    unmount(app);
+  });
+
+  it("archiving a message with unsaved composer content prompts first instead of dropping the composer", async () => {
+    const archiveMessage = vi.fn();
+    const discardDraft = vi.fn().mockResolvedValue(undefined);
+    const vm = fakeVm({
+      openThreadId: "t1",
+      openMessages: [{ summary: {
+        id: "m1", threadId: "t1", mailboxIds: ["INBOX"], from: { name: "Jane", email: "j@x.com" },
+        to: [], cc: [], subject: "Hello", snippet: "hi there", date: 1,
+        unread: true, hasAttachments: false, flagged: false,
+      } }],
+      composer: { mode: "reply", targetMessageId: "m1", to: [], cc: [], bcc: [], subject: "", bodyHtml: "<p>typed reply</p>", sending: false, error: null, savedSnapshot: null },
+    });
+    Object.assign(vm, { archiveMessage, discardDraft, hasUnsavedComposerContent: () => true });
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    flushSync();
+
+    // The reading pane's own Archive button (the list's row buttons come first).
+    const archiveButtons = host.querySelectorAll<HTMLElement>('[data-action="archive"]');
+    archiveButtons[archiveButtons.length - 1].click();
+    flushSync();
+    expect(archiveMessage).not.toHaveBeenCalled();
+    expect(host.querySelector(".oe-composer-prompt")).not.toBeNull();
+
+    host.querySelector<HTMLElement>(".oe-composer-prompt-discard")!.click();
+    await Promise.resolve();
+    await Promise.resolve();
+    flushSync();
+    expect(archiveMessage).toHaveBeenCalledWith("m1");
     unmount(app);
   });
 
