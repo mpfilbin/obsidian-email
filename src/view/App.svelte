@@ -74,6 +74,7 @@
   // else it's recoverable (Graph moves the message to Deleted Items), so it
   // fires immediately with no prompt.
   function requestDelete(label: string, run: () => void): void {
+    if (pendingSwitch) return; // one prompt at a time — don't queue a delete-confirm behind an active switch prompt
     if (isTrashMailbox) pendingDelete = { label, run };
     else run();
   }

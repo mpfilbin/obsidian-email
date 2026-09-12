@@ -416,6 +416,44 @@ describe("App.svelte — delete/archive wiring", () => {
     unmount(app);
   });
 
+  it("ignores a Delete click on a Trash row while the compose-switch prompt is already showing", async () => {
+    const deleteThread = vi.fn();
+    const vm = fakeVm({
+      mailboxes: [{ id: "TRASH", name: "Deleted Items", kind: "trash" }],
+      activeMailboxId: "TRASH",
+      composer: { mode: "reply", targetMessageId: "m1", to: [], cc: [], bcc: [], subject: "", bodyHtml: "<p>hi</p>", sending: false, error: null, savedSnapshot: null },
+    });
+    Object.assign(vm, { deleteThread, hasUnsavedComposerContent: () => true });
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    flushSync();
+    // Trigger the switch prompt first, the same way
+    // "navigating away with unsaved composer content prompts instead of
+    // discarding it" (above) does: click a mailbox row while
+    // hasUnsavedComposerContent() is true.
+    host.querySelector<HTMLElement>('.oe-mailbox')!.click();
+    flushSync();
+    expect(host.querySelector(".oe-composer-prompt")).not.toBeNull();
+
+    // Now click Delete on the Trash row underneath — it should be ignored, not queued.
+    host.querySelector<HTMLElement>('[data-action="delete"]')!.click();
+    flushSync();
+
+    // Resolve the switch prompt.
+    host.querySelector<HTMLElement>(".oe-composer-prompt-discard")!.click();
+    // Two microtask ticks to drain the async handler's `await vm.discardDraft()`
+    // continuation — matching the existing pattern above for flushing an
+    // awaited mock (see "prompt's Discard calls vm.discardDraft...").
+    await Promise.resolve();
+    await Promise.resolve();
+    flushSync();
+
+    // The delete-confirm prompt must NOT have surfaced, and deleteThread must never have been called.
+    expect(host.querySelector(".oe-delete-confirm")).toBeNull();
+    expect(deleteThread).not.toHaveBeenCalled();
+    unmount(app);
+  });
+
   it("passes isArchiveMailbox/isTrashMailbox derived from the active mailbox's kind down to MessageList", () => {
     const vm = fakeVm({ mailboxes: [{ id: "ARCHIVE", name: "Archive", kind: "archive" }], activeMailboxId: "ARCHIVE" });
     const host = document.createElement("div");
