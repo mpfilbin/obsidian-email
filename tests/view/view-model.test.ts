@@ -659,6 +659,33 @@ describe("ViewModel — delete/archive", () => {
     expect(ctx.vm.getState().notice).toMatch(/1 of 2/);
   });
 
+  it("deleteThread sets a notice when the cache read fails instead of rejecting", async () => {
+    const ctx = await build();
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1)]);
+    ctx.provider.addMessage(sum("m1", "t1", 1));
+    await ctx.vm.init();
+    vi.spyOn(ctx.cache, "getThreadMessages").mockRejectedValue(new Error("db is closed"));
+
+    await ctx.vm.deleteThread("t1");
+
+    expect(ctx.vm.getState().notice).toContain("db is closed");
+  });
+
+  it("archiveThread reports a thread with no cached messages instead of silently doing nothing", async () => {
+    const ctx = await build();
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1)]);
+    ctx.provider.addMessage(sum("m1", "t1", 1));
+    await ctx.vm.init();
+    const spy = vi.spyOn(ctx.provider, "archiveMessage");
+
+    // A search hit whose thread was never cached: nothing to act on.
+    await ctx.vm.archiveThread("t-never-cached");
+
+    expect(spy).not.toHaveBeenCalled();
+    expect(ctx.vm.getState().notice).toMatch(/couldn't find any messages/i);
+  });
 });
 
 describe("ViewModel — delete/archive during an active search", () => {

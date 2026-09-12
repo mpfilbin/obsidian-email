@@ -487,19 +487,34 @@ export class ViewModel {
     const acct = this.state.activeAccountId;
     const provider = acct ? this.deps.getProvider(acct) : undefined;
     if (!acct || !provider) return;
-    const messages = await this.deps.cache.getThreadMessages(acct, threadId);
-    const results = await Promise.allSettled(messages.map((m) => action(provider, m.id)));
-    const succeededIds = messages.filter((_, i) => results[i].status === "fulfilled").map((m) => m.id);
-    const failedCount = results.length - succeededIds.length;
-    if (succeededIds.length) await this.deps.cache.deleteMessages(acct, succeededIds);
-    if (this.state.openThreadId === threadId) this.closeThread();
-    await this.reloadListUnlessSearching();
-    if (failedCount > 0) {
-      this.set({
-        notice: succeededIds.length === 0
-          ? `Couldn't ${pastTense.toLowerCase()} this thread.`
-          : `${pastTense} ${succeededIds.length} of ${messages.length} messages — ${failedCount} failed.`,
-      });
+    try {
+      const messages = await this.deps.cache.getThreadMessages(acct, threadId);
+      // Nothing cached under this threadId — a search hit whose conversation
+      // was never independently cached, say. There is nothing to act on, and
+      // the partial-failure notice below can't fire for an empty input, so say
+      // so explicitly rather than appearing to do nothing at all.
+      if (messages.length === 0) {
+        this.set({ notice: "Couldn't find any messages in that thread." });
+        return;
+      }
+      const results = await Promise.allSettled(messages.map((m) => action(provider, m.id)));
+      const succeededIds = messages.filter((_, i) => results[i].status === "fulfilled").map((m) => m.id);
+      const failedCount = results.length - succeededIds.length;
+      if (succeededIds.length) await this.deps.cache.deleteMessages(acct, succeededIds);
+      if (this.state.openThreadId === threadId) this.closeThread();
+      await this.reloadListUnlessSearching();
+      if (failedCount > 0) {
+        this.set({
+          notice: succeededIds.length === 0
+            ? `Couldn't ${pastTense.toLowerCase()} this thread.`
+            : `${pastTense} ${succeededIds.length} of ${messages.length} messages — ${failedCount} failed.`,
+        });
+      }
+    } catch (err) {
+      // The cache reads/writes and the reload can all throw (an IndexedDB
+      // failure, say); without this the rejection escapes unhandled and the
+      // user is told nothing. Mirrors `actOnMessage`.
+      this.set({ notice: this.errorMessage(err) });
     }
   }
 
