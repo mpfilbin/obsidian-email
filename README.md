@@ -86,6 +86,18 @@ re-create the app or change the Client ID.
   you to save (new-message drafts only) or discard first if it holds unsaved
   changes. A draft you opened but didn't change is left exactly as it was.
 
+## Deleting and archiving mail
+
+- **Archive** and **Delete** buttons appear on each thread in the message
+  list and on each expanded message in the reading pane.
+- Deleting moves a message to your Deleted Items folder — it's recoverable
+  from there (or from Outlook Web) like normal. Deleting **from** Deleted
+  Items itself is permanent, and asks for confirmation first.
+- Archive is hidden while you're in Drafts, Archive, or Deleted Items
+  (nothing to archive there); Delete is always available.
+- Reply, reply-all, and forward are hidden in Deleted Items — restore a
+  message to another folder first if you need to act on it.
+
 ## Security notes
 
 - **Refresh tokens** are stored in Obsidian's `secretStorage`, which is backed
@@ -129,6 +141,5 @@ Design spec and implementation plan:
 
 ## Roadmap
 
-- **SP3** — mail actions (archive, delete, mark read/unread, move, flag) and a
-  unified inbox across accounts.
+- **SP3** — mark read/unread, flag, move to custom folders, bulk selection, and a unified inbox across accounts.
 - **SP4** — polish: keyboard navigation, notifications, performance, settings UX.
