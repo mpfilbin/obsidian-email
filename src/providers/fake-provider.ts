@@ -133,4 +133,16 @@ export class FakeProvider implements MailProvider {
     if (!this.drafts.has(id)) throw new Error(`no such draft: ${id}`);
     this.drafts.delete(id);
   }
+
+  async deleteMessage(id: string): Promise<void> {
+    if (!this.messages.has(id)) throw new Error(`no such message: ${id}`);
+    this.removeMessage(id);
+  }
+
+  async archiveMessage(id: string): Promise<void> {
+    const m = this.messages.get(id);
+    if (!m) throw new Error(`no such message: ${id}`);
+    const moved: MessageSummary = { ...m, mailboxIds: ["ARCHIVE"] };
+    this.addMessage(moved);
+  }
 }

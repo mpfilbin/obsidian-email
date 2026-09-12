@@ -73,3 +73,46 @@ describe("FakeProvider — send/draft behavior", () => {
     await expect(p.deleteDraft("nope")).rejects.toThrow();
   });
 });
+
+describe("FakeProvider — delete/archive", () => {
+  it("deleteMessage removes the message entirely", async () => {
+    const p = new FakeProvider({ messages: [
+      { id: "m1", threadId: "t1", mailboxIds: ["INBOX"], from: { email: "a@x.com" }, to: [], cc: [],
+        subject: "s", snippet: "", date: 1, unread: false, hasAttachments: false, flagged: false },
+    ] });
+    await p.deleteMessage("m1");
+    const page = await p.listMessages("INBOX");
+    expect(page.items).toEqual([]);
+  });
+
+  it("deleteMessage throws for an unknown id", async () => {
+    const p = new FakeProvider();
+    await expect(p.deleteMessage("nope")).rejects.toThrow();
+  });
+
+  it("archiveMessage moves the message to the ARCHIVE mailbox", async () => {
+    const p = new FakeProvider({ messages: [
+      { id: "m1", threadId: "t1", mailboxIds: ["INBOX"], from: { email: "a@x.com" }, to: [], cc: [],
+        subject: "s", snippet: "", date: 1, unread: false, hasAttachments: false, flagged: false },
+    ] });
+    await p.archiveMessage("m1");
+    expect((await p.listMessages("INBOX")).items).toEqual([]);
+    expect((await p.listMessages("ARCHIVE")).items.map((m) => m.id)).toEqual(["m1"]);
+  });
+
+  it("archiveMessage throws for an unknown id", async () => {
+    const p = new FakeProvider();
+    await expect(p.archiveMessage("nope")).rejects.toThrow();
+  });
+
+  it("both actions are visible to syncSince (log-backed)", async () => {
+    const p = new FakeProvider({ messages: [
+      { id: "m1", threadId: "t1", mailboxIds: ["INBOX"], from: { email: "a@x.com" }, to: [], cc: [],
+        subject: "s", snippet: "", date: 1, unread: false, hasAttachments: false, flagged: false },
+    ] });
+    const cursor = await p.initialCursor();
+    await p.archiveMessage("m1");
+    const result = await p.syncSince(cursor);
+    expect(result.upserts.map((m) => m.mailboxIds)).toEqual([["ARCHIVE"]]);
+  });
+});

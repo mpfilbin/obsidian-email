@@ -105,6 +105,15 @@ export interface MailProvider {
 
   /** Permanently deletes a draft. */
   deleteDraft(id: string): Promise<void>;
+
+  /** DELETE /me/messages/{id}. Graph moves the message to Deleted Items from
+   *  any other folder, and permanently deletes it if it's already in Deleted
+   *  Items — there is no client-side soft/permanent distinction here; Graph's
+   *  own server-side behavior handles it based on the message's current folder. */
+  deleteMessage(id: string): Promise<void>;
+
+  /** Moves a message to the Archive well-known folder. */
+  archiveMessage(id: string): Promise<void>;
 }
 
 /** Thrown when the account must re-authenticate (refresh failed / revoked). */
