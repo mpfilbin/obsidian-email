@@ -146,7 +146,13 @@
 /* Quill re-skin: no Quill CSS is imported (this project's esbuild config
    bundles to a single main.js with no secondary CSS output); these rules
    target Quill's real classes directly with Obsidian's theme variables. */
-.oe-composer-editor { border: 1px solid var(--background-modifier-border); border-radius: 6px; overflow: hidden; }
+/* No overflow:hidden here: this element becomes Quill's .ql-container, and
+   Quill appends its link tooltip (.ql-tooltip) as a direct child of it,
+   positioned absolutely near the text selection. overflow:hidden would clip
+   the tooltip whenever it extends past this element's edges (e.g. near the
+   left edge of a narrow composer) — confirmed against quill.core.css /
+   quill.snow.css, neither of which sets overflow on .ql-container. */
+.oe-composer-editor { border: 1px solid var(--background-modifier-border); border-radius: 6px; }
 /* Scoped to .oe-composer (the outer wrapper), not .oe-composer-editor:
    Quill inserts the toolbar as a DOM SIBLING before the element it's
    initialized on (our .oe-composer-editor div becomes .ql-container
