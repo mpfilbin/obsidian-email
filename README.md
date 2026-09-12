@@ -95,8 +95,9 @@ re-create the app or change the Client ID.
   Items itself is permanent, and asks for confirmation first.
 - Archive is hidden while you're in Drafts, Archive, or Deleted Items
   (nothing to archive there); Delete is always available.
-- Reply, reply-all, and forward are hidden in Deleted Items — restore a
-  message to another folder first if you need to act on it.
+- Reply, reply-all, and forward are hidden in Deleted Items. Moving a message
+  back out of Deleted Items isn't supported here — do that in Outlook Web
+  first if you need to act on it.
 
 ## Security notes
 
