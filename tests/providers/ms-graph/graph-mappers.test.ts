@@ -16,6 +16,16 @@ describe("mapGraphSummary", () => {
     expect(m.date).toBe(Date.parse("2026-09-03T21:05:00Z"));
     expect(m.cc[0]).toEqual({ name: "Team", email: "team@example.com" });
   });
+
+  it("carries bccRecipients (drafts/sent items) and defaults to an empty list", () => {
+    const src = fx("message.json");
+    expect(mapGraphSummary(src, "AAAInbox").bcc).toEqual([]);
+    const withBcc = mapGraphSummary(
+      { ...src, bccRecipients: [{ emailAddress: { address: "hidden@example.com" } }] },
+      "AAADrafts",
+    );
+    expect(withBcc.bcc).toEqual([{ email: "hidden@example.com" }]);
+  });
 });
 
 describe("mapGraphBody", () => {

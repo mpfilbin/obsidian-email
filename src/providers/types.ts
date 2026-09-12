@@ -30,6 +30,10 @@ export interface MessageSummary {
   from: Address;
   to: Address[];
   cc: Address[];
+  /** Only ever populated for messages the account itself composed (drafts and
+   *  sent items); absent for received mail and for rows cached before this
+   *  field existed, so treat `undefined` as "none". */
+  bcc?: Address[];
   subject: string;
   snippet: string;
   date: number; // epoch ms

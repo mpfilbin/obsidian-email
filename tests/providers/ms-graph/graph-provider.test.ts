@@ -17,6 +17,13 @@ describe("GraphProvider", () => {
     expect(page.nextPageToken).toContain("$skiptoken=PAGE2");
   });
 
+  it("selects bccRecipients so an edited draft can round-trip its Bcc", async () => {
+    const req = vi.fn(async () => resp({ value: [] }));
+    const p = new GraphProvider({ http: { request: req }, getAccessToken: async () => "at" });
+    await p.listMessages("AAADrafts");
+    expect(req.mock.calls[0][0].url).toContain("bccRecipients");
+  });
+
   it("follows a page token URL verbatim", async () => {
     const req = vi.fn(async () => resp({ value: [] }));
     const p = new GraphProvider({ http: { request: req }, getAccessToken: async () => "at" });

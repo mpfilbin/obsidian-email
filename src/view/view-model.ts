@@ -386,16 +386,26 @@ export class ViewModel {
     const acct = this.state.activeAccountId;
     const provider = acct ? this.deps.getProvider(acct) : undefined;
     if (!acct || !provider) return;
-    const summary = (await this.deps.cache.getThreadMessages(acct, messageId)).find((m) => m.id === messageId);
+    // The Edit action only exists inside an expanded MessageBlock, so the
+    // draft's summary is always among the open messages. It must NOT be looked
+    // up through `cache.getThreadMessages(acct, messageId)`: that queries by
+    // threadId, and Graph's conversationId is a distinct opaque id that never
+    // equals the message's own id — a miss there prefills blank recipients and
+    // the next save would overwrite the real draft with them.
+    const summary = this.state.openMessages.find((m) => m.summary.id === messageId)?.summary;
+    if (!summary) {
+      this.set({ notice: "Couldn't open that draft." });
+      return;
+    }
     const body = await provider.getMessageBody(messageId);
     this.set({
       composer: {
         mode: "editDraft",
         draftId: messageId,
-        to: summary?.to ?? [],
-        cc: summary?.cc ?? [],
-        bcc: [],
-        subject: summary?.subject ?? "",
+        to: summary.to,
+        cc: summary.cc,
+        bcc: summary.bcc ?? [],
+        subject: summary.subject,
         bodyHtml: body.html ?? "",
         sending: false,
         error: null,

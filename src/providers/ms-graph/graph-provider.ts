@@ -13,7 +13,7 @@ export interface GraphProviderDeps {
 
 const DEFAULT_BASE = "https://graph.microsoft.com/v1.0";
 const SUMMARY_SELECT =
-  "id,conversationId,subject,bodyPreview,from,toRecipients,ccRecipients,receivedDateTime,isRead,hasAttachments,flag";
+  "id,conversationId,subject,bodyPreview,from,toRecipients,ccRecipients,bccRecipients,receivedDateTime,isRead,hasAttachments,flag";
 const TOP = 25;
 
 /** Pull `error.code` out of a Graph error body, e.g. "resyncRequired". */

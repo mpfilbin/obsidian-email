@@ -13,6 +13,7 @@ export interface GraphMessage {
   from?: GraphRecipient;
   toRecipients?: GraphRecipient[];
   ccRecipients?: GraphRecipient[];
+  bccRecipients?: GraphRecipient[];
   body?: { contentType?: string; content?: string };
   internetMessageHeaders?: Array<{ name: string; value: string }>;
   attachments?: Array<{
@@ -46,6 +47,10 @@ export function mapGraphSummary(m: GraphMessage, folderId: string): MessageSumma
     from: mapGraphAddress(m.from),
     to: (m.toRecipients ?? []).map(mapGraphAddress).filter((a) => a.email),
     cc: (m.ccRecipients ?? []).map(mapGraphAddress).filter((a) => a.email),
+    // Graph only returns recipients here for messages the account composed
+    // (drafts/sent); carried so editing a draft can round-trip its Bcc rather
+    // than silently dropping it on the next save.
+    bcc: (m.bccRecipients ?? []).map(mapGraphAddress).filter((a) => a.email),
     subject: m.subject || "(no subject)",
     snippet: m.bodyPreview ?? "",
     date: m.receivedDateTime ? Date.parse(m.receivedDateTime) : Date.now(),

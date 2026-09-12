@@ -39,6 +39,31 @@ async function build() {
   return { cache, provider, sync, settings, vm };
 }
 
+/**
+ * Puts a draft in the reading pane the way the UI does: a provider-side draft,
+ * a cached summary whose `threadId` is a Graph-style conversation id (never
+ * equal to the message's own id), and the thread opened so the summary lands
+ * in `openMessages` — the only place `openDraftForEdit` can read it from.
+ */
+async function openDraftInReadingPane(ctx: Awaited<ReturnType<typeof build>>): Promise<string> {
+  await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+  await ctx.vm.init();
+  const id = await ctx.provider.createDraft({
+    to: [{ email: "a@x.com" }], cc: [{ email: "c@x.com" }], bcc: [{ email: "b@x.com" }],
+    subject: "Draft subject", bodyHtml: "<p>draft body</p>",
+  });
+  await ctx.cache.upsertMessages("a1", [{
+    id, threadId: "CONV-draft", mailboxIds: ["DRAFTS"], from: { email: "a1@x.com" },
+    to: [{ email: "a@x.com" }], cc: [{ email: "c@x.com" }], bcc: [{ email: "b@x.com" }],
+    subject: "Draft subject", snippet: "", date: 1, unread: false, hasAttachments: false, flagged: false,
+  }]);
+  ctx.provider.getMessageBody = vi.fn().mockResolvedValue({
+    id, html: "<p>draft body</p>", text: null, attachments: [], headers: {},
+  });
+  await ctx.vm.openThread("CONV-draft");
+  return id;
+}
+
 describe("ViewModel", () => {
   let ctx: Awaited<ReturnType<typeof build>>;
   beforeEach(async () => { ctx = await build(); });
@@ -319,8 +344,7 @@ describe("ViewModel — composer", () => {
 
   it("send for mode=editDraft updates then sends the draft, then clears the composer", async () => {
     const ctx = await build();
-    await ctx.vm.init();
-    const id = await ctx.provider.createDraft({ to: [], cc: [], bcc: [], subject: "old", bodyHtml: "<p>old</p>" });
+    const id = await openDraftInReadingPane(ctx);
     await ctx.vm.openDraftForEdit(id);
     ctx.vm.updateComposerFields({ subject: "new" });
     ctx.vm.updateComposerBody("<p>new</p>");
@@ -408,27 +432,27 @@ describe("ViewModel — composer", () => {
     expect(ctx.provider.drafts.size).toBe(0);
   });
 
-  it("openDraftForEdit prefills the composer from the draft's stored fields", async () => {
+  it("openDraftForEdit prefills from the open message even though the draft's threadId is not its id", async () => {
     const ctx = await build();
-    await ctx.vm.init();
-    const id = await ctx.provider.createDraft({
-      to: [{ email: "a@x.com" }], cc: [], bcc: [], subject: "Draft subject", bodyHtml: "<p>draft body</p>",
-    });
-    // openDraftForEdit prefills to/cc/subject from the cached MessageSummary
-    // (looked up by treating the draft id as its own threadId, per a lone
-    // draft's Graph behavior); simulate that summary having already been
-    // synced into the cache.
-    await ctx.cache.upsertMessages("a1", [{
-      id, threadId: id, mailboxIds: ["DRAFTS"], from: { email: "a1@x.com" },
-      to: [{ email: "a@x.com" }], cc: [], subject: "Draft subject", snippet: "",
-      date: 1, unread: false, hasAttachments: false, flagged: false,
-    }]);
-    ctx.provider.getMessageBody = vi.fn().mockResolvedValue({
-      id, html: "<p>draft body</p>", text: null, attachments: [], headers: {},
-    });
+    const id = await openDraftInReadingPane(ctx);
     await ctx.vm.openDraftForEdit(id);
     expect(ctx.vm.getState().composer).toMatchObject({
-      mode: "editDraft", draftId: id, to: [{ email: "a@x.com" }], subject: "Draft subject", bodyHtml: "<p>draft body</p>",
+      mode: "editDraft", draftId: id,
+      to: [{ email: "a@x.com" }], cc: [{ email: "c@x.com" }], bcc: [{ email: "b@x.com" }],
+      subject: "Draft subject", bodyHtml: "<p>draft body</p>",
     });
+  });
+
+  it("send after openDraftForEdit keeps the draft's recipients and subject instead of blanking them", async () => {
+    const ctx = await build();
+    const id = await openDraftInReadingPane(ctx);
+    const update = vi.spyOn(ctx.provider, "updateDraft");
+    await ctx.vm.openDraftForEdit(id);
+    await ctx.vm.send();
+    expect(update).toHaveBeenCalledWith(id, {
+      to: [{ email: "a@x.com" }], cc: [{ email: "c@x.com" }], bcc: [{ email: "b@x.com" }],
+      subject: "Draft subject", bodyHtml: "<p>draft body</p>",
+    });
+    expect(ctx.provider.sentLog).toContainEqual({ kind: "draft", draftId: id });
   });
 });
