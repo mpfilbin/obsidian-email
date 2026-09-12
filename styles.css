@@ -3,6 +3,7 @@
 
 /* --- Mail view shell (Task 24) --- */
 .oe-grid {
+  position: relative;
   display: grid;
   height: 100%;
   overflow: hidden;
