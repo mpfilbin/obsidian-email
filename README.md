@@ -81,8 +81,10 @@ re-create the app or change the Client ID.
 - **Drafts** are only available for new messages, not in-progress replies:
   hit **Save draft** instead of **Send**, and find it later in the **Drafts**
   mailbox, where it opens back into the composer via **Edit**.
-- Only one composer is open at a time; switching while one has unsent text
-  prompts you to save (new-message drafts only) or discard first.
+- Only one composer is open at a time. Switching composers — or navigating
+  to another message, mailbox or account — closes the open one, and prompts
+  you to save (new-message drafts only) or discard first if it holds unsaved
+  changes. A draft you opened but didn't change is left exactly as it was.
 
 ## Security notes
 
