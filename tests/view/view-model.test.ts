@@ -244,6 +244,7 @@ describe("ViewModel — composer", () => {
     expect(ctx.vm.getState().composer).toEqual({
       mode: "reply", targetMessageId: "m1", draftId: undefined,
       to: [], cc: [], bcc: [], subject: "", sending: false, error: null, bodyHtml: "",
+      savedSnapshot: null,
     });
   });
 
@@ -256,6 +257,7 @@ describe("ViewModel — composer", () => {
     expect(ctx.vm.getState().composer).toEqual({
       mode: "forward", targetMessageId: "m1", draftId: undefined,
       to: [], cc: [], bcc: [], subject: "", sending: false, error: null, bodyHtml: "",
+      savedSnapshot: null,
     });
   });
 
@@ -290,6 +292,55 @@ describe("ViewModel — composer", () => {
     ctx.vm.openNewMessage();
     expect(ctx.vm.hasUnsavedComposerContent()).toBe(false); // empty editor
     ctx.vm.updateComposerBody("<p>hi</p>");
+    expect(ctx.vm.hasUnsavedComposerContent()).toBe(true);
+  });
+
+  it("hasUnsavedComposerContent is true for a new message with recipients but an empty body", async () => {
+    const ctx = await build();
+    await ctx.vm.init();
+    ctx.vm.openNewMessage();
+    ctx.vm.updateComposerFields({ to: [{ email: "a@x.com" }], subject: "Hi" });
+    expect(ctx.vm.hasUnsavedComposerContent()).toBe(true);
+  });
+
+  it("hasUnsavedComposerContent is false for an untouched draft opened for edit", async () => {
+    const ctx = await build();
+    const id = await openDraftInReadingPane(ctx);
+    await ctx.vm.openDraftForEdit(id);
+    // Nothing edited yet: switching away must not prompt, because answering
+    // "Discard" there would delete a draft the user never changed.
+    expect(ctx.vm.hasUnsavedComposerContent()).toBe(false);
+    // Quill re-emits its own serialization of the loaded body on mount.
+    ctx.vm.updateComposerBody("<p>draft body</p>");
+    expect(ctx.vm.hasUnsavedComposerContent()).toBe(false);
+  });
+
+  it("hasUnsavedComposerContent is true when only the subject of an open draft changed", async () => {
+    const ctx = await build();
+    const id = await openDraftInReadingPane(ctx);
+    await ctx.vm.openDraftForEdit(id);
+    ctx.vm.updateComposerFields({ subject: "Draft subject (edited)" });
+    expect(ctx.vm.hasUnsavedComposerContent()).toBe(true);
+  });
+
+  it("hasUnsavedComposerContent resets to false after a successful saveDraft", async () => {
+    const ctx = await build();
+    const id = await openDraftInReadingPane(ctx);
+    await ctx.vm.openDraftForEdit(id);
+    ctx.vm.updateComposerFields({ cc: [{ email: "extra@x.com" }] });
+    ctx.vm.updateComposerBody("<p>edited</p>");
+    expect(ctx.vm.hasUnsavedComposerContent()).toBe(true);
+    await ctx.vm.saveDraft();
+    expect(ctx.vm.hasUnsavedComposerContent()).toBe(false);
+  });
+
+  it("hasUnsavedComposerContent stays true after a failed saveDraft", async () => {
+    const ctx = await build();
+    await ctx.vm.init();
+    ctx.vm.openNewMessage();
+    ctx.vm.updateComposerBody("<p>hi</p>");
+    vi.spyOn(ctx.provider, "createDraft").mockRejectedValue(new Error("network down"));
+    await ctx.vm.saveDraft();
     expect(ctx.vm.hasUnsavedComposerContent()).toBe(true);
   });
 

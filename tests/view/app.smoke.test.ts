@@ -45,7 +45,7 @@ function fakeVm(state: Partial<ViewState> = {}): ViewModel {
     downloadAttachment: vi.fn(), downloadAttachmentToDisk: vi.fn(),
     openReply: vi.fn(), openForward: vi.fn(),
     openNewMessage: vi.fn(() => {
-      set({ composer: { mode: "new", to: [], cc: [], bcc: [], subject: "", bodyHtml: "", sending: false, error: null } });
+      set({ composer: { mode: "new", to: [], cc: [], bcc: [], subject: "", bodyHtml: "", sending: false, error: null, savedSnapshot: null } });
     }),
     openDraftForEdit: vi.fn(), updateComposerFields: vi.fn(), updateComposerBody: vi.fn(),
     hasUnsavedComposerContent: vi.fn().mockReturnValue(false),
@@ -162,7 +162,7 @@ describe("App.svelte — composer wiring", () => {
   it("switching composers with unsaved content shows a save/discard/cancel prompt instead of switching immediately", () => {
     const openNewMessage = vi.fn();
     const vm = fakeVm({ composer: {
-      mode: "new", to: [], cc: [], bcc: [], subject: "", bodyHtml: "<p>hi</p>", sending: false, error: null,
+      mode: "new", to: [], cc: [], bcc: [], subject: "", bodyHtml: "<p>hi</p>", sending: false, error: null, savedSnapshot: null,
     } });
     (vm as unknown as { openNewMessage: typeof openNewMessage; hasUnsavedComposerContent: () => boolean }).openNewMessage = openNewMessage;
     (vm as unknown as { hasUnsavedComposerContent: () => boolean }).hasUnsavedComposerContent = () => true;
@@ -180,7 +180,7 @@ describe("App.svelte — composer wiring", () => {
     const discardDraft = vi.fn().mockResolvedValue(undefined);
     const openNewMessage = vi.fn();
     const vm = fakeVm({ composer: {
-      mode: "reply", targetMessageId: "m1", to: [], cc: [], bcc: [], subject: "", bodyHtml: "<p>hi</p>", sending: false, error: null,
+      mode: "reply", targetMessageId: "m1", to: [], cc: [], bcc: [], subject: "", bodyHtml: "<p>hi</p>", sending: false, error: null, savedSnapshot: null,
     } });
     Object.assign(vm, { discardDraft, openNewMessage, hasUnsavedComposerContent: () => true });
     const host = document.createElement("div");
@@ -203,7 +203,7 @@ describe("App.svelte — composer wiring", () => {
   it("prompt's Cancel leaves the current composer open and does not switch", () => {
     const openNewMessage = vi.fn();
     const vm = fakeVm({ composer: {
-      mode: "new", to: [], cc: [], bcc: [], subject: "", bodyHtml: "<p>hi</p>", sending: false, error: null,
+      mode: "new", to: [], cc: [], bcc: [], subject: "", bodyHtml: "<p>hi</p>", sending: false, error: null, savedSnapshot: null,
     } });
     Object.assign(vm, { openNewMessage, hasUnsavedComposerContent: () => true });
     const host = document.createElement("div");

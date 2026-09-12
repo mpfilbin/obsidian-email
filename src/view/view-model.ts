@@ -13,6 +13,15 @@ export interface ThreadView {
   unread: boolean;
 }
 
+/** The editable fields of a composer, as of the last load or successful save. */
+export interface ComposerSnapshot {
+  to: Address[];
+  cc: Address[];
+  bcc: Address[];
+  subject: string;
+  bodyHtml: string;
+}
+
 export interface ComposerState {
   mode: "reply" | "replyAll" | "forward" | "new" | "editDraft";
   targetMessageId?: string;
@@ -24,6 +33,9 @@ export interface ComposerState {
   bodyHtml: string;
   sending: boolean;
   error: string | null;
+  /** What was last loaded/saved, for `hasUnsavedComposerContent`. Only the
+   *  draft-backed modes (`new`, `editDraft`) have one; `null` elsewhere. */
+  savedSnapshot: ComposerSnapshot | null;
 }
 
 export interface ViewState {
@@ -75,6 +87,27 @@ function groupThreads(messages: MessageSummary[]): ThreadView[] {
   }
   threads.sort((a, b) => b.lastDate - a.lastDate);
   return threads;
+}
+
+/** Quill serializes an empty editor as "<p><br></p>"; treat it as no body. */
+function normalizeBody(html: string): string {
+  const trimmed = html.trim();
+  return trimmed === "<p><br></p>" ? "" : trimmed;
+}
+
+function snapshotOf(c: ComposerSnapshot): ComposerSnapshot {
+  return { to: c.to, cc: c.cc, bcc: c.bcc, subject: c.subject, bodyHtml: c.bodyHtml };
+}
+
+/** Compares by value, not identity: every field edit replaces the array. */
+function sameAddresses(a: Address[], b: Address[]): boolean {
+  const key = (list: Address[]) => list.map((x) => `${x.name ?? ""}<${x.email}>`).join(",");
+  return key(a) === key(b);
+}
+
+function sameSnapshot(a: ComposerSnapshot, b: ComposerSnapshot): boolean {
+  return sameAddresses(a.to, b.to) && sameAddresses(a.cc, b.cc) && sameAddresses(a.bcc, b.bcc)
+    && a.subject === b.subject && normalizeBody(a.bodyHtml) === normalizeBody(b.bodyHtml);
 }
 
 export class ViewModel {
@@ -259,17 +292,20 @@ export class ViewModel {
     this.set({ openThreadId: null, openMessages: [] });
   }
 
-  private openComposer(state: Omit<ComposerState, "to" | "cc" | "bcc" | "subject" | "bodyHtml" | "sending" | "error">): void {
-    this.set({
-      composer: {
-        // Explicit undefined defaults (rather than omitting the keys) so
-        // consumers can rely on `targetMessageId`/`draftId` always being
-        // present on the composer object, even when not applicable to `mode`.
-        targetMessageId: undefined, draftId: undefined,
-        ...state,
-        to: [], cc: [], bcc: [], subject: "", bodyHtml: "", sending: false, error: null,
-      },
-    });
+  private openComposer(state: Omit<ComposerState, "to" | "cc" | "bcc" | "subject" | "bodyHtml" | "sending" | "error" | "savedSnapshot">): void {
+    const composer: ComposerState = {
+      // Explicit undefined defaults (rather than omitting the keys) so
+      // consumers can rely on `targetMessageId`/`draftId` always being
+      // present on the composer object, even when not applicable to `mode`.
+      targetMessageId: undefined, draftId: undefined,
+      ...state,
+      to: [], cc: [], bcc: [], subject: "", bodyHtml: "", sending: false, error: null,
+      savedSnapshot: null,
+    };
+    // A "new" composer can be saved as a draft, so it starts from a snapshot
+    // of its own (empty) fields; reply/replyAll/forward have no save path and
+    // stay on the body-content check in `hasUnsavedComposerContent`.
+    this.set({ composer: composer.mode === "new" ? { ...composer, savedSnapshot: snapshotOf(composer) } : composer });
   }
 
   openReply(messageId: string, mode: "reply" | "replyAll"): void {
@@ -297,8 +333,14 @@ export class ViewModel {
   hasUnsavedComposerContent(): boolean {
     const c = this.state.composer;
     if (!c) return false;
-    // Quill's empty-editor markup is "<p><br></p>"; anything else is content.
-    return c.bodyHtml.trim() !== "" && c.bodyHtml.trim() !== "<p><br></p>";
+    if (c.mode === "new" || c.mode === "editDraft") {
+      // Draft-backed modes compare against the last loaded/saved snapshot, so
+      // an untouched draft doesn't prompt (whose "Discard" would delete it)
+      // and a recipients-only edit with an empty body still does.
+      return c.savedSnapshot === null || !sameSnapshot(c, c.savedSnapshot);
+    }
+    // reply/replyAll/forward can't be saved at all; any body content is at risk.
+    return normalizeBody(c.bodyHtml) !== "";
   }
 
   closeComposer(): void {
@@ -362,7 +404,9 @@ export class ViewModel {
       let draftId = c.draftId;
       if (draftId) await provider.updateDraft(draftId, msg);
       else draftId = await provider.createDraft(msg);
-      this.set({ composer: { ...this.state.composer!, draftId, sending: false } });
+      // Snapshot what was actually persisted (`c`), not the live composer:
+      // anything typed while the save was in flight is still unsaved.
+      this.set({ composer: { ...this.state.composer!, draftId, sending: false, savedSnapshot: snapshotOf(c) } });
     } catch (err) {
       this.set({ composer: { ...this.state.composer!, sending: false, error: this.errorMessage(err) } });
     }
@@ -406,19 +450,21 @@ export class ViewModel {
       this.set({ notice: "Couldn't load a message body." });
       return;
     }
-    this.set({
-      composer: {
-        mode: "editDraft",
-        draftId: messageId,
-        to: summary.to,
-        cc: summary.cc,
-        bcc: summary.bcc ?? [],
-        subject: summary.subject,
-        bodyHtml: body.html ?? "",
-        sending: false,
-        error: null,
-      },
-    });
+    const composer: ComposerState = {
+      mode: "editDraft",
+      targetMessageId: undefined,
+      draftId: messageId,
+      to: summary.to,
+      cc: summary.cc,
+      bcc: summary.bcc ?? [],
+      subject: summary.subject,
+      bodyHtml: body.html ?? "",
+      sending: false,
+      error: null,
+      savedSnapshot: null,
+    };
+    // The loaded draft is itself the "last saved" state to compare against.
+    this.set({ composer: { ...composer, savedSnapshot: snapshotOf(composer) } });
   }
 
   renderDeps(): { getInlineAttachment: (cid: string) => Promise<Blob | undefined>; openExternal: (url: string) => void } {
