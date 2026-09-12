@@ -23,6 +23,12 @@
   const isDraftsMailbox = $derived(
     state.mailboxes.find((m) => m.id === state.activeMailboxId)?.kind === "drafts",
   );
+  const isArchiveMailbox = $derived(
+    state.mailboxes.find((m) => m.id === state.activeMailboxId)?.kind === "archive",
+  );
+  const isTrashMailbox = $derived(
+    state.mailboxes.find((m) => m.id === state.activeMailboxId)?.kind === "trash",
+  );
 
   let pendingSwitch = $state<(() => void) | null>(null);
 
@@ -59,6 +65,25 @@
   }
   function resolvePromptCancel(): void {
     pendingSwitch = null;
+  }
+
+  let pendingDelete = $state<{ label: string; run: () => void } | null>(null);
+
+  // Delete is the only action that's ever irreversible (permanently deleting
+  // from Trash — see MailProvider.deleteMessage's doc comment). Everywhere
+  // else it's recoverable (Graph moves the message to Deleted Items), so it
+  // fires immediately with no prompt.
+  function requestDelete(label: string, run: () => void): void {
+    if (isTrashMailbox) pendingDelete = { label, run };
+    else run();
+  }
+  function confirmDelete(): void {
+    const p = pendingDelete;
+    pendingDelete = null;
+    p?.run();
+  }
+  function cancelDelete(): void {
+    pendingDelete = null;
   }
 
   const composerFieldProps = $derived(state.composer ? {
@@ -128,6 +153,11 @@
       loading={state.loadingList}
       onOpen={(id) => requestSwitch(() => vm.openThread(id))}
       onLoadMore={() => vm.loadMore()}
+      {isDraftsMailbox}
+      {isArchiveMailbox}
+      {isTrashMailbox}
+      onArchiveThread={(id) => vm.archiveThread(id)}
+      onDeleteThread={(id) => requestDelete("thread", () => vm.deleteThread(id))}
     />
   </section>
   {#if !readingPaneCollapsed}
@@ -139,12 +169,16 @@
       onClose={() => requestSwitch(() => vm.closeThread())}
       onDownload={(id, att) => vm.downloadAttachmentToDisk(id, att)}
       {isDraftsMailbox}
+      {isArchiveMailbox}
+      {isTrashMailbox}
       activeComposerMessageId={state.composer?.targetMessageId ?? null}
       composerMode={state.composer?.mode ?? null}
       composerProps={composerFieldProps}
       onOpenReply={(id, mode) => requestSwitch(() => vm.openReply(id, mode))}
       onOpenForward={(id) => requestSwitch(() => vm.openForward(id))}
       onEditDraft={(id) => requestSwitch(() => vm.openDraftForEdit(id))}
+      onArchiveMessage={(id) => vm.archiveMessage(id)}
+      onDeleteMessage={(id) => requestDelete("message", () => vm.deleteMessage(id))}
     />
   {/if}
   {#if pendingSwitch}
@@ -155,6 +189,12 @@
       {/if}
       <button type="button" class="oe-composer-prompt-discard" onclick={resolvePromptDiscard}>Discard</button>
       <button type="button" class="oe-composer-prompt-cancel" onclick={resolvePromptCancel}>Cancel</button>
+    </div>
+  {:else if pendingDelete}
+    <div class="oe-composer-prompt">
+      <p>Permanently delete this {pendingDelete.label}? This can't be undone.</p>
+      <button type="button" class="oe-delete-confirm" onclick={confirmDelete}>Delete</button>
+      <button type="button" class="oe-delete-cancel" onclick={cancelDelete}>Cancel</button>
     </div>
   {/if}
 </div>

@@ -50,6 +50,7 @@ function fakeVm(state: Partial<ViewState> = {}): ViewModel {
     openDraftForEdit: vi.fn(), updateComposerFields: vi.fn(), updateComposerBody: vi.fn(),
     hasUnsavedComposerContent: vi.fn().mockReturnValue(false),
     send: vi.fn(), saveDraft: vi.fn(), discardDraft: vi.fn(), closeComposer: vi.fn(),
+    deleteMessage: vi.fn(), archiveMessage: vi.fn(), deleteThread: vi.fn(), archiveThread: vi.fn(),
     // Test-only escape hatch, so an overridden method can push state the way
     // the real ViewModel would (e.g. a saveDraft that sets composer.error).
     __setState: set,
@@ -352,6 +353,77 @@ describe("App.svelte — composer wiring", () => {
     flushSync();
     expect(host.querySelector('[data-action="edit-draft"]')).not.toBeNull();
     expect(host.querySelector('[data-action="reply"]')).toBeNull();
+    unmount(app);
+  });
+});
+
+describe("App.svelte — delete/archive wiring", () => {
+  it("clicking Archive on a thread row calls vm.archiveThread", () => {
+    const archiveThread = vi.fn();
+    const vm = fakeVm();
+    Object.assign(vm, { archiveThread });
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    flushSync();
+    host.querySelector<HTMLElement>('[data-action="archive"]')!.click();
+    expect(archiveThread).toHaveBeenCalledWith("t1");
+    unmount(app);
+  });
+
+  it("clicking Delete on a thread row in a normal mailbox calls vm.deleteThread immediately, no prompt", () => {
+    const deleteThread = vi.fn();
+    const vm = fakeVm();
+    Object.assign(vm, { deleteThread });
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    flushSync();
+    host.querySelector<HTMLElement>('[data-action="delete"]')!.click();
+    expect(deleteThread).toHaveBeenCalledWith("t1");
+    expect(host.querySelector(".oe-delete-confirm")).toBeNull();
+    unmount(app);
+  });
+
+  it("clicking Delete on a thread row in the Trash mailbox shows a confirm prompt instead of deleting immediately", () => {
+    const deleteThread = vi.fn();
+    const vm = fakeVm({ mailboxes: [{ id: "TRASH", name: "Deleted Items", kind: "trash" }], activeMailboxId: "TRASH" });
+    Object.assign(vm, { deleteThread });
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    flushSync();
+    host.querySelector<HTMLElement>('[data-action="delete"]')!.click();
+    flushSync();
+    expect(deleteThread).not.toHaveBeenCalled();
+    expect(host.querySelector(".oe-delete-confirm")).not.toBeNull();
+
+    host.querySelector<HTMLElement>(".oe-delete-confirm")!.click();
+    expect(deleteThread).toHaveBeenCalledWith("t1");
+    unmount(app);
+  });
+
+  it("canceling the delete-confirm prompt does not call vm.deleteThread", () => {
+    const deleteThread = vi.fn();
+    const vm = fakeVm({ mailboxes: [{ id: "TRASH", name: "Deleted Items", kind: "trash" }], activeMailboxId: "TRASH" });
+    Object.assign(vm, { deleteThread });
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    flushSync();
+    host.querySelector<HTMLElement>('[data-action="delete"]')!.click();
+    flushSync();
+    host.querySelector<HTMLElement>(".oe-delete-cancel")!.click();
+    flushSync();
+    expect(deleteThread).not.toHaveBeenCalled();
+    expect(host.querySelector(".oe-delete-confirm")).toBeNull();
+    unmount(app);
+  });
+
+  it("passes isArchiveMailbox/isTrashMailbox derived from the active mailbox's kind down to MessageList", () => {
+    const vm = fakeVm({ mailboxes: [{ id: "ARCHIVE", name: "Archive", kind: "archive" }], activeMailboxId: "ARCHIVE" });
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    flushSync();
+    // Archive mailbox: the thread row's own Archive button should be hidden.
+    expect(host.querySelector('[data-action="archive"]')).toBeNull();
+    expect(host.querySelector('[data-action="delete"]')).not.toBeNull();
     unmount(app);
   });
 });
