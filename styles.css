@@ -161,7 +161,14 @@
   border: none; border-bottom: 1px solid var(--background-modifier-border);
   background: var(--background-secondary); padding: 6px 8px;
 }
-.oe-composer .ql-container.ql-snow { border: none; font-family: var(--font-text); font-size: var(--font-text-size); }
+/* position: relative is load-bearing, not decorative: Quill's Tooltip
+   positions itself with `position: absolute` and measures coordinates
+   relative to this container. Quill's own base CSS sets it on every
+   .ql-container; our hand-written re-skin never replicated it, so the
+   tooltip was resolving position against whatever ancestor elsewhere on
+   the page happened to be positioned instead — landing far from the
+   selection it's supposed to sit next to. */
+.oe-composer .ql-container.ql-snow { position: relative; border: none; font-family: var(--font-text); font-size: var(--font-text-size); }
 .oe-composer .ql-editor { min-height: 100px; max-height: 260px; overflow-y: auto; color: var(--text-normal); }
 .oe-composer .ql-editor.ql-blank::before { color: var(--text-faint); font-style: normal; }
 /* Base button/icon sizing Quill's own CSS normally provides — without it,
