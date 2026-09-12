@@ -2,10 +2,11 @@
 
 A full **Microsoft 365** email client inside an Obsidian view. Desktop only.
 
-This is Sprint 1 (SP1): **reading and search**. You can connect one or more
-accounts, browse mailboxes and threads, read sanitized message bodies, open
-attachments, and run server-side searches. Composing and sending mail, and other
-mailbox mutations, are **not** in SP1 — see the [Roadmap](#roadmap).
+Sub-project 1 shipped reading and search. Sub-project 2 (this) adds **reply,
+reply-all, forward, new messages, and drafts** — composed with a rich-text
+editor, sent through Microsoft Graph. Other mailbox actions (archive,
+delete, mark read/unread, move, flag, unified inbox) are still not
+supported — see the [Roadmap](#roadmap).
 
 ## What it is
 
@@ -67,6 +68,22 @@ app's **Authentication** page, change **Supported account types** to
 multitenant (see step 1), save, and click **Connect** again — no need to
 re-create the app or change the Client ID.
 
+## Composing mail
+
+- **Reply / Reply-all / Forward** appear as buttons on each message once
+  you expand it. Reply and reply-all don't show a recipient field — Microsoft
+  fills those in from the original message. Forward asks for a To address
+  (comma-separated for more than one).
+- **New message** (✎ in the toolbar) opens the same composer with To/Cc/Bcc
+  and Subject fields.
+- The composer is rich text (bold/italic/underline/lists/links), not
+  Markdown.
+- **Drafts** are only available for new messages, not in-progress replies:
+  hit **Save draft** instead of **Send**, and find it later in the **Drafts**
+  mailbox, where it opens back into the composer via **Edit**.
+- Only one composer is open at a time; switching while one has unsent text
+  prompts you to save (new-message drafts only) or discard first.
+
 ## Security notes
 
 - **Refresh tokens** are stored in Obsidian's `secretStorage`, which is backed
@@ -110,7 +127,6 @@ Design spec and implementation plan:
 
 ## Roadmap
 
-- **SP2** — compose and send (new mail, reply, reply-all, forward, drafts).
 - **SP3** — mail actions (archive, delete, mark read/unread, move, flag) and a
   unified inbox across accounts.
 - **SP4** — polish: keyboard navigation, notifications, performance, settings UX.
