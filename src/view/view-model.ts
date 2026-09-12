@@ -450,10 +450,25 @@ export class ViewModel {
       await action(provider);
       await this.deps.cache.deleteMessages(acct, [messageId]);
       if (this.state.openMessages.some((m) => m.summary.id === messageId)) this.closeThread();
-      await this.reloadList();
+      await this.reloadListUnlessSearching();
     } catch (err) {
       this.set({ notice: this.errorMessage(err) });
     }
+  }
+
+  /**
+   * `reloadList` repaints from the ACTIVE MAILBOX, which is not what the list
+   * is showing during a search (`runSearch` swaps in mailbox-wide results and
+   * leaves `activeMailboxId` alone). Calling it there would drop the user's
+   * results for the current folder's listing under a still-populated search
+   * box, so the search view is simply left as it is — the cache and Graph are
+   * updated either way, only the visible rows go stale until the user
+   * re-searches or clears. Mirrors the `search.active` checks already guarding
+   * the sync-change handler and `loadMore`.
+   */
+  private async reloadListUnlessSearching(): Promise<void> {
+    if (this.state.search.active) return;
+    await this.reloadList();
   }
 
   async deleteMessage(messageId: string): Promise<void> {
@@ -478,7 +493,7 @@ export class ViewModel {
     const failedCount = results.length - succeededIds.length;
     if (succeededIds.length) await this.deps.cache.deleteMessages(acct, succeededIds);
     if (this.state.openThreadId === threadId) this.closeThread();
-    await this.reloadList();
+    await this.reloadListUnlessSearching();
     if (failedCount > 0) {
       this.set({
         notice: succeededIds.length === 0

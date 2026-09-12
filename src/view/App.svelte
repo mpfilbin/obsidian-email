@@ -80,9 +80,18 @@
   // from Trash — see MailProvider.deleteMessage's doc comment). Everywhere
   // else it's recoverable (Graph moves the message to Deleted Items), so it
   // fires immediately with no prompt.
+  //
+  // Search is the exception to "not Trash ⇒ recoverable": `runSearch` fills the
+  // list from a mailbox-wide Graph search that spans every folder, Deleted
+  // Items included, without touching `activeMailboxId` — so a hit shown while
+  // the active mailbox is Inbox may still be sitting in Trash, where the very
+  // same call is permanent. The design deliberately never asks Graph where an
+  // individual message lives, so the only safe default is to confirm every
+  // delete while a search is showing. `isTrashMailbox` keeps its original
+  // meaning (the active mailbox's kind); this is a second, independent trigger.
   function requestDelete(label: string, run: () => void): void {
     if (pendingSwitch) return; // one prompt at a time — don't queue a delete-confirm behind an active switch prompt
-    if (isTrashMailbox) pendingDelete = { label, run };
+    if (isTrashMailbox || state.search.active) pendingDelete = { label, run };
     else run();
   }
   function confirmDelete(): void {

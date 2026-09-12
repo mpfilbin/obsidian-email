@@ -581,6 +581,49 @@ describe("App.svelte — delete/archive wiring", () => {
     unmount(app);
   });
 
+  it("clicking Delete on a search result shows the confirm prompt even outside the Trash mailbox", () => {
+    // Search spans every folder including Deleted Items, so a hit may already
+    // be in Trash — where Graph's delete is permanent — while the active
+    // mailbox is Inbox. Confirm unconditionally while a search is showing.
+    const deleteThread = vi.fn();
+    const vm = fakeVm({ search: { query: "report", active: true } });
+    Object.assign(vm, { deleteThread });
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    flushSync();
+    host.querySelector<HTMLElement>('[data-action="delete"]')!.click();
+    flushSync();
+    expect(deleteThread).not.toHaveBeenCalled();
+    expect(host.querySelector(".oe-delete-confirm")).not.toBeNull();
+
+    host.querySelector<HTMLElement>(".oe-delete-confirm")!.click();
+    expect(deleteThread).toHaveBeenCalledWith("t1");
+    unmount(app);
+  });
+
+  it("clicking Delete on a message in a search result also shows the confirm prompt", () => {
+    const deleteMessage = vi.fn();
+    const vm = fakeVm({
+      search: { query: "report", active: true },
+      openThreadId: "t1",
+      openMessages: [{ summary: {
+        id: "m1", threadId: "t1", mailboxIds: ["INBOX"], from: { name: "Jane", email: "j@x.com" },
+        to: [], cc: [], subject: "Hello", snippet: "hi there", date: 1,
+        unread: true, hasAttachments: false, flagged: false,
+      } }],
+    });
+    Object.assign(vm, { deleteMessage });
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    flushSync();
+    const deleteButtons = host.querySelectorAll<HTMLElement>('[data-action="delete"]');
+    deleteButtons[deleteButtons.length - 1].click();
+    flushSync();
+    expect(deleteMessage).not.toHaveBeenCalled();
+    expect(host.querySelector(".oe-delete-confirm")).not.toBeNull();
+    unmount(app);
+  });
+
   it("passes isArchiveMailbox/isTrashMailbox derived from the active mailbox's kind down to MessageList", () => {
     const vm = fakeVm({ mailboxes: [{ id: "ARCHIVE", name: "Archive", kind: "archive" }], activeMailboxId: "ARCHIVE" });
     const host = document.createElement("div");

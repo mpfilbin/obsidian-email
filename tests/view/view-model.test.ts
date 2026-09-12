@@ -658,4 +658,45 @@ describe("ViewModel — delete/archive", () => {
     expect(ctx.vm.getState().threads[0].messages.map((m) => m.id)).toEqual(["m2"]);
     expect(ctx.vm.getState().notice).toMatch(/1 of 2/);
   });
+
+});
+
+describe("ViewModel — delete/archive during an active search", () => {
+  it("deleteMessage leaves the search results in place instead of repainting the mailbox list", async () => {
+    const ctx = await build();
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1), sum("m2", "t2", 2)]);
+    ctx.provider.addMessage(sum("m1", "t1", 1));
+    ctx.provider.addMessage(sum("m2", "t2", 2));
+    ctx.provider.setSearchResults("report", [sum("m1", "t1", 1)]);
+    await ctx.vm.init();
+    await ctx.vm.runSearch("report");
+    expect(ctx.vm.getState().threads.map((t) => t.threadId)).toEqual(["t1"]);
+
+    await ctx.vm.deleteMessage("m1");
+
+    // Without the search guard, `reloadList()` would repaint the INBOX listing
+    // (["t2"]) underneath the still-visible search box and query.
+    expect(ctx.vm.getState().threads.map((t) => t.threadId)).toEqual(["t1"]);
+    expect(ctx.vm.getState().search).toEqual({ query: "report", active: true });
+  });
+
+  it("archiveThread leaves the search results in place instead of repainting the mailbox list", async () => {
+    const ctx = await build();
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1), sum("m2", "t2", 2)]);
+    ctx.provider.addMessage(sum("m1", "t1", 1));
+    ctx.provider.addMessage(sum("m2", "t2", 2));
+    ctx.provider.setSearchResults("report", [sum("m1", "t1", 1)]);
+    await ctx.vm.init();
+    await ctx.vm.runSearch("report");
+
+    await ctx.vm.archiveThread("t1");
+
+    // The provider call still happened and the cache row is gone; only the
+    // visible search listing is left alone until the user re-searches.
+    expect(await ctx.cache.getThreadMessages("a1", "t1")).toEqual([]);
+    expect(ctx.vm.getState().threads.map((t) => t.threadId)).toEqual(["t1"]);
+    expect(ctx.vm.getState().search).toEqual({ query: "report", active: true });
+  });
 });
