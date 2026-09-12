@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { mount, unmount, flushSync } from "svelte";
 import Composer from "../../src/view/components/Composer.svelte";
+import ComposerHost from "./fixtures/ComposerHost.svelte";
 
 function baseProps(over: Partial<Record<string, unknown>> = {}) {
   return {
@@ -87,6 +88,56 @@ describe("Composer smoke", () => {
     flushSync();
     expect(host.textContent).toContain("boom");
     expect(host.querySelector<HTMLButtonElement>(".oe-composer-send")!.disabled).toBe(true);
+    unmount(app);
+  });
+
+  it("resyncs local to/subject text mirrors when props change on an already-mounted instance", () => {
+    const host = document.createElement("div");
+    const app = mount(ComposerHost, {
+      target: host,
+      props: {
+        initial: {
+          mode: "editDraft" as const,
+          to: [{ email: "a@x.com" }], cc: [], bcc: [], subject: "Draft A", bodyHtml: "",
+        },
+        onFieldsChange: vi.fn(), onBodyChange: vi.fn(), onSend: vi.fn(), onSaveDraft: vi.fn(), onDiscard: vi.fn(),
+      },
+    });
+    flushSync();
+    expect(host.querySelector<HTMLInputElement>('input[data-field="to"]')!.value).toBe("a@x.com");
+    expect(host.querySelector<HTMLInputElement>('input[data-field="subject"]')!.value).toBe("Draft A");
+
+    // Simulate ReadingPane switching which draft is being edited without remounting
+    // the same Composer instance (the same {#if} branch stays truthy).
+    (app as unknown as { set: (m: { mode: "editDraft"; to: { email: string }[]; cc: never[]; bcc: never[]; subject: string; bodyHtml: string }) => void }).set({
+      mode: "editDraft", to: [{ email: "b@y.com" }], cc: [], bcc: [], subject: "Draft B", bodyHtml: "",
+    });
+    flushSync();
+    expect(host.querySelector<HTMLInputElement>('input[data-field="to"]')!.value).toBe("b@y.com");
+    expect(host.querySelector<HTMLInputElement>('input[data-field="subject"]')!.value).toBe("Draft B");
+    unmount(app);
+  });
+
+  it("does not tear down and rebuild the Quill editor when bodyHtml prop changes", () => {
+    const host = document.createElement("div");
+    const app = mount(ComposerHost, {
+      target: host,
+      props: {
+        initial: { mode: "new" as const, to: [], cc: [], bcc: [], subject: "", bodyHtml: "<p>one</p>" },
+        onFieldsChange: vi.fn(), onBodyChange: vi.fn(), onSend: vi.fn(), onSaveDraft: vi.fn(), onDiscard: vi.fn(),
+      },
+    });
+    flushSync();
+    const editorBefore = host.querySelector(".ql-editor");
+    expect(editorBefore).not.toBeNull();
+
+    (app as unknown as { set: (m: { mode: "new"; to: never[]; cc: never[]; bcc: never[]; subject: string; bodyHtml: string }) => void }).set({
+      mode: "new", to: [], cc: [], bcc: [], subject: "", bodyHtml: "<p>two</p>",
+    });
+    flushSync();
+    const editorAfter = host.querySelector(".ql-editor");
+    expect(editorAfter).not.toBeNull();
+    expect(editorAfter).toBe(editorBefore);
     unmount(app);
   });
 });

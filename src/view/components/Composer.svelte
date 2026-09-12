@@ -1,5 +1,6 @@
 <script lang="ts">
   import Quill from "quill";
+  import { untrack } from "svelte";
   import type { Address } from "../../providers/types";
   import { parseRecipients } from "../parse-recipients";
 
@@ -20,10 +21,18 @@
   const sendLabel = $derived(mode === "new" || mode === "editDraft" ? "Send" : mode === "forward" ? "Forward" : "Reply");
 
   const fmtAddrs = (addrs: Address[]) => addrs.map((a) => a.email).join(", ");
+  // svelte-ignore state_referenced_locally
   let toText = $state(fmtAddrs(to));
+  $effect(() => { toText = fmtAddrs(to); });
+  // svelte-ignore state_referenced_locally
   let ccText = $state(fmtAddrs(cc));
+  $effect(() => { ccText = fmtAddrs(cc); });
+  // svelte-ignore state_referenced_locally
   let bccText = $state(fmtAddrs(bcc));
+  $effect(() => { bccText = fmtAddrs(bcc); });
+  // svelte-ignore state_referenced_locally
   let subjectText = $state(subject);
+  $effect(() => { subjectText = subject; });
   let parseWarning = $state<string | null>(null);
 
   function commitField(field: "to" | "cc" | "bcc", raw: string): void {
@@ -45,7 +54,8 @@
       theme: "snow",
       modules: { toolbar: ["bold", "italic", "underline", { list: "ordered" }, { list: "bullet" }, "link"] },
     });
-    if (bodyHtml) q.clipboard.dangerouslyPasteHTML(bodyHtml);
+    const initialHtml = untrack(() => bodyHtml);
+    if (initialHtml) q.clipboard.dangerouslyPasteHTML(initialHtml);
     quill = q;
     const onChange = () => onBodyChange(q.root.innerHTML);
     q.on("text-change", onChange);
