@@ -397,7 +397,15 @@ export class ViewModel {
       this.set({ notice: "Couldn't open that draft." });
       return;
     }
-    const body = await provider.getMessageBody(messageId);
+    let body: MessageBody;
+    try {
+      body = await provider.getMessageBody(messageId);
+    } catch {
+      // Leave the composer untouched: a partial one bound to this draftId
+      // would overwrite the draft with whatever it managed to prefill.
+      this.set({ notice: "Couldn't load a message body." });
+      return;
+    }
     this.set({
       composer: {
         mode: "editDraft",

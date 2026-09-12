@@ -443,6 +443,15 @@ describe("ViewModel — composer", () => {
     });
   });
 
+  it("openDraftForEdit sets a notice and opens no composer when the body load fails", async () => {
+    const ctx = await build();
+    const id = await openDraftInReadingPane(ctx);
+    ctx.provider.getMessageBody = vi.fn().mockRejectedValue(new Error("network down"));
+    await expect(ctx.vm.openDraftForEdit(id)).resolves.toBeUndefined();
+    expect(ctx.vm.getState().notice).toMatch(/couldn't load/i);
+    expect(ctx.vm.getState().composer).toBeNull();
+  });
+
   it("send after openDraftForEdit keeps the draft's recipients and subject instead of blanking them", async () => {
     const ctx = await build();
     const id = await openDraftInReadingPane(ctx);
