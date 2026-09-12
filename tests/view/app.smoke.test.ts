@@ -454,6 +454,29 @@ describe("App.svelte — delete/archive wiring", () => {
     unmount(app);
   });
 
+  it("clears a pending delete-confirm when the user navigates away instead of resolving it", () => {
+    const deleteThread = vi.fn();
+    const vm = fakeVm({ mailboxes: [{ id: "TRASH", name: "Deleted Items", kind: "trash" }], activeMailboxId: "TRASH" });
+    Object.assign(vm, { deleteThread });
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    flushSync();
+
+    // Trigger the delete-confirm banner first.
+    host.querySelector<HTMLElement>('[data-action="delete"]')!.click();
+    flushSync();
+    expect(host.querySelector(".oe-delete-confirm")).not.toBeNull();
+
+    // Navigate away without resolving it (click a mailbox — triggers requestSwitch).
+    host.querySelector<HTMLElement>(".oe-mailbox")?.click();
+    flushSync();
+
+    // The stale delete-confirm must be gone, and the delete must never have fired.
+    expect(host.querySelector(".oe-delete-confirm")).toBeNull();
+    expect(deleteThread).not.toHaveBeenCalled();
+    unmount(app);
+  });
+
   it("passes isArchiveMailbox/isTrashMailbox derived from the active mailbox's kind down to MessageList", () => {
     const vm = fakeVm({ mailboxes: [{ id: "ARCHIVE", name: "Archive", kind: "archive" }], activeMailboxId: "ARCHIVE" });
     const host = document.createElement("div");

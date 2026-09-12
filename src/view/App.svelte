@@ -37,6 +37,13 @@
   // that make the ViewModel drop it. Without the guard those navigations would
   // silently discard unsaved content.
   function requestSwitch(open: () => void): void {
+    // Any navigation invalidates a previously-queued delete confirmation —
+    // the user's context is changing either way, whether this switch fires
+    // immediately or queues its own prompt — so it must not resurface once
+    // this (or a subsequent) prompt resolves. Mirrors the guard in
+    // requestDelete that stops a delete-confirm from queuing behind an
+    // active switch prompt.
+    pendingDelete = null;
     if (vm.hasUnsavedComposerContent()) pendingSwitch = open;
     else open();
   }
