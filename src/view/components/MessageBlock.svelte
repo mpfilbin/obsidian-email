@@ -1,6 +1,7 @@
 <script lang="ts">
-  import type { Address, AttachmentMeta, MessageBody, MessageSummary } from "../../providers/types";
+  import type { AttachmentMeta, MessageBody, MessageSummary } from "../../providers/types";
   import { renderMessageBody, type RenderHandle } from "../../render/message-renderer";
+  import type { ComposerFieldProps } from "../composer-props";
   import Composer from "./Composer.svelte";
 
   let { summary, body, expanded, autoLoadImages, renderDeps, onToggle, onDownload, isDraftsMailbox, composerMode, composerProps, onOpenReply, onOpenForward, onEditDraft }: {
@@ -14,12 +15,7 @@
     onDownload: (att: AttachmentMeta) => void;
     isDraftsMailbox: boolean;
     composerMode: "reply" | "replyAll" | "forward" | null;
-    composerProps: {
-      to: Address[]; cc: Address[]; bcc: Address[];
-      subject: string; bodyHtml: string; sending: boolean; error: string | null;
-      onFieldsChange: (patch: Partial<{ to: Address[]; cc: Address[]; bcc: Address[]; subject: string }>) => void;
-      onBodyChange: (html: string) => void; onSend: () => void; onSaveDraft: () => void; onDiscard: () => void;
-    } | null;
+    composerProps: ComposerFieldProps | null;
     onOpenReply: (mode: "reply" | "replyAll") => void;
     onOpenForward: () => void;
     onEditDraft: () => void;

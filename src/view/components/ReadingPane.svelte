@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { AttachmentMeta } from "../../providers/types";
+  import type { ComposerFieldProps } from "../composer-props";
   import type { ViewState } from "../view-model";
+  import Composer from "./Composer.svelte";
   import MessageBlock from "./MessageBlock.svelte";
 
   let { openMessages, autoLoadImages, renderDeps, onClose, onDownload, isDraftsMailbox, activeComposerMessageId, composerMode, composerProps, onOpenReply, onOpenForward, onEditDraft }: {
@@ -12,9 +14,8 @@
     onDownload: (messageId: string, att: AttachmentMeta) => void;
     isDraftsMailbox: boolean;
     activeComposerMessageId: string | null;
-    composerMode: "reply" | "replyAll" | "forward" | null;
-    // TODO(Task 10): replace with shared ComposerFieldProps type
-    composerProps: null | Record<string, unknown>;
+    composerMode: "reply" | "replyAll" | "forward" | "new" | "editDraft" | null;
+    composerProps: ComposerFieldProps | null;
     onOpenReply: (messageId: string, mode: "reply" | "replyAll") => void;
     onOpenForward: (messageId: string) => void;
     onEditDraft: (messageId: string) => void;
@@ -39,7 +40,9 @@
 </script>
 
 <section class="oe-reading-pane">
-  {#if openMessages.length === 0}
+  {#if composerMode === "new" || composerMode === "editDraft"}
+    {#if composerProps}<Composer mode={composerMode} {...composerProps} />{/if}
+  {:else if openMessages.length === 0}
     <p class="oe-empty">Select a message to read</p>
   {:else}
     <header class="oe-reading-head">

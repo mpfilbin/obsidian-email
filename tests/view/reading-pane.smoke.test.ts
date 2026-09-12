@@ -184,4 +184,20 @@ describe("ReadingPane — reply/forward/edit actions", () => {
     expect(host.querySelector(".oe-composer")).not.toBeNull();
     unmount(app);
   });
+
+  it("renders a top-level Composer for mode=new/editDraft instead of the empty state", () => {
+    const host = document.createElement("div");
+    const app = mount(ReadingPane, {
+      target: host,
+      props: {
+        openMessages: [], autoLoadImages: false, renderDeps, onClose: () => {}, onDownload: vi.fn(),
+        isDraftsMailbox: false, activeComposerMessageId: null, composerMode: "new", composerProps,
+        onOpenReply: vi.fn(), onOpenForward: vi.fn(), onEditDraft: vi.fn(),
+      },
+    });
+    flushSync();
+    expect(host.querySelector(".oe-composer")).not.toBeNull();
+    expect(host.textContent).not.toMatch(/select a message/i);
+    unmount(app);
+  });
 });
