@@ -147,29 +147,39 @@
    bundles to a single main.js with no secondary CSS output); these rules
    target Quill's real classes directly with Obsidian's theme variables. */
 .oe-composer-editor { border: 1px solid var(--background-modifier-border); border-radius: 6px; overflow: hidden; }
-.oe-composer-editor .ql-toolbar.ql-snow {
+/* Scoped to .oe-composer (the outer wrapper), not .oe-composer-editor:
+   Quill inserts the toolbar as a DOM SIBLING before the element it's
+   initialized on (our .oe-composer-editor div becomes .ql-container
+   itself), not as its descendant. Every rule below that targets toolbar
+   elements would never have matched anything under `.oe-composer-editor`
+   — confirmed via DevTools, where the toolbar's actual ancestor chain is
+   .oe-composer > .ql-toolbar.ql-snow, with no .oe-composer-editor between
+   them. The tooltip, by contrast, genuinely is appended inside the
+   container, so it would have matched either scope — kept consistent
+   with everything else here regardless. */
+.oe-composer .ql-toolbar.ql-snow {
   border: none; border-bottom: 1px solid var(--background-modifier-border);
   background: var(--background-secondary); padding: 6px 8px;
 }
-.oe-composer-editor .ql-container.ql-snow { border: none; font-family: var(--font-text); font-size: var(--font-text-size); }
-.oe-composer-editor .ql-editor { min-height: 100px; max-height: 260px; overflow-y: auto; color: var(--text-normal); }
-.oe-composer-editor .ql-editor.ql-blank::before { color: var(--text-faint); font-style: normal; }
+.oe-composer .ql-container.ql-snow { border: none; font-family: var(--font-text); font-size: var(--font-text-size); }
+.oe-composer .ql-editor { min-height: 100px; max-height: 260px; overflow-y: auto; color: var(--text-normal); }
+.oe-composer .ql-editor.ql-blank::before { color: var(--text-faint); font-style: normal; }
 /* Base button/icon sizing Quill's own CSS normally provides — without it,
    toolbar buttons have no intrinsic size and their SVG icons collapse to
    invisible (0-height), rendering as blank squares. */
-.oe-composer-editor .ql-snow.ql-toolbar .ql-formats { display: inline-block; vertical-align: middle; margin-right: 12px; }
-.oe-composer-editor .ql-snow.ql-toolbar button {
+.oe-composer .ql-snow.ql-toolbar .ql-formats { display: inline-block; vertical-align: middle; margin-right: 12px; }
+.oe-composer .ql-snow.ql-toolbar button {
   width: 28px; height: 24px; padding: 3px 5px; background: none; border: none; cursor: pointer; display: inline-block;
 }
-.oe-composer-editor .ql-snow.ql-toolbar button svg { width: 18px; height: 18px; }
-.oe-composer-editor .ql-snow .ql-stroke { fill: none; stroke: var(--text-muted); stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; }
-.oe-composer-editor .ql-snow .ql-fill, .oe-composer-editor .ql-snow .ql-stroke.ql-fill { fill: var(--text-muted); }
-.oe-composer-editor .ql-snow.ql-toolbar button:hover .ql-stroke,
-.oe-composer-editor .ql-snow.ql-toolbar button.ql-active .ql-stroke { stroke: var(--interactive-accent); }
-.oe-composer-editor .ql-snow.ql-toolbar button:hover .ql-fill,
-.oe-composer-editor .ql-snow.ql-toolbar button.ql-active .ql-fill { fill: var(--interactive-accent); }
-.oe-composer-editor .ql-snow .ql-picker { color: var(--text-muted); }
-.oe-composer-editor .ql-snow .ql-picker-options { background: var(--background-primary); border-color: var(--background-modifier-border); }
+.oe-composer .ql-snow.ql-toolbar button svg { width: 18px; height: 18px; }
+.oe-composer .ql-snow .ql-stroke { fill: none; stroke: var(--text-muted); stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; }
+.oe-composer .ql-snow .ql-fill, .oe-composer .ql-snow .ql-stroke.ql-fill { fill: var(--text-muted); }
+.oe-composer .ql-snow.ql-toolbar button:hover .ql-stroke,
+.oe-composer .ql-snow.ql-toolbar button.ql-active .ql-stroke { stroke: var(--interactive-accent); }
+.oe-composer .ql-snow.ql-toolbar button:hover .ql-fill,
+.oe-composer .ql-snow.ql-toolbar button.ql-active .ql-fill { fill: var(--interactive-accent); }
+.oe-composer .ql-snow .ql-picker { color: var(--text-muted); }
+.oe-composer .ql-snow .ql-picker-options { background: var(--background-primary); border-color: var(--background-modifier-border); }
 
 /* Link tooltip (Quill's "snow" theme popup for entering/editing a URL).
    Quill's own CSS keeps the URL input hidden until .ql-editing is applied
@@ -180,25 +190,25 @@
    element exists in the DOM (invisible) from the moment Quill initializes,
    long before any Link click, which is why it was showing up on a blank
    compose window with nothing clicked yet. */
-.oe-composer-editor .ql-snow .ql-hidden { display: none; }
-.oe-composer-editor .ql-snow .ql-tooltip {
+.oe-composer .ql-snow .ql-hidden { display: none; }
+.oe-composer .ql-snow .ql-tooltip {
   position: absolute; transform: translateY(10px); z-index: 20;
   background: var(--background-primary); border: 1px solid var(--background-modifier-border);
   border-radius: 4px; box-shadow: var(--shadow-s); padding: 5px 12px;
   color: var(--text-normal); white-space: nowrap;
 }
-.oe-composer-editor .ql-snow .ql-tooltip::before { content: "Visit URL:"; line-height: 26px; margin-right: 8px; }
-.oe-composer-editor .ql-snow .ql-tooltip[data-mode="link"]::before { content: "Enter link:"; }
-.oe-composer-editor .ql-snow .ql-tooltip input[type="text"] {
+.oe-composer .ql-snow .ql-tooltip::before { content: "Visit URL:"; line-height: 26px; margin-right: 8px; }
+.oe-composer .ql-snow .ql-tooltip[data-mode="link"]::before { content: "Enter link:"; }
+.oe-composer .ql-snow .ql-tooltip input[type="text"] {
   display: none; border: 1px solid var(--background-modifier-border); border-radius: 4px;
   background: var(--background-primary); color: var(--text-normal);
   font-size: 13px; height: 26px; margin: 0; padding: 3px 5px; width: 170px;
 }
-.oe-composer-editor .ql-snow .ql-tooltip.ql-editing input[type="text"] { display: inline-block; }
-.oe-composer-editor .ql-snow .ql-tooltip a { line-height: 26px; cursor: pointer; text-decoration: none; color: var(--interactive-accent); }
-.oe-composer-editor .ql-snow .ql-tooltip a.ql-preview { display: inline-block; max-width: 200px; overflow-x: hidden; text-overflow: ellipsis; vertical-align: top; }
-.oe-composer-editor .ql-snow .ql-tooltip a.ql-action::after { border-right: 1px solid var(--background-modifier-border); content: "Edit"; margin-left: 16px; padding-right: 8px; }
-.oe-composer-editor .ql-snow .ql-tooltip a.ql-remove::before { content: "Remove"; margin-left: 8px; }
-.oe-composer-editor .ql-snow .ql-tooltip.ql-editing a.ql-preview,
-.oe-composer-editor .ql-snow .ql-tooltip.ql-editing a.ql-remove { display: none; }
-.oe-composer-editor .ql-snow .ql-tooltip.ql-editing a.ql-action::after { border-right: 0; content: "Save"; padding-right: 0; }
+.oe-composer .ql-snow .ql-tooltip.ql-editing input[type="text"] { display: inline-block; }
+.oe-composer .ql-snow .ql-tooltip a { line-height: 26px; cursor: pointer; text-decoration: none; color: var(--interactive-accent); }
+.oe-composer .ql-snow .ql-tooltip a.ql-preview { display: inline-block; max-width: 200px; overflow-x: hidden; text-overflow: ellipsis; vertical-align: top; }
+.oe-composer .ql-snow .ql-tooltip a.ql-action::after { border-right: 1px solid var(--background-modifier-border); content: "Edit"; margin-left: 16px; padding-right: 8px; }
+.oe-composer .ql-snow .ql-tooltip a.ql-remove::before { content: "Remove"; margin-left: 8px; }
+.oe-composer .ql-snow .ql-tooltip.ql-editing a.ql-preview,
+.oe-composer .ql-snow .ql-tooltip.ql-editing a.ql-remove { display: none; }
+.oe-composer .ql-snow .ql-tooltip.ql-editing a.ql-action::after { border-right: 0; content: "Save"; padding-right: 0; }
