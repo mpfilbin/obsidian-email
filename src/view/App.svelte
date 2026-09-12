@@ -20,6 +20,45 @@
     state.accounts.find((a) => a.id === state.activeAccountId)?.status === "syncing",
   );
 
+  const isDraftsMailbox = $derived(
+    state.mailboxes.find((m) => m.id === state.activeMailboxId)?.kind === "drafts",
+  );
+
+  let pendingSwitch = $state<(() => void) | null>(null);
+
+  function requestSwitch(open: () => void): void {
+    if (vm.hasUnsavedComposerContent()) pendingSwitch = open;
+    else open();
+  }
+
+  async function resolvePromptSave(): Promise<void> {
+    if (state.composer?.mode === "new" || state.composer?.mode === "editDraft") await vm.saveDraft();
+    else await vm.discardDraft();
+    const next = pendingSwitch;
+    pendingSwitch = null;
+    next?.();
+  }
+  async function resolvePromptDiscard(): Promise<void> {
+    await vm.discardDraft();
+    const next = pendingSwitch;
+    pendingSwitch = null;
+    next?.();
+  }
+  function resolvePromptCancel(): void {
+    pendingSwitch = null;
+  }
+
+  const composerFieldProps = $derived(state.composer ? {
+    to: state.composer.to, cc: state.composer.cc, bcc: state.composer.bcc,
+    subject: state.composer.subject, bodyHtml: state.composer.bodyHtml,
+    sending: state.composer.sending, error: state.composer.error,
+    onFieldsChange: (patch: Parameters<typeof vm.updateComposerFields>[0]) => vm.updateComposerFields(patch),
+    onBodyChange: (html: string) => vm.updateComposerBody(html),
+    onSend: () => vm.send(),
+    onSaveDraft: () => vm.saveDraft(),
+    onDiscard: () => vm.discardDraft(),
+  } : null);
+
   // Column widths and the reading-pane collapse are view-only chrome (not
   // synced data), remembered per-device via localStorage as a convenience.
   // svelte-ignore state_referenced_locally
@@ -64,6 +103,7 @@
       onClear={() => vm.clearSearch()}
       onRefresh={() => vm.refresh()}
       onToggleReadingPane={() => (readingPaneCollapsed = !readingPaneCollapsed)}
+      onNewMessage={() => requestSwitch(() => vm.openNewMessage())}
     />
     {#if state.notice}
       <div class="oe-notice">{state.notice}</div>
@@ -85,6 +125,23 @@
       renderDeps={vm.renderDeps()}
       onClose={() => vm.closeThread()}
       onDownload={(id, att) => vm.downloadAttachmentToDisk(id, att)}
+      {isDraftsMailbox}
+      activeComposerMessageId={state.composer?.targetMessageId ?? null}
+      composerMode={state.composer?.mode ?? null}
+      composerProps={composerFieldProps}
+      onOpenReply={(id, mode) => requestSwitch(() => vm.openReply(id, mode))}
+      onOpenForward={(id) => requestSwitch(() => vm.openForward(id))}
+      onEditDraft={(id) => requestSwitch(() => vm.openDraftForEdit(id))}
     />
+  {/if}
+  {#if pendingSwitch}
+    <div class="oe-composer-prompt">
+      <p>You have an unsent message. Save it as a draft before switching?</p>
+      {#if state.composer?.mode === "new" || state.composer?.mode === "editDraft"}
+        <button type="button" class="oe-composer-prompt-save" onclick={resolvePromptSave}>Save draft</button>
+      {/if}
+      <button type="button" class="oe-composer-prompt-discard" onclick={resolvePromptDiscard}>Discard</button>
+      <button type="button" class="oe-composer-prompt-cancel" onclick={resolvePromptCancel}>Cancel</button>
+    </div>
   {/if}
 </div>

@@ -4,7 +4,7 @@ import App from "../../src/view/App.svelte";
 import type { ViewModel, ViewState } from "../../src/view/view-model";
 
 function fakeVm(state: Partial<ViewState> = {}): ViewModel {
-  const full: ViewState = {
+  let full: ViewState = {
     accounts: [{ id: "a1", email: "a1@x.com", provider: "ms-graph", status: "idle" }],
     activeAccountId: "a1",
     mailboxes: [{ id: "INBOX", name: "Inbox", kind: "inbox" }],
@@ -20,15 +20,36 @@ function fakeVm(state: Partial<ViewState> = {}): ViewModel {
     hasMore: false, loadingList: false, autoLoadImages: false,
     search: { query: "", active: false },
     openThreadId: null, openMessages: [], notice: null,
+    composer: null,
     ...state,
+  };
+  // A minimal reactive store so the default (un-overridden) `openNewMessage`
+  // can actually flip `composer` on and notify subscribers, matching real
+  // ViewModel behavior closely enough for the "New message opens the
+  // composer" smoke test — every other mutating method here stays a bare
+  // vi.fn() per-test override, exactly as the rest of this fixture does.
+  // `set` rebinds `full` to a NEW object (mirroring the real ViewModel's
+  // own `set`) rather than mutating in place, since App.svelte's `state`
+  // reassignment needs a referentially-new value to be picked up.
+  const listeners = new Set<(s: ViewState) => void>();
+  const set = (patch: Partial<ViewState>) => {
+    full = { ...full, ...patch };
+    for (const fn of [...listeners]) fn(full);
   };
   return {
     getState: () => full,
-    subscribe: (fn: (s: ViewState) => void) => { fn(full); return () => {}; },
+    subscribe: (fn: (s: ViewState) => void) => { listeners.add(fn); fn(full); return () => listeners.delete(fn); },
     selectAccount: vi.fn(), selectMailbox: vi.fn(), openThread: vi.fn(), closeThread: vi.fn(),
     loadMore: vi.fn(), refresh: vi.fn(), runSearch: vi.fn(), clearSearch: vi.fn(),
     renderDeps: () => ({ getInlineAttachment: async () => undefined, openExternal: () => {} }),
     downloadAttachment: vi.fn(), downloadAttachmentToDisk: vi.fn(),
+    openReply: vi.fn(), openForward: vi.fn(),
+    openNewMessage: vi.fn(() => {
+      set({ composer: { mode: "new", to: [], cc: [], bcc: [], subject: "", bodyHtml: "", sending: false, error: null } });
+    }),
+    openDraftForEdit: vi.fn(), updateComposerFields: vi.fn(), updateComposerBody: vi.fn(),
+    hasUnsavedComposerContent: vi.fn().mockReturnValue(false),
+    send: vi.fn(), saveDraft: vi.fn(), discardDraft: vi.fn(), closeComposer: vi.fn(),
   } as unknown as ViewModel;
 }
 
@@ -101,6 +122,7 @@ describe("App.svelte smoke", () => {
     const app = mount(App, { target: host, props: { vm: fakeVm(), onAddAccount: () => {} } });
     flushSync();
     host.querySelector<HTMLElement>(".oe-new-message")!.click();
+    flushSync();
     expect(host.querySelector(".oe-composer")).not.toBeNull();
     unmount(app);
   });
@@ -120,6 +142,101 @@ describe("App.svelte smoke", () => {
 
     expect(grid.style.gridTemplateColumns).not.toBe(widthBefore);
     expect(grid.style.gridTemplateColumns).toContain("260px"); // 200 default + 60px drag
+    unmount(app);
+  });
+});
+
+describe("App.svelte — composer wiring", () => {
+  it("New message calls vm.openNewMessage when nothing is unsaved", () => {
+    const openNewMessage = vi.fn();
+    const vm = fakeVm();
+    (vm as unknown as { openNewMessage: typeof openNewMessage }).openNewMessage = openNewMessage;
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    flushSync();
+    host.querySelector<HTMLElement>(".oe-new-message")!.click();
+    expect(openNewMessage).toHaveBeenCalledOnce();
+    unmount(app);
+  });
+
+  it("switching composers with unsaved content shows a save/discard/cancel prompt instead of switching immediately", () => {
+    const openNewMessage = vi.fn();
+    const vm = fakeVm({ composer: {
+      mode: "new", to: [], cc: [], bcc: [], subject: "", bodyHtml: "<p>hi</p>", sending: false, error: null,
+    } });
+    (vm as unknown as { openNewMessage: typeof openNewMessage; hasUnsavedComposerContent: () => boolean }).openNewMessage = openNewMessage;
+    (vm as unknown as { hasUnsavedComposerContent: () => boolean }).hasUnsavedComposerContent = () => true;
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    flushSync();
+    host.querySelector<HTMLElement>(".oe-new-message")!.click();
+    flushSync();
+    expect(openNewMessage).not.toHaveBeenCalled();
+    expect(host.querySelector(".oe-composer-prompt")).not.toBeNull();
+    unmount(app);
+  });
+
+  it("prompt's Discard calls vm.discardDraft then proceeds with the pending switch", async () => {
+    const discardDraft = vi.fn().mockResolvedValue(undefined);
+    const openNewMessage = vi.fn();
+    const vm = fakeVm({ composer: {
+      mode: "reply", targetMessageId: "m1", to: [], cc: [], bcc: [], subject: "", bodyHtml: "<p>hi</p>", sending: false, error: null,
+    } });
+    Object.assign(vm, { discardDraft, openNewMessage, hasUnsavedComposerContent: () => true });
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    flushSync();
+    host.querySelector<HTMLElement>(".oe-new-message")!.click();
+    flushSync();
+    host.querySelector<HTMLElement>(".oe-composer-prompt-discard")!.click();
+    // Two microtask ticks to drain the async handler's `await vm.discardDraft()`
+    // continuation — matching the existing pattern in
+    // tests/render/message-renderer.test.ts for flushing an awaited mock.
+    await Promise.resolve();
+    await Promise.resolve();
+    flushSync();
+    expect(discardDraft).toHaveBeenCalledOnce();
+    expect(openNewMessage).toHaveBeenCalledOnce();
+    unmount(app);
+  });
+
+  it("prompt's Cancel leaves the current composer open and does not switch", () => {
+    const openNewMessage = vi.fn();
+    const vm = fakeVm({ composer: {
+      mode: "new", to: [], cc: [], bcc: [], subject: "", bodyHtml: "<p>hi</p>", sending: false, error: null,
+    } });
+    Object.assign(vm, { openNewMessage, hasUnsavedComposerContent: () => true });
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    flushSync();
+    host.querySelector<HTMLElement>(".oe-new-message")!.click();
+    flushSync();
+    host.querySelector<HTMLElement>(".oe-composer-prompt-cancel")!.click();
+    flushSync();
+    expect(openNewMessage).not.toHaveBeenCalled();
+    expect(host.querySelector(".oe-composer-prompt")).toBeNull();
+    unmount(app);
+  });
+
+  it("passes isDraftsMailbox=true to ReadingPane when the active mailbox kind is drafts", () => {
+    // fakeVm's base fixture has an "m1" message but leaves openMessages empty
+    // by default (no thread auto-opened); open it explicitly here so a
+    // MessageBlock actually renders for the isDraftsMailbox assertion below.
+    const vm = fakeVm({
+      mailboxes: [{ id: "DRAFTS", name: "Drafts", kind: "drafts" }],
+      activeMailboxId: "DRAFTS",
+      openThreadId: "t1",
+      openMessages: [{ summary: {
+        id: "m1", threadId: "t1", mailboxIds: ["DRAFTS"], from: { name: "Jane", email: "j@x.com" },
+        to: [], cc: [], subject: "Hello", snippet: "hi there", date: 1,
+        unread: true, hasAttachments: false, flagged: false,
+      } }],
+    });
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    flushSync();
+    expect(host.querySelector('[data-action="edit-draft"]')).not.toBeNull();
+    expect(host.querySelector('[data-action="reply"]')).toBeNull();
     unmount(app);
   });
 });
