@@ -1,11 +1,16 @@
 <script lang="ts">
   import type { ThreadView } from "../view-model";
 
-  let { thread, isOpen, onOpen }: { thread: ThreadView; isOpen: boolean; onOpen: () => void } = $props();
+  let { thread, isOpen, onOpen, isDraftsMailbox, isArchiveMailbox, isTrashMailbox, onArchive, onDelete }: {
+    thread: ThreadView; isOpen: boolean; onOpen: () => void;
+    isDraftsMailbox: boolean; isArchiveMailbox: boolean; isTrashMailbox: boolean;
+    onArchive: () => void; onDelete: () => void;
+  } = $props();
 
   const newest = $derived(thread.messages[thread.messages.length - 1]);
   const sender = $derived(newest.from.name || newest.from.email || "(unknown)");
   const hasAttachments = $derived(thread.messages.some((m) => m.hasAttachments));
+  const showArchive = $derived(!isDraftsMailbox && !isArchiveMailbox && !isTrashMailbox);
 
   function relative(ts: number): string {
     const diff = Date.now() - ts;
@@ -17,11 +22,14 @@
   }
 </script>
 
-<button
+<div
   class="oe-thread-row"
   class:is-unread={thread.unread}
   class:is-open={isOpen}
   onclick={onOpen}
+  role="button"
+  tabindex="0"
+  onkeydown={(e) => (e.key === "Enter" ? onOpen() : null)}
 >
   <div class="oe-thread-line1">
     <span class="oe-thread-sender">{sender}</span>
@@ -34,4 +42,10 @@
     {#if hasAttachments}<span class="oe-clip" aria-label="has attachments">📎</span>{/if}
   </div>
   <div class="oe-thread-snippet">{newest.snippet}</div>
-</button>
+  <div class="oe-thread-actions">
+    {#if showArchive}
+      <button type="button" data-action="archive" onclick={(e) => { e.stopPropagation(); onArchive(); }}>Archive</button>
+    {/if}
+    <button type="button" data-action="delete" onclick={(e) => { e.stopPropagation(); onDelete(); }}>Delete</button>
+  </div>
+</div>

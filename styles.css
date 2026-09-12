@@ -131,9 +131,9 @@
 .oe-composer-actions button:disabled { opacity: 0.6; cursor: default; }
 .oe-new-message { height: auto; background: transparent; border: 1px solid var(--background-modifier-border); border-radius: 4px; padding: 2px 8px; color: var(--text-muted); cursor: pointer; font-size: 12px; }
 .oe-new-message:hover { color: var(--text-normal); }
-.oe-message-actions { display: flex; gap: 6px; padding: 0 10px 8px; }
-.oe-message-actions button { height: auto; background: transparent; border: 1px solid var(--background-modifier-border); border-radius: 4px; padding: 3px 8px; font-size: 12px; color: var(--text-muted); cursor: pointer; }
-.oe-message-actions button:hover { color: var(--text-normal); }
+.oe-message-actions, .oe-thread-actions { display: flex; gap: 6px; padding: 0 10px 8px; }
+.oe-message-actions button, .oe-thread-actions button { height: auto; background: transparent; border: 1px solid var(--background-modifier-border); border-radius: 4px; padding: 3px 8px; font-size: 12px; color: var(--text-muted); cursor: pointer; }
+.oe-message-actions button:hover, .oe-thread-actions button:hover { color: var(--text-normal); }
 .oe-composer-prompt {
   position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
   display: flex; align-items: center; gap: 10px; padding: 10px 14px;

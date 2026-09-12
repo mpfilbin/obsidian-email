@@ -2,13 +2,18 @@
   import type { ThreadView } from "../view-model";
   import ThreadRow from "./ThreadRow.svelte";
 
-  let { threads, openThreadId, hasMore, loading, onOpen, onLoadMore }: {
+  let { threads, openThreadId, hasMore, loading, onOpen, onLoadMore, isDraftsMailbox, isArchiveMailbox, isTrashMailbox, onArchiveThread, onDeleteThread }: {
     threads: ThreadView[];
     openThreadId: string | null;
     hasMore: boolean;
     loading: boolean;
     onOpen: (threadId: string) => void;
     onLoadMore: () => void;
+    isDraftsMailbox: boolean;
+    isArchiveMailbox: boolean;
+    isTrashMailbox: boolean;
+    onArchiveThread: (threadId: string) => void;
+    onDeleteThread: (threadId: string) => void;
   } = $props();
 
   let sentinel = $state<HTMLElement | null>(null);
@@ -28,7 +33,16 @@
     <p class="oe-empty">No messages</p>
   {/if}
   {#each threads as t (t.threadId)}
-    <ThreadRow thread={t} isOpen={t.threadId === openThreadId} onOpen={() => onOpen(t.threadId)} />
+    <ThreadRow
+      thread={t}
+      isOpen={t.threadId === openThreadId}
+      onOpen={() => onOpen(t.threadId)}
+      {isDraftsMailbox}
+      {isArchiveMailbox}
+      {isTrashMailbox}
+      onArchive={() => onArchiveThread(t.threadId)}
+      onDelete={() => onDeleteThread(t.threadId)}
+    />
   {/each}
   {#if loading}<p class="oe-loading">Loading…</p>{/if}
   {#if hasMore}
