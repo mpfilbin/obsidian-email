@@ -572,3 +572,90 @@ describe("ViewModel — composer", () => {
     expect(ctx.provider.sentLog).toContainEqual({ kind: "draft", draftId: id });
   });
 });
+
+describe("ViewModel — delete/archive", () => {
+  it("deleteMessage removes the message from the list and closes an open thread showing it", async () => {
+    const ctx = await build();
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1)]);
+    ctx.provider.addMessage(sum("m1", "t1", 1));
+    await ctx.vm.init();
+    await ctx.vm.openThread("t1");
+    expect(ctx.vm.getState().openThreadId).toBe("t1");
+
+    await ctx.vm.deleteMessage("m1");
+
+    expect(ctx.vm.getState().threads).toEqual([]);
+    expect(ctx.vm.getState().openThreadId).toBeNull();
+  });
+
+  it("archiveMessage removes the message from the current list without closing an unrelated open thread", async () => {
+    const ctx = await build();
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1), sum("m2", "t2", 2)]);
+    ctx.provider.addMessage(sum("m1", "t1", 1));
+    ctx.provider.addMessage(sum("m2", "t2", 2));
+    await ctx.vm.init();
+    await ctx.vm.openThread("t2");
+
+    await ctx.vm.archiveMessage("m1");
+
+    expect(ctx.vm.getState().threads.map((t) => t.threadId)).toEqual(["t2"]);
+    expect(ctx.vm.getState().openThreadId).toBe("t2");
+  });
+
+  it("deleteMessage sets a notice on provider failure and leaves the list unchanged", async () => {
+    const ctx = await build();
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1)]);
+    ctx.provider.addMessage(sum("m1", "t1", 1));
+    await ctx.vm.init();
+    vi.spyOn(ctx.provider, "deleteMessage").mockRejectedValue(new Error("network down"));
+
+    await ctx.vm.deleteMessage("m1");
+
+    expect(ctx.vm.getState().threads.map((t) => t.threadId)).toEqual(["t1"]);
+    expect(ctx.vm.getState().notice).toContain("network down");
+  });
+
+  it("deleteThread deletes every message in the conversation, concurrently, and closes the thread if open", async () => {
+    const ctx = await build();
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1), sum("m2", "t1", 2), sum("m3", "t2", 3)]);
+    ctx.provider.addMessage(sum("m1", "t1", 1));
+    ctx.provider.addMessage(sum("m2", "t1", 2));
+    ctx.provider.addMessage(sum("m3", "t2", 3));
+    await ctx.vm.init();
+    await ctx.vm.openThread("t1");
+    const spy = vi.spyOn(ctx.provider, "deleteMessage");
+
+    await ctx.vm.deleteThread("t1");
+
+    expect(spy).toHaveBeenCalledWith("m1");
+    expect(spy).toHaveBeenCalledWith("m2");
+    expect(ctx.vm.getState().threads.map((t) => t.threadId)).toEqual(["t2"]);
+    expect(ctx.vm.getState().openThreadId).toBeNull();
+  });
+
+  it("archiveThread reports partial failure without discarding what succeeded", async () => {
+    const ctx = await build();
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1), sum("m2", "t1", 2)]);
+    ctx.provider.addMessage(sum("m1", "t1", 1));
+    ctx.provider.addMessage(sum("m2", "t1", 2));
+    await ctx.vm.init();
+    vi.spyOn(ctx.provider, "archiveMessage").mockImplementation(async (id: string) => {
+      if (id === "m2") throw new Error("boom");
+    });
+
+    await ctx.vm.archiveThread("t1");
+
+    // m1 succeeded and was removed from cache; m2 failed and stays in INBOX,
+    // so `groupThreads` still surfaces "t1" — just with only m2 left in it.
+    // The thread does NOT fully disappear from the current mailbox's list,
+    // and the partial failure is reported, not silently swallowed.
+    expect(ctx.vm.getState().threads.map((t) => t.threadId)).toEqual(["t1"]);
+    expect(ctx.vm.getState().threads[0].messages.map((m) => m.id)).toEqual(["m2"]);
+    expect(ctx.vm.getState().notice).toMatch(/1 of 2/);
+  });
+});

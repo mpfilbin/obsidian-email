@@ -442,6 +442,60 @@ export class ViewModel {
     this.set({ composer: null });
   }
 
+  private async actOnMessage(messageId: string, action: (provider: MailProvider) => Promise<void>): Promise<void> {
+    const acct = this.state.activeAccountId;
+    const provider = acct ? this.deps.getProvider(acct) : undefined;
+    if (!acct || !provider) return;
+    try {
+      await action(provider);
+      await this.deps.cache.deleteMessages(acct, [messageId]);
+      if (this.state.openMessages.some((m) => m.summary.id === messageId)) this.closeThread();
+      await this.reloadList();
+    } catch (err) {
+      this.set({ notice: this.errorMessage(err) });
+    }
+  }
+
+  async deleteMessage(messageId: string): Promise<void> {
+    await this.actOnMessage(messageId, (provider) => provider.deleteMessage(messageId));
+  }
+
+  async archiveMessage(messageId: string): Promise<void> {
+    await this.actOnMessage(messageId, (provider) => provider.archiveMessage(messageId));
+  }
+
+  private async actOnThread(
+    threadId: string,
+    action: (provider: MailProvider, id: string) => Promise<void>,
+    pastTense: "Deleted" | "Archived",
+  ): Promise<void> {
+    const acct = this.state.activeAccountId;
+    const provider = acct ? this.deps.getProvider(acct) : undefined;
+    if (!acct || !provider) return;
+    const messages = await this.deps.cache.getThreadMessages(acct, threadId);
+    const results = await Promise.allSettled(messages.map((m) => action(provider, m.id)));
+    const succeededIds = messages.filter((_, i) => results[i].status === "fulfilled").map((m) => m.id);
+    const failedCount = results.length - succeededIds.length;
+    if (succeededIds.length) await this.deps.cache.deleteMessages(acct, succeededIds);
+    if (this.state.openThreadId === threadId) this.closeThread();
+    await this.reloadList();
+    if (failedCount > 0) {
+      this.set({
+        notice: succeededIds.length === 0
+          ? `Couldn't ${pastTense.toLowerCase()} this thread.`
+          : `${pastTense} ${succeededIds.length} of ${messages.length} messages — ${failedCount} failed.`,
+      });
+    }
+  }
+
+  async deleteThread(threadId: string): Promise<void> {
+    await this.actOnThread(threadId, (provider, id) => provider.deleteMessage(id), "Deleted");
+  }
+
+  async archiveThread(threadId: string): Promise<void> {
+    await this.actOnThread(threadId, (provider, id) => provider.archiveMessage(id), "Archived");
+  }
+
   async openDraftForEdit(messageId: string): Promise<void> {
     const acct = this.state.activeAccountId;
     const provider = acct ? this.deps.getProvider(acct) : undefined;
