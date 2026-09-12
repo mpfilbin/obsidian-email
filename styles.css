@@ -175,6 +175,12 @@
    Quill's own CSS keeps the URL input hidden until .ql-editing is applied
    and positions the whole thing absolutely near the selection — without
    this, the input is permanently visible and just flows inline in the page. */
+/* Quill's Tooltip base class calls hide() at construction time, which just
+   adds this class — its own CSS is what actually hides it. The tooltip
+   element exists in the DOM (invisible) from the moment Quill initializes,
+   long before any Link click, which is why it was showing up on a blank
+   compose window with nothing clicked yet. */
+.oe-composer-editor .ql-snow .ql-hidden { display: none; }
 .oe-composer-editor .ql-snow .ql-tooltip {
   position: absolute; transform: translateY(10px); z-index: 20;
   background: var(--background-primary); border: 1px solid var(--background-modifier-border);
