@@ -52,6 +52,12 @@
     if (!editorHost) return;
     const q = new Quill(editorHost, {
       theme: "snow",
+      // Quill's link-editing tooltip clamps itself to `bounds` so it never
+      // renders off-screen — without this it defaults to `document.body`,
+      // which is wide enough to hide the fact that the tooltip is actually
+      // bleeding out of this (much narrower) composer pane into whatever
+      // sits to its left in the app's layout.
+      bounds: editorHost,
       modules: { toolbar: ["bold", "italic", "underline", { list: "ordered" }, { list: "bullet" }, "link"] },
     });
     const initialHtml = untrack(() => bodyHtml);
