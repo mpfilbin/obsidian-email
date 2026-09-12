@@ -1,8 +1,9 @@
 <script lang="ts">
-  import type { AttachmentMeta, MessageBody, MessageSummary } from "../../providers/types";
+  import type { Address, AttachmentMeta, MessageBody, MessageSummary } from "../../providers/types";
   import { renderMessageBody, type RenderHandle } from "../../render/message-renderer";
+  import Composer from "./Composer.svelte";
 
-  let { summary, body, expanded, autoLoadImages, renderDeps, onToggle, onDownload }: {
+  let { summary, body, expanded, autoLoadImages, renderDeps, onToggle, onDownload, isDraftsMailbox, composerMode, composerProps, onOpenReply, onOpenForward, onEditDraft }: {
     summary: MessageSummary;
     body?: MessageBody;
     expanded: boolean;
@@ -11,6 +12,17 @@
     renderDeps: { getInlineAttachment: (cid: string) => Promise<Blob | undefined>; openExternal: (url: string) => void };
     onToggle: () => void;
     onDownload: (att: AttachmentMeta) => void;
+    isDraftsMailbox: boolean;
+    composerMode: "reply" | "replyAll" | "forward" | null;
+    composerProps: {
+      to: Address[]; cc: Address[]; bcc: Address[];
+      subject: string; bodyHtml: string; sending: boolean; error: string | null;
+      onFieldsChange: (patch: Partial<{ to: Address[]; cc: Address[]; bcc: Address[]; subject: string }>) => void;
+      onBodyChange: (html: string) => void; onSend: () => void; onSaveDraft: () => void; onDiscard: () => void;
+    } | null;
+    onOpenReply: (mode: "reply" | "replyAll") => void;
+    onOpenForward: () => void;
+    onEditDraft: () => void;
   } = $props();
 
   let bodyEl = $state<HTMLDivElement | null>(null);
@@ -59,6 +71,20 @@
           </button>
         {/each}
       </div>
+    {/if}
+    {#if isDraftsMailbox}
+      <div class="oe-message-actions">
+        <button type="button" data-action="edit-draft" onclick={onEditDraft}>Edit</button>
+      </div>
+    {:else}
+      <div class="oe-message-actions">
+        <button type="button" data-action="reply" onclick={() => onOpenReply("reply")}>Reply</button>
+        <button type="button" data-action="reply-all" onclick={() => onOpenReply("replyAll")}>Reply all</button>
+        <button type="button" data-action="forward" onclick={onOpenForward}>Forward</button>
+      </div>
+    {/if}
+    {#if composerMode && composerProps}
+      <Composer mode={composerMode} {...composerProps} />
     {/if}
   {/if}
 </article>

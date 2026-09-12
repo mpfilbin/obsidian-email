@@ -112,3 +112,76 @@ describe("ReadingPane smoke", () => {
     unmount(app);
   });
 });
+
+describe("ReadingPane — reply/forward/edit actions", () => {
+  const composerProps = {
+    to: [], cc: [], bcc: [], subject: "", bodyHtml: "", sending: false, error: null,
+    onFieldsChange: vi.fn(), onBodyChange: vi.fn(), onSend: vi.fn(), onSaveDraft: vi.fn(), onDiscard: vi.fn(),
+  };
+
+  it("shows Reply/Reply all/Forward buttons on a message when not in the Drafts mailbox", () => {
+    const host = document.createElement("div");
+    const app = mount(ReadingPane, {
+      target: host,
+      props: {
+        openMessages: open(), autoLoadImages: false, renderDeps, onClose: () => {}, onDownload: vi.fn(),
+        isDraftsMailbox: false, activeComposerMessageId: null, composerMode: null, composerProps: null,
+        onOpenReply: vi.fn(), onOpenForward: vi.fn(), onEditDraft: vi.fn(),
+      },
+    });
+    flushSync();
+    expect(host.querySelector('[data-action="reply"]')).not.toBeNull();
+    expect(host.querySelector('[data-action="reply-all"]')).not.toBeNull();
+    expect(host.querySelector('[data-action="forward"]')).not.toBeNull();
+    expect(host.querySelector('[data-action="edit-draft"]')).toBeNull();
+    unmount(app);
+  });
+
+  it("shows an Edit button instead, in the Drafts mailbox", () => {
+    const host = document.createElement("div");
+    const app = mount(ReadingPane, {
+      target: host,
+      props: {
+        openMessages: open(), autoLoadImages: false, renderDeps, onClose: () => {}, onDownload: vi.fn(),
+        isDraftsMailbox: true, activeComposerMessageId: null, composerMode: null, composerProps: null,
+        onOpenReply: vi.fn(), onOpenForward: vi.fn(), onEditDraft: vi.fn(),
+      },
+    });
+    flushSync();
+    expect(host.querySelector('[data-action="reply"]')).toBeNull();
+    expect(host.querySelector('[data-action="edit-draft"]')).not.toBeNull();
+    unmount(app);
+  });
+
+  it("clicking Reply calls onOpenReply(m1, 'reply')", () => {
+    const onOpenReply = vi.fn();
+    const host = document.createElement("div");
+    const app = mount(ReadingPane, {
+      target: host,
+      props: {
+        openMessages: open(), autoLoadImages: false, renderDeps, onClose: () => {}, onDownload: vi.fn(),
+        isDraftsMailbox: false, activeComposerMessageId: null, composerMode: null, composerProps: null,
+        onOpenReply, onOpenForward: vi.fn(), onEditDraft: vi.fn(),
+      },
+    });
+    flushSync();
+    host.querySelector<HTMLElement>('[data-action="reply"]')!.click();
+    expect(onOpenReply).toHaveBeenCalledWith("m1", "reply");
+    unmount(app);
+  });
+
+  it("renders the Composer inline under the message being replied to", () => {
+    const host = document.createElement("div");
+    const app = mount(ReadingPane, {
+      target: host,
+      props: {
+        openMessages: open(), autoLoadImages: false, renderDeps, onClose: () => {}, onDownload: vi.fn(),
+        isDraftsMailbox: false, activeComposerMessageId: "m1", composerMode: "reply", composerProps,
+        onOpenReply: vi.fn(), onOpenForward: vi.fn(), onEditDraft: vi.fn(),
+      },
+    });
+    flushSync();
+    expect(host.querySelector(".oe-composer")).not.toBeNull();
+    unmount(app);
+  });
+});

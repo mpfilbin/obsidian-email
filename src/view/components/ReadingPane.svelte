@@ -3,13 +3,21 @@
   import type { ViewState } from "../view-model";
   import MessageBlock from "./MessageBlock.svelte";
 
-  let { openMessages, autoLoadImages, renderDeps, onClose, onDownload }: {
+  let { openMessages, autoLoadImages, renderDeps, onClose, onDownload, isDraftsMailbox, activeComposerMessageId, composerMode, composerProps, onOpenReply, onOpenForward, onEditDraft }: {
     openMessages: ViewState["openMessages"];
     /** `prefs.autoLoadImages` — when true, remote content renders immediately. */
     autoLoadImages: boolean;
     renderDeps: { getInlineAttachment: (cid: string) => Promise<Blob | undefined>; openExternal: (url: string) => void };
     onClose: () => void;
     onDownload: (messageId: string, att: AttachmentMeta) => void;
+    isDraftsMailbox: boolean;
+    activeComposerMessageId: string | null;
+    composerMode: "reply" | "replyAll" | "forward" | null;
+    // TODO(Task 10): replace with shared ComposerFieldProps type
+    composerProps: null | Record<string, unknown>;
+    onOpenReply: (messageId: string, mode: "reply" | "replyAll") => void;
+    onOpenForward: (messageId: string) => void;
+    onEditDraft: (messageId: string) => void;
   } = $props();
 
   let expandedId = $state<string | null>(null);
@@ -48,6 +56,12 @@
         {renderDeps}
         onToggle={() => (expandedId = expandedId === m.summary.id ? null : m.summary.id)}
         onDownload={(att) => onDownload(m.summary.id, att)}
+        {isDraftsMailbox}
+        composerMode={activeComposerMessageId === m.summary.id ? composerMode : null}
+        composerProps={activeComposerMessageId === m.summary.id ? composerProps : null}
+        onOpenReply={(mode) => onOpenReply(m.summary.id, mode)}
+        onOpenForward={() => onOpenForward(m.summary.id)}
+        onEditDraft={() => onEditDraft(m.summary.id)}
       />
     {/each}
   {/if}
