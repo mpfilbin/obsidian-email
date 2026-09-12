@@ -36,8 +36,17 @@
   }
 
   async function resolvePromptSave(): Promise<void> {
-    if (state.composer?.mode === "new" || state.composer?.mode === "editDraft") await vm.saveDraft();
-    else await vm.discardDraft();
+    if (state.composer?.mode === "new" || state.composer?.mode === "editDraft") {
+      await vm.saveDraft();
+      // saveDraft reports failure through composer.error instead of throwing,
+      // so a failed save is otherwise indistinguishable from a successful one.
+      // Switching anyway would replace the composer wholesale, taking the
+      // unsaved text and the error explaining the failure with it — so leave
+      // the prompt and the composer up for a retry or an explicit discard.
+      if (vm.getState().composer?.error != null) return;
+    } else {
+      await vm.discardDraft();
+    }
     const next = pendingSwitch;
     pendingSwitch = null;
     next?.();

@@ -50,8 +50,15 @@ function fakeVm(state: Partial<ViewState> = {}): ViewModel {
     openDraftForEdit: vi.fn(), updateComposerFields: vi.fn(), updateComposerBody: vi.fn(),
     hasUnsavedComposerContent: vi.fn().mockReturnValue(false),
     send: vi.fn(), saveDraft: vi.fn(), discardDraft: vi.fn(), closeComposer: vi.fn(),
+    // Test-only escape hatch, so an overridden method can push state the way
+    // the real ViewModel would (e.g. a saveDraft that sets composer.error).
+    __setState: set,
   } as unknown as ViewModel;
 }
+
+/** The fixture's test-only state setter (see `__setState` above). */
+const setStateOf = (vm: ViewModel) =>
+  (vm as unknown as { __setState: (patch: Partial<ViewState>) => void }).__setState;
 
 describe("App.svelte smoke", () => {
   it("renders account, mailbox and thread rows", () => {
@@ -197,6 +204,54 @@ describe("App.svelte — composer wiring", () => {
     flushSync();
     expect(discardDraft).toHaveBeenCalledOnce();
     expect(openNewMessage).toHaveBeenCalledOnce();
+    unmount(app);
+  });
+
+  it("prompt's Save draft does not switch when the save fails, leaving the error visible", async () => {
+    const openNewMessage = vi.fn();
+    const vm = fakeVm({ composer: {
+      mode: "new", to: [], cc: [], bcc: [], subject: "", bodyHtml: "<p>hi</p>", sending: false, error: null, savedSnapshot: null,
+    } });
+    // saveDraft swallows its own errors and reports them through
+    // composer.error rather than throwing, exactly as the ViewModel does.
+    const saveDraft = vi.fn(async () => {
+      setStateOf(vm)({ composer: { ...vm.getState().composer!, error: "network down" } });
+    });
+    Object.assign(vm, { saveDraft, openNewMessage, hasUnsavedComposerContent: () => true });
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    flushSync();
+    host.querySelector<HTMLElement>(".oe-new-message")!.click();
+    flushSync();
+    host.querySelector<HTMLElement>(".oe-composer-prompt-save")!.click();
+    await Promise.resolve();
+    await Promise.resolve();
+    flushSync();
+    expect(saveDraft).toHaveBeenCalledOnce();
+    expect(openNewMessage).not.toHaveBeenCalled();
+    expect(host.querySelector(".oe-composer-prompt")).not.toBeNull();
+    expect(host.querySelector(".oe-composer-error")?.textContent).toContain("network down");
+    unmount(app);
+  });
+
+  it("prompt's Save draft proceeds with the switch once the save succeeds", async () => {
+    const openNewMessage = vi.fn();
+    const vm = fakeVm({ composer: {
+      mode: "editDraft", draftId: "d1", to: [], cc: [], bcc: [], subject: "", bodyHtml: "<p>hi</p>", sending: false, error: null, savedSnapshot: null,
+    } });
+    const saveDraft = vi.fn().mockResolvedValue(undefined);
+    Object.assign(vm, { saveDraft, openNewMessage, hasUnsavedComposerContent: () => true });
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    flushSync();
+    host.querySelector<HTMLElement>(".oe-new-message")!.click();
+    flushSync();
+    host.querySelector<HTMLElement>(".oe-composer-prompt-save")!.click();
+    await Promise.resolve();
+    await Promise.resolve();
+    flushSync();
+    expect(openNewMessage).toHaveBeenCalledOnce();
+    expect(host.querySelector(".oe-composer-prompt")).toBeNull();
     unmount(app);
   });
 
