@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { MailProvider, MessageSummary } from "./types";
+import type { MailProvider, MessageSummaryPatch } from "./types";
 
 export function runMailProviderContract(
   name: string,
@@ -32,7 +32,7 @@ export function runMailProviderContract(
       const cursor = await provider.initialCursor();
       const added = await seedInbox(2);
       const result = await provider.syncSince(cursor);
-      const upsertIds = result.upserts.map((m: MessageSummary) => m.id);
+      const upsertIds = result.upserts.map((m: MessageSummaryPatch) => m.id);
       added.forEach((id) => expect(upsertIds).toContain(id));
       expect(result.cursor).toBeTruthy();
     });

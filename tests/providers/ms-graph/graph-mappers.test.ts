@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { mapGraphSummary, mapGraphBody, mapGraphFolders, toGraphRecipients } from "../../../src/providers/ms-graph/graph-mappers";
+import { mapGraphSummary, mapGraphSummaryPatch, mapGraphBody, mapGraphFolders, toGraphRecipients } from "../../../src/providers/ms-graph/graph-mappers";
 
 const fx = (p: string) => JSON.parse(readFileSync(`tests/fixtures/graph/${p}`, "utf8"));
 
@@ -25,6 +25,36 @@ describe("mapGraphSummary", () => {
       "AAADrafts",
     );
     expect(withBcc.bcc).toEqual([{ email: "hidden@example.com" }]);
+  });
+});
+
+describe("mapGraphSummaryPatch", () => {
+  it("maps every field when Graph sends a full record", () => {
+    const p = mapGraphSummaryPatch(fx("message.json"), "AAAInbox");
+    expect(p).toMatchObject({
+      id: "MSG1", threadId: "CONV1", subject: "Quarterly report",
+      from: { name: "Jane Doe", email: "jane@example.com" },
+      unread: true, hasAttachments: true, flagged: true,
+      mailboxIds: ["AAAInbox"],
+    });
+    expect(p.date).toBe(Date.parse("2026-09-03T21:05:00Z"));
+  });
+
+  // Graph's mail delta endpoint can report a metadata-only change (e.g. a
+  // read-status toggle) as a payload containing just `id` plus the changed
+  // property, omitting subject/from/etc. entirely even though `$select`
+  // lists them. The patch must reflect that omission rather than papering
+  // over it with "(no subject)"/blank defaults — those defaults are only
+  // for a message the cache has genuinely never seen before (see
+  // MailCache.patchMessages).
+  it("omits fields Graph didn't include in a metadata-only delta item", () => {
+    const p = mapGraphSummaryPatch({ id: "MSG1", isRead: true }, "AAAInbox");
+    expect(p).toEqual({ id: "MSG1", mailboxIds: ["AAAInbox"], unread: false });
+  });
+
+  it("still falls back to '(no subject)' when subject is present but empty", () => {
+    const p = mapGraphSummaryPatch({ id: "MSG1", subject: "" }, "AAAInbox");
+    expect(p.subject).toBe("(no subject)");
   });
 });
 

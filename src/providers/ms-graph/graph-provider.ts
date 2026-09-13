@@ -1,8 +1,8 @@
 import { AuthError, CursorExpiredError, ProviderError } from "../types";
-import type { Address, MailProvider, Mailbox, MessageBody, MessageSummary, OutgoingMessage, Page, SyncCursor, SyncResult } from "../types";
+import type { Address, MailProvider, Mailbox, MessageBody, MessageSummary, MessageSummaryPatch, OutgoingMessage, Page, SyncCursor, SyncResult } from "../types";
 import type { HttpClient, HttpResponse } from "../http";
 import { withRetry, parseRetryAfter, type RetryableResult } from "../../util/backoff";
-import { mapGraphBody, mapGraphFolders, mapGraphSummary, toGraphRecipients, type GraphMessage } from "./graph-mappers";
+import { mapGraphBody, mapGraphFolders, mapGraphSummary, mapGraphSummaryPatch, toGraphRecipients, type GraphMessage } from "./graph-mappers";
 
 export interface GraphProviderDeps {
   http: HttpClient;
@@ -186,7 +186,7 @@ export class GraphProvider implements MailProvider {
 
   async syncSince(cursor: SyncCursor): Promise<SyncResult> {
     if (cursor.kind !== "ms-graph") throw new ProviderError("wrong cursor kind for Graph");
-    const upserts: MessageSummary[] = [];
+    const upserts: MessageSummaryPatch[] = [];
     const deletions: string[] = [];
     const newDeltaLinks: Record<string, string> = { ...cursor.deltaLinks };
 
@@ -207,7 +207,7 @@ export class GraphProvider implements MailProvider {
         });
         for (const item of data.value ?? []) {
           if (item["@removed"]) deletions.push(item.id);
-          else upserts.push(mapGraphSummary(item, folderId));
+          else upserts.push(mapGraphSummaryPatch(item, folderId));
         }
         if (data["@odata.deltaLink"]) { newDeltaLinks[folderId] = data["@odata.deltaLink"]; break; }
         if (!data["@odata.nextLink"]) break;

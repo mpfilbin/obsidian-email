@@ -1,5 +1,5 @@
 import type { IDBPDatabase } from "idb";
-import type { Mailbox, MessageBody, MessageSummary } from "../providers/types";
+import type { Mailbox, MessageBody, MessageSummary, MessageSummaryPatch } from "../providers/types";
 import { RETENTION, openMailDb, type MailDb, type StoredMessage } from "./schema";
 
 const DAY_MS = 24 * 3600 * 1000;
@@ -35,6 +35,48 @@ export class MailCache {
           ...m,
           mailboxIds: [...new Set(m.mailboxIds)],
           key: key(accountId, m.id),
+          accountId,
+        };
+        return tx.store.put(merged);
+      }),
+    );
+    await tx.done;
+  }
+
+  /** Merges a sync-time patch onto whatever is already cached for that
+   *  message, rather than overwriting it outright: a field the patch omits
+   *  keeps its previous cached value instead of being blanked out. This
+   *  matters because Microsoft Graph's mail delta endpoint sometimes reports
+   *  only the property that actually changed (e.g. isRead) and omits
+   *  subject/from/etc. entirely — treating that as a full record wipes
+   *  perfectly good cached data. A message with no existing cached row (a
+   *  genuinely new message) falls back to placeholder defaults for whatever
+   *  the patch itself didn't include. */
+  async patchMessages(accountId: string, patches: MessageSummaryPatch[]): Promise<void> {
+    const tx = this.db.transaction("messages", "readwrite");
+    await Promise.all(
+      patches.map(async (p) => {
+        const k = key(accountId, p.id);
+        const existing = await tx.store.get(k);
+        const base: MessageSummary = existing ?? {
+          id: p.id,
+          threadId: p.id,
+          mailboxIds: [],
+          from: { email: "" },
+          to: [],
+          cc: [],
+          subject: "(no subject)",
+          snippet: "",
+          date: Date.now(),
+          unread: false,
+          hasAttachments: false,
+          flagged: false,
+        };
+        const merged: StoredMessage = {
+          ...base,
+          ...p,
+          mailboxIds: [...new Set(p.mailboxIds)],
+          key: k,
           accountId,
         };
         return tx.store.put(merged);

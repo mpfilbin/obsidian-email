@@ -66,8 +66,17 @@ export interface Page<T> {
 
 export type SyncCursor = { kind: "ms-graph"; deltaLinks: Record<string, string> };
 
+/** A sync-time update to a cached message. `id` and `mailboxIds` are always
+ *  present; every other field is included only when the provider actually
+ *  has a fresh value for it. Microsoft Graph's mail delta endpoint can
+ *  report a metadata-only change (e.g. read/flag status) as a payload
+ *  containing just `id` plus the changed property — omitting `subject`,
+ *  `from`, etc. even though they're in `$select` — so the cache must treat
+ *  an absent field here as "unchanged", never as "now blank". */
+export type MessageSummaryPatch = { id: string; mailboxIds: string[] } & Partial<Omit<MessageSummary, "id" | "mailboxIds">>;
+
 export interface SyncResult {
-  upserts: MessageSummary[];
+  upserts: MessageSummaryPatch[];
   deletions: string[];
   mailboxChanges: Mailbox[];
   cursor: SyncCursor;

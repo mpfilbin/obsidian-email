@@ -62,6 +62,23 @@ describe("MailCache", () => {
     expect(list.length).toBe(1996);
   });
 
+  it("patchMessages merges onto an existing record, preserving fields the patch omits", async () => {
+    await cache.upsertMessages("a1", [msg("m1", { subject: "Real subject", from: { name: "Jane", email: "j@x.com" } })]);
+    // Simulates a Graph delta item that only reported a read-status change.
+    await cache.patchMessages("a1", [{ id: "m1", mailboxIds: ["INBOX"], unread: false }]);
+    const [stored] = await cache.listMailboxMessages("a1", "INBOX");
+    expect(stored.subject).toBe("Real subject");
+    expect(stored.from).toEqual({ name: "Jane", email: "j@x.com" });
+    expect(stored.unread).toBe(false);
+  });
+
+  it("patchMessages falls back to placeholder defaults for a message never seen before", async () => {
+    await cache.patchMessages("a1", [{ id: "m1", mailboxIds: ["INBOX"], unread: false }]);
+    const [stored] = await cache.listMailboxMessages("a1", "INBOX");
+    expect(stored.subject).toBe("(no subject)");
+    expect(stored.from).toEqual({ email: "" });
+  });
+
   it("clearAccount removes messages, bodies and mailboxes for that account only", async () => {
     await cache.upsertMessages("a1", [msg("m1")]);
     await cache.putMailboxes("a1", [{ id: "INBOX", name: "Inbox", kind: "inbox" }]);

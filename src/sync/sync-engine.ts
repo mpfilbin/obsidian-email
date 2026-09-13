@@ -148,7 +148,7 @@ export class SyncEngine {
     if (result.mailboxChanges.length) {
       await this.deps.cache.putMailboxes(accountId, result.mailboxChanges);
     }
-    if (result.upserts.length) await this.deps.cache.upsertMessages(accountId, result.upserts);
+    if (result.upserts.length) await this.deps.cache.patchMessages(accountId, result.upserts);
     if (result.deletions.length) await this.deps.cache.deleteMessages(accountId, result.deletions);
     await this.deps.cursors.set(accountId, result.cursor, true);
     await this.deps.cache.pruneAccount(accountId, this.now());

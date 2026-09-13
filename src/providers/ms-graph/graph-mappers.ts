@@ -1,4 +1,4 @@
-import type { Address, AttachmentMeta, Mailbox, MailboxKind, MessageBody, MessageSummary } from "../types";
+import type { Address, AttachmentMeta, Mailbox, MailboxKind, MessageBody, MessageSummary, MessageSummaryPatch } from "../types";
 
 interface GraphRecipient { emailAddress?: { name?: string; address?: string }; }
 export interface GraphMessage {
@@ -58,6 +58,24 @@ export function mapGraphSummary(m: GraphMessage, folderId: string): MessageSumma
     hasAttachments: Boolean(m.hasAttachments),
     flagged: m.flag?.flagStatus === "flagged",
   };
+}
+
+/** Maps a delta item to a patch, including a field only when Graph actually
+ *  sent it — see MessageSummaryPatch for why that distinction matters. */
+export function mapGraphSummaryPatch(m: GraphMessage, folderId: string): MessageSummaryPatch {
+  const patch: MessageSummaryPatch = { id: m.id, mailboxIds: [folderId] };
+  if (m.conversationId !== undefined) patch.threadId = m.conversationId;
+  if (m.from !== undefined) patch.from = mapGraphAddress(m.from);
+  if (m.toRecipients !== undefined) patch.to = m.toRecipients.map(mapGraphAddress).filter((a) => a.email);
+  if (m.ccRecipients !== undefined) patch.cc = m.ccRecipients.map(mapGraphAddress).filter((a) => a.email);
+  if (m.bccRecipients !== undefined) patch.bcc = m.bccRecipients.map(mapGraphAddress).filter((a) => a.email);
+  if (m.subject !== undefined) patch.subject = m.subject || "(no subject)";
+  if (m.bodyPreview !== undefined) patch.snippet = m.bodyPreview;
+  if (m.receivedDateTime !== undefined) patch.date = Date.parse(m.receivedDateTime);
+  if (m.isRead !== undefined) patch.unread = m.isRead === false;
+  if (m.hasAttachments !== undefined) patch.hasAttachments = Boolean(m.hasAttachments);
+  if (m.flag !== undefined) patch.flagged = m.flag?.flagStatus === "flagged";
+  return patch;
 }
 
 export function mapGraphBody(m: GraphMessage): MessageBody {
