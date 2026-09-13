@@ -4,6 +4,7 @@ import type { MailCache } from "../cache/mail-cache";
 import type { SyncEngine, SyncStatus } from "../sync/sync-engine";
 import type { SettingsStore } from "../settings/settings-store";
 import { sanitizeEmailHtml } from "../render/html-sanitizer";
+import { defaultNoteFilename, emailToNote } from "../render/email-to-note";
 
 export interface ThreadView {
   threadId: string;
@@ -63,6 +64,7 @@ export interface ViewModelDeps {
   isOnline: () => boolean;
   openExternal: (url: string) => void;
   saveBlob: (blob: Blob, filename: string) => Promise<void>;
+  saveNote: (defaultPath: string, content: string) => void;
 }
 
 const PAGE = 50;
@@ -582,6 +584,24 @@ export class ViewModel {
   async downloadAttachmentToDisk(messageId: string, att: AttachmentMeta): Promise<void> {
     const blob = await this.downloadAttachment(messageId, att);
     await this.deps.saveBlob(blob, att.filename);
+  }
+
+  /** Converts the given (already-open) message to a Markdown note — sender,
+   *  recipients, subject, received date and message id as frontmatter — and
+   *  hands it to the host to prompt for a save location. */
+  async saveMessageToVault(messageId: string): Promise<void> {
+    const found = this.state.openMessages.find((m) => m.summary.id === messageId);
+    if (!found) return;
+    let body = found.body;
+    if (!body) {
+      const acct = this.state.activeAccountId;
+      body = acct ? await this.deps.cache.getBody(acct, messageId) : undefined;
+      if (!body) {
+        this.set({ notice: "Message body still loading — try again in a moment." });
+        return;
+      }
+    }
+    this.deps.saveNote(defaultNoteFilename(found.summary), emailToNote(found.summary, body));
   }
 
   async refresh(): Promise<void> {

@@ -254,6 +254,7 @@
     onEditDraft={(id) => requestSwitch(() => vm.openDraftForEdit(id))}
     onArchiveMessage={(id) => requestRowAction(() => { const closes = closesOpenMessage(id); vm.archiveMessage(id); if (closes) setReadingPaneCollapsed(true); })}
     onDeleteMessage={(id) => requestRowAction(() => requestDelete("message", () => { const closes = closesOpenMessage(id); vm.deleteMessage(id); if (closes) setReadingPaneCollapsed(true); }))}
+    onSaveToVault={(id) => vm.saveMessageToVault(id)}
   />
   {#if pendingSwitch}
     <div class="oe-composer-prompt">

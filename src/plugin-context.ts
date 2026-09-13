@@ -21,6 +21,8 @@ export interface ContextHostDeps {
   post: HttpPost;
   openExternal: (url: string) => void;
   saveBlob: (blob: Blob, filename: string) => Promise<void>;
+  /** Prompts the user for a vault-relative path and creates a note there. */
+  saveNote: (defaultPath: string, content: string) => void;
   now?: () => number;
   /** Test-only seam: lets a spec inject a fake OAuth loopback server. */
   makeLoopback?: (host: "127.0.0.1" | "localhost") => LoopbackLike;
@@ -117,6 +119,7 @@ export class PluginContext {
       isOnline: () => (typeof navigator === "undefined" ? true : navigator.onLine),
       openExternal: host.openExternal,
       saveBlob: host.saveBlob,
+      saveNote: host.saveNote,
     });
 
     const ctx = new PluginContext(

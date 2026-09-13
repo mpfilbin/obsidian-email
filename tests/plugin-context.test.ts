@@ -32,6 +32,7 @@ function hostDeps() {
     }),
     openExternal: vi.fn(),
     saveBlob: vi.fn().mockResolvedValue(undefined),
+    saveNote: vi.fn(),
     now: () => 0,
   };
 }

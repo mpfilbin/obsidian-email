@@ -9,4 +9,5 @@ export const ACTION_ICON = {
   delete: "trash-2",
   editDraft: "pencil",
   collapse: "x",
+  saveToVault: "save",
 } as const;

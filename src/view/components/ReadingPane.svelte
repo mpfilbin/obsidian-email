@@ -7,7 +7,7 @@
   import Composer from "./Composer.svelte";
   import MessageBlock from "./MessageBlock.svelte";
 
-  let { openMessages, autoLoadImages, renderDeps, onClose, onCollapse, onDownload, isDraftsMailbox, isArchiveMailbox, isTrashMailbox, activeComposerMessageId, composerMode, composerProps, onOpenReply, onOpenForward, onEditDraft, onArchiveMessage, onDeleteMessage }: {
+  let { openMessages, autoLoadImages, renderDeps, onClose, onCollapse, onDownload, isDraftsMailbox, isArchiveMailbox, isTrashMailbox, activeComposerMessageId, composerMode, composerProps, onOpenReply, onOpenForward, onEditDraft, onArchiveMessage, onDeleteMessage, onSaveToVault }: {
     openMessages: ViewState["openMessages"];
     /** `prefs.autoLoadImages` — when true, remote content renders immediately. */
     autoLoadImages: boolean;
@@ -29,6 +29,7 @@
     onEditDraft: (messageId: string) => void;
     onArchiveMessage: (messageId: string) => void;
     onDeleteMessage: (messageId: string) => void;
+    onSaveToVault: (messageId: string) => void;
   } = $props();
 
   let expandedId = $state<string | null>(null);
@@ -62,10 +63,16 @@
           <button type="button" data-action="edit-draft" onclick={() => onEditDraft(expandedMessage.summary.id)}>
             <span class="oe-action-icon" use:icon={ACTION_ICON.editDraft}></span>Edit
           </button>
+          <button type="button" data-action="save-to-vault" onclick={() => onSaveToVault(expandedMessage.summary.id)}>
+            <span class="oe-action-icon" use:icon={ACTION_ICON.saveToVault}></span>Save to vault
+          </button>
           <button type="button" data-action="delete" onclick={() => onDeleteMessage(expandedMessage.summary.id)}>
             <span class="oe-action-icon" use:icon={ACTION_ICON.delete}></span>Delete
           </button>
         {:else if isTrashMailbox}
+          <button type="button" data-action="save-to-vault" onclick={() => onSaveToVault(expandedMessage.summary.id)}>
+            <span class="oe-action-icon" use:icon={ACTION_ICON.saveToVault}></span>Save to vault
+          </button>
           <button type="button" data-action="delete" onclick={() => onDeleteMessage(expandedMessage.summary.id)}>
             <span class="oe-action-icon" use:icon={ACTION_ICON.delete}></span>Delete
           </button>
@@ -84,6 +91,9 @@
               <span class="oe-action-icon" use:icon={ACTION_ICON.archive}></span>Archive
             </button>
           {/if}
+          <button type="button" data-action="save-to-vault" onclick={() => onSaveToVault(expandedMessage.summary.id)}>
+            <span class="oe-action-icon" use:icon={ACTION_ICON.saveToVault}></span>Save to vault
+          </button>
           <button type="button" data-action="delete" onclick={() => onDeleteMessage(expandedMessage.summary.id)}>
             <span class="oe-action-icon" use:icon={ACTION_ICON.delete}></span>Delete
           </button>

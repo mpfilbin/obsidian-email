@@ -34,7 +34,7 @@ async function build() {
   });
   const vm = new ViewModel({
     cache, sync, settings, getProvider: () => provider, isOnline: () => true,
-    openExternal: () => {}, saveBlob: async () => {},
+    openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {},
   });
   return { cache, provider, sync, settings, vm };
 }
@@ -119,7 +119,7 @@ describe("ViewModel", () => {
     const offlineVm = new ViewModel({
       cache: ctx.cache, sync: ctx.sync, settings: (ctx as never as { settings: SettingsStore }).settings ?? await SettingsStore.load({ loadData: async () => ({ accounts: [{ id: "a1", email: "e", provider: "ms-graph", clientId: "c", addedAt: 0 }] }), saveData: async () => {} }),
       getProvider: () => ctx.provider, isOnline: () => false,
-      openExternal: () => {}, saveBlob: async () => {},
+      openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {},
     });
     await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
     await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1)]);
@@ -725,5 +725,67 @@ describe("ViewModel — delete/archive during an active search", () => {
     expect(await ctx.cache.getThreadMessages("a1", "t1")).toEqual([]);
     expect(ctx.vm.getState().threads.map((t) => t.threadId)).toEqual(["t1"]);
     expect(ctx.vm.getState().search).toEqual({ query: "report", active: true });
+  });
+});
+
+describe("ViewModel — saveMessageToVault", () => {
+  it("hands the host a Markdown note built from the open message's summary and body", async () => {
+    const saveNote = vi.fn();
+    const ctx = await build();
+    const vm = new ViewModel({
+      cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
+      isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote,
+    });
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await vm.init();
+    await ctx.cache.upsertMessages("a1", [{
+      id: "m1", threadId: "t1", mailboxIds: ["INBOX"],
+      from: { name: "Jane", email: "j@x.com" }, to: [{ email: "me@x.com" }], cc: [],
+      subject: "Hello", snippet: "hi", date: Date.parse("2026-01-02T03:04:05Z"),
+      unread: false, hasAttachments: false, flagged: false,
+    }]);
+    ctx.provider.getMessageBody = vi.fn().mockResolvedValue({
+      id: "m1", html: "<p><b>Hi</b> there</p>", text: null, attachments: [], headers: {},
+    });
+    await vm.openThread("t1");
+
+    await vm.saveMessageToVault("m1");
+
+    expect(saveNote).toHaveBeenCalledOnce();
+    const [path, content] = saveNote.mock.calls[0];
+    expect(path).toBe("2026-01-02 Hello.md");
+    expect(content).toContain('sender: "Jane <j@x.com>"');
+    expect(content).toContain('subject: "Hello"');
+    expect(content).toContain("**Hi** there");
+  });
+
+  it("sets a notice instead of saving when the body never loaded and isn't cached", async () => {
+    const saveNote = vi.fn();
+    const ctx = await build();
+    const vm = new ViewModel({
+      cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
+      isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote,
+    });
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await vm.init();
+    await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1)]);
+    ctx.provider.getMessageBody = vi.fn().mockRejectedValue(new Error("network"));
+    await vm.openThread("t1");
+
+    await vm.saveMessageToVault("m1");
+
+    expect(saveNote).not.toHaveBeenCalled();
+    expect(vm.getState().notice).toMatch(/still loading/i);
+  });
+
+  it("does nothing for a message id that isn't currently open", async () => {
+    const saveNote = vi.fn();
+    const ctx = await build();
+    const vm = new ViewModel({
+      cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
+      isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote,
+    });
+    await vm.saveMessageToVault("does-not-exist");
+    expect(saveNote).not.toHaveBeenCalled();
   });
 });

@@ -208,8 +208,28 @@ describe("ReadingPane — archive/delete actions", () => {
     isDraftsMailbox: false, isArchiveMailbox: false, isTrashMailbox: false,
     activeComposerMessageId: null, composerMode: null, composerProps: null,
     onOpenReply: vi.fn(), onOpenForward: vi.fn(), onEditDraft: vi.fn(),
-    onArchiveMessage: vi.fn(), onDeleteMessage: vi.fn(),
+    onArchiveMessage: vi.fn(), onDeleteMessage: vi.fn(), onSaveToVault: vi.fn(),
     ...over,
+  });
+
+  it("shows Save to vault in a normal mailbox, and clicking it calls onSaveToVault(m1)", () => {
+    const onSaveToVault = vi.fn();
+    const host = document.createElement("div");
+    const app = mount(ReadingPane, { target: host, props: baseProps({ onSaveToVault }) });
+    flushSync();
+    host.querySelector<HTMLElement>('[data-action="save-to-vault"]')!.click();
+    expect(onSaveToVault).toHaveBeenCalledWith("m1");
+    unmount(app);
+  });
+
+  it("still shows Save to vault in Drafts and Trash mailboxes", () => {
+    for (const over of [{ isDraftsMailbox: true }, { isTrashMailbox: true }]) {
+      const host = document.createElement("div");
+      const app = mount(ReadingPane, { target: host, props: baseProps(over) });
+      flushSync();
+      expect(host.querySelector('[data-action="save-to-vault"]')).not.toBeNull();
+      unmount(app);
+    }
   });
 
   it("clicking the floating close button calls onCollapse", () => {

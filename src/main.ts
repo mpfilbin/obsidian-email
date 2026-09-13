@@ -1,5 +1,5 @@
 import { Notice, Plugin, normalizePath, requestUrl } from "obsidian";
-import type { WorkspaceLeaf } from "obsidian";
+import type { Vault, WorkspaceLeaf } from "obsidian";
 import type { HttpPost } from "./auth/oauth-client";
 import type { SecretStore } from "./auth/token-manager";
 import { SettingsStore } from "./settings/settings-store";
@@ -9,6 +9,7 @@ import { EmailSettingTab } from "./settings/settings-tab";
 import { makeObsidianHttp } from "./providers/obsidian-http";
 import { Logger } from "./util/logger";
 import { safeAttachmentName, uniqueAttachmentPath } from "./util/safe-filename";
+import { SaveEmailModal } from "./view/save-email-modal";
 
 export default class EmailPlugin extends Plugin {
   private ctx?: PluginContext;
@@ -87,9 +88,33 @@ export default class EmailPlugin extends Plugin {
       setTimeout(() => URL.revokeObjectURL(url), 0);
     };
 
+    // Walks each folder segment, creating any that don't yet exist, so
+    // `vault.create` never fails on a missing parent directory.
+    const ensureFolder = async (vault: Vault, folderPath: string): Promise<void> => {
+      if (!folderPath || folderPath === "/") return;
+      let cur = "";
+      for (const seg of folderPath.split("/").filter(Boolean)) {
+        cur = cur ? `${cur}/${seg}` : seg;
+        if (!(await vault.adapter.exists(cur))) await vault.createFolder(cur);
+      }
+    };
+
+    const saveNote = (defaultPath: string, content: string): void => {
+      new SaveEmailModal(this.app, defaultPath, async (path) => {
+        try {
+          await ensureFolder(this.app.vault, path.split("/").slice(0, -1).join("/"));
+          const file = await this.app.vault.create(path, content);
+          new Notice(`Saved "${file.basename}".`);
+          await this.app.workspace.getLeaf(true).openFile(file);
+        } catch (err) {
+          new Notice(`Couldn't save the note: ${(err as Error).message}`);
+        }
+      }).open();
+    };
+
     this.ctx = await PluginContext.create(
       settings,
-      { http, secrets, post, openExternal, saveBlob },
+      { http, secrets, post, openExternal, saveBlob, saveNote },
       logger,
     );
     const ctx = this.ctx;
