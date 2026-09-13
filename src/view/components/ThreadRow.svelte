@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { ACTION_ICON } from "../action-icons";
+  import { icon } from "../icon-action";
   import type { ThreadView } from "../view-model";
 
   let { thread, isOpen, onOpen, isDraftsMailbox, isArchiveMailbox, isTrashMailbox, onArchive, onDelete }: {
@@ -44,8 +46,12 @@
   <div class="oe-thread-snippet">{newest.snippet}</div>
   <div class="oe-thread-actions">
     {#if showArchive}
-      <button type="button" data-action="archive" onclick={(e) => { e.stopPropagation(); onArchive(); }}>Archive</button>
+      <button type="button" data-action="archive" onclick={(e) => { e.stopPropagation(); onArchive(); }}>
+        <span class="oe-action-icon" use:icon={ACTION_ICON.archive}></span>Archive
+      </button>
     {/if}
-    <button type="button" data-action="delete" onclick={(e) => { e.stopPropagation(); onDelete(); }}>Delete</button>
+    <button type="button" data-action="delete" onclick={(e) => { e.stopPropagation(); onDelete(); }}>
+      <span class="oe-action-icon" use:icon={ACTION_ICON.delete}></span>Delete
+    </button>
   </div>
 </div>

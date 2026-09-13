@@ -4,7 +4,7 @@
   import type { ComposerFieldProps } from "../composer-props";
   import Composer from "./Composer.svelte";
 
-  let { summary, body, expanded, autoLoadImages, renderDeps, onToggle, onDownload, isDraftsMailbox, isTrashMailbox, isArchiveMailbox, composerMode, composerProps, onOpenReply, onOpenForward, onEditDraft, onArchive, onDelete }: {
+  let { summary, body, expanded, autoLoadImages, renderDeps, onToggle, onDownload, composerMode, composerProps }: {
     summary: MessageSummary;
     body?: MessageBody;
     expanded: boolean;
@@ -13,16 +13,8 @@
     renderDeps: { getInlineAttachment: (cid: string) => Promise<Blob | undefined>; openExternal: (url: string) => void };
     onToggle: () => void;
     onDownload: (att: AttachmentMeta) => void;
-    isDraftsMailbox: boolean;
-    isTrashMailbox: boolean;
-    isArchiveMailbox: boolean;
     composerMode: "reply" | "replyAll" | "forward" | null;
     composerProps: ComposerFieldProps | null;
-    onOpenReply: (mode: "reply" | "replyAll") => void;
-    onOpenForward: () => void;
-    onEditDraft: () => void;
-    onArchive: () => void;
-    onDelete: () => void;
   } = $props();
 
   let bodyEl = $state<HTMLDivElement | null>(null);
@@ -70,26 +62,6 @@
             📎 {att.filename} ({Math.ceil(att.size / 1024)} KB)
           </button>
         {/each}
-      </div>
-    {/if}
-    {#if isDraftsMailbox}
-      <div class="oe-message-actions">
-        <button type="button" data-action="edit-draft" onclick={onEditDraft}>Edit</button>
-        <button type="button" data-action="delete" onclick={onDelete}>Delete</button>
-      </div>
-    {:else if isTrashMailbox}
-      <div class="oe-message-actions">
-        <button type="button" data-action="delete" onclick={onDelete}>Delete</button>
-      </div>
-    {:else}
-      <div class="oe-message-actions">
-        <button type="button" data-action="reply" onclick={() => onOpenReply("reply")}>Reply</button>
-        <button type="button" data-action="reply-all" onclick={() => onOpenReply("replyAll")}>Reply all</button>
-        <button type="button" data-action="forward" onclick={onOpenForward}>Forward</button>
-        {#if !isArchiveMailbox}
-          <button type="button" data-action="archive" onclick={onArchive}>Archive</button>
-        {/if}
-        <button type="button" data-action="delete" onclick={onDelete}>Delete</button>
       </div>
     {/if}
     {#if composerMode && composerProps}
