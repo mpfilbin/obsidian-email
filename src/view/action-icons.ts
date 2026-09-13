@@ -8,4 +8,5 @@ export const ACTION_ICON = {
   archive: "archive",
   delete: "trash-2",
   editDraft: "pencil",
+  collapse: "x",
 } as const;

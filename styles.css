@@ -22,18 +22,10 @@
 .oe-account { position: relative; width: 40px; height: 40px; border-radius: 8px; background: var(--background-secondary); color: var(--text-normal); cursor: pointer; }
 .oe-account.is-active { outline: 2px solid var(--interactive-accent); }
 .oe-warn { position: absolute; top: -4px; right: -4px; background: var(--text-error); color: var(--text-on-accent); border-radius: 50%; width: 16px; height: 16px; font-size: 11px; }
-.oe-syncing-ring {
-  position: absolute;
-  inset: -3px;
-  border-radius: 10px;
-  border: 2px solid transparent;
-  border-top-color: var(--interactive-accent);
-  animation: oe-spin 0.8s linear infinite;
-  pointer-events: none;
-}
 .oe-avatar { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; font-size: 12px; font-weight: 600; }
 .oe-account.oe-add { display: flex; align-items: center; justify-content: center; font-size: 18px; color: var(--text-muted); }
-.oe-mailboxes { display: flex; flex-direction: column; gap: 2px; padding: 8px; border-right: 1px solid var(--background-modifier-border); overflow-y: auto; }
+.oe-mailbox-col { display: flex; flex-direction: column; overflow: hidden; min-width: 0; border-right: 1px solid var(--background-modifier-border); }
+.oe-mailboxes { display: flex; flex-direction: column; gap: 2px; padding: 8px; overflow-y: auto; flex: 1; }
 .oe-mailbox {
   display: flex;
   align-items: center;
@@ -96,14 +88,14 @@
 .oe-search { display: flex; gap: 6px; padding: 8px; border-bottom: 1px solid var(--background-modifier-border); flex-wrap: wrap; }
 .oe-search input { flex: 1; }
 .oe-search-pill { height: auto; background: var(--background-modifier-hover); border: 1px solid var(--background-modifier-border); border-radius: 12px; padding: 2px 10px; font-size: 12px; color: var(--text-normal); cursor: pointer; }
-.oe-refresh.is-syncing { display: inline-block; animation: oe-spin 0.8s linear infinite; color: var(--interactive-accent); }
-.oe-toggle-reading { height: auto; background: transparent; border: 1px solid var(--background-modifier-border); border-radius: 4px; padding: 2px 8px; color: var(--text-muted); cursor: pointer; font-size: 12px; }
-.oe-toggle-reading:hover { color: var(--text-normal); }
+.oe-refresh { display: inline-flex; align-items: center; justify-content: center; height: auto; background: transparent; border: 1px solid var(--background-modifier-border); border-radius: 4px; padding: 4px 8px; color: var(--text-muted); cursor: pointer; }
+.oe-refresh:hover { color: var(--text-normal); }
+.oe-refresh-icon { display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; }
+.oe-refresh-icon svg { width: 18px; height: 18px; }
 
-@keyframes oe-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
+/* Icon inside the "Refreshing…" Notice toast (see refresh-toast.ts). */
+.oe-toast-icon { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; vertical-align: -2px; margin-right: 6px; }
+.oe-toast-icon svg { width: 14px; height: 14px; }
 
 /* --- Reading pane (Task 26) --- */
 .oe-reading-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
@@ -130,8 +122,16 @@
 .oe-composer-actions button { height: auto; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--background-modifier-border); cursor: pointer; background: var(--background-secondary); color: var(--text-normal); }
 .oe-composer-send { background: var(--interactive-accent) !important; color: var(--text-on-accent) !important; border: none !important; }
 .oe-composer-actions button:disabled { opacity: 0.6; cursor: default; }
-.oe-new-message { height: auto; background: transparent; border: 1px solid var(--background-modifier-border); border-radius: 4px; padding: 2px 8px; color: var(--text-muted); cursor: pointer; font-size: 12px; }
-.oe-new-message:hover { color: var(--text-normal); }
+.oe-new-message-full {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  height: auto; margin: 8px 8px 0; padding: 8px 12px;
+  border: none; border-radius: 6px;
+  background: var(--interactive-accent); color: var(--text-on-accent);
+  cursor: pointer; font-size: 13px; font-weight: 600;
+}
+.oe-new-message-full:hover { background: var(--interactive-accent-hover); }
+.oe-new-message-full .oe-action-icon { width: 16px; height: 16px; }
+.oe-new-message-full .oe-action-icon svg { width: 16px; height: 16px; }
 .oe-reading-actions, .oe-thread-actions { display: flex; gap: 6px; padding: 0 10px 8px; }
 .oe-reading-actions button, .oe-thread-actions button { display: inline-flex; align-items: center; gap: 4px; height: auto; background: transparent; border: 1px solid var(--background-modifier-border); border-radius: 4px; padding: 3px 8px; font-size: 12px; color: var(--text-muted); cursor: pointer; }
 .oe-reading-actions button:hover, .oe-thread-actions button:hover { color: var(--text-normal); }
@@ -140,6 +140,9 @@
 /* Sits outside .oe-reading-scroll, so it never scrolls with the message —
    the fixed bar the message body scrolls underneath. */
 .oe-reading-actions { flex: 0 0 auto; padding: 8px 10px; border-bottom: 1px solid var(--background-modifier-border); background: var(--background-primary); }
+.oe-collapse-reading { margin-left: auto; padding: 3px 6px; }
+.oe-collapse-reading .oe-action-icon { width: 16px; height: 16px; }
+.oe-collapse-reading .oe-action-icon svg { width: 14px; height: 14px; }
 .oe-composer-prompt {
   position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
   display: flex; align-items: center; gap: 10px; padding: 10px 14px;

@@ -204,12 +204,22 @@ describe("ReadingPane — reply/forward/edit actions", () => {
 
 describe("ReadingPane — archive/delete actions", () => {
   const baseProps = (over: Partial<Record<string, unknown>> = {}) => ({
-    openMessages: open(), autoLoadImages: false, renderDeps, onClose: () => {}, onDownload: vi.fn(),
+    openMessages: open(), autoLoadImages: false, renderDeps, onClose: () => {}, onCollapse: vi.fn(), onDownload: vi.fn(),
     isDraftsMailbox: false, isArchiveMailbox: false, isTrashMailbox: false,
     activeComposerMessageId: null, composerMode: null, composerProps: null,
     onOpenReply: vi.fn(), onOpenForward: vi.fn(), onEditDraft: vi.fn(),
     onArchiveMessage: vi.fn(), onDeleteMessage: vi.fn(),
     ...over,
+  });
+
+  it("clicking the floating close button calls onCollapse", () => {
+    const onCollapse = vi.fn();
+    const host = document.createElement("div");
+    const app = mount(ReadingPane, { target: host, props: baseProps({ onCollapse }) });
+    flushSync();
+    host.querySelector<HTMLElement>('[data-action="collapse"]')!.click();
+    expect(onCollapse).toHaveBeenCalledOnce();
+    unmount(app);
   });
 
   it("shows Archive and Delete on a message in a normal mailbox", () => {

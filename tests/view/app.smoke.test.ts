@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { mount, unmount, flushSync } from "svelte";
+import * as obsidian from "obsidian";
 import App from "../../src/view/App.svelte";
 import type { ThreadView, ViewModel, ViewState } from "../../src/view/view-model";
 
@@ -91,26 +92,31 @@ describe("App.svelte smoke", () => {
     unmount(app);
   });
 
-  it("shows a syncing indicator on the active account and the refresh button while syncing", () => {
+  it("shows a persistent 'Refreshing…' toast while any account is syncing, hidden once idle", () => {
+    const hide = vi.fn();
+    const noticeSpy = vi.spyOn(obsidian, "Notice").mockImplementation(() => ({ hide }) as never);
+    const vm = fakeVm({ accounts: [{ id: "a1", email: "a1@x.com", provider: "ms-graph", status: "syncing" }] });
     const host = document.createElement("div");
-    const app = mount(App, {
-      target: host,
-      props: {
-        vm: fakeVm({ accounts: [{ id: "a1", email: "a1@x.com", provider: "ms-graph", status: "syncing" }] }),
-        onAddAccount: () => {},
-      },
-    });
-    expect(host.querySelector(".oe-syncing-ring")).not.toBeNull();
-    expect(host.querySelector(".oe-refresh.is-syncing")).not.toBeNull();
+    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    flushSync();
+    expect(noticeSpy).toHaveBeenCalledTimes(1);
+    expect(noticeSpy.mock.calls[0][1]).toBe(0); // duration 0: stays until explicitly hidden
+    expect(hide).not.toHaveBeenCalled();
+
+    setStateOf(vm)({ accounts: [{ id: "a1", email: "a1@x.com", provider: "ms-graph", status: "idle" }] });
+    flushSync();
+    expect(hide).toHaveBeenCalledOnce();
     unmount(app);
+    noticeSpy.mockRestore();
   });
 
-  it("shows neither syncing indicator when idle", () => {
-    const host = document.createElement("div");
-    const app = mount(App, { target: host, props: { vm: fakeVm(), onAddAccount: () => {} } });
-    expect(host.querySelector(".oe-syncing-ring")).toBeNull();
-    expect(host.querySelector(".oe-refresh.is-syncing")).toBeNull();
+  it("shows no toast when idle", () => {
+    const noticeSpy = vi.spyOn(obsidian, "Notice").mockImplementation(() => ({ hide: vi.fn() }) as never);
+    const app = mount(App, { target: document.createElement("div"), props: { vm: fakeVm(), onAddAccount: () => {} } });
+    flushSync();
+    expect(noticeSpy).not.toHaveBeenCalled();
     unmount(app);
+    noticeSpy.mockRestore();
   });
 
   it("renders two resizers and a reading pane by default", () => {
@@ -121,20 +127,34 @@ describe("App.svelte smoke", () => {
     unmount(app);
   });
 
-  it("collapses and re-expands the reading pane via the toolbar toggle", () => {
+  it("collapses the reading pane via its floating close button, re-expanding to the last width when a message is opened", () => {
     const host = document.createElement("div");
-    const app = mount(App, { target: host, props: { vm: fakeVm(), onAddAccount: () => {} } });
-    const toggle = host.querySelector<HTMLButtonElement>(".oe-toggle-reading")!;
-
-    toggle.click();
+    const vm = fakeVm({
+      openThreadId: "t1",
+      openMessages: [{ summary: {
+        id: "m1", threadId: "t1", mailboxIds: ["INBOX"], from: { name: "Jane", email: "j@x.com" },
+        to: [], cc: [], subject: "Hello", snippet: "hi there", date: 1,
+        unread: true, hasAttachments: false, flagged: false,
+      } }],
+    });
+    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
     flushSync();
-    expect(host.querySelector(".oe-reading-pane")).toBeNull();
-    expect(host.querySelectorAll('[role="separator"]')).toHaveLength(1);
+    const gridEl = () => host.querySelector<HTMLElement>(".oe-grid")!;
 
-    toggle.click();
+    // Expanded: the message-list column sits at its stored width (340px default).
+    expect(gridEl().getAttribute("style")).toContain("340px");
+
+    host.querySelector<HTMLElement>('[data-action="collapse"]')!.click();
     flushSync();
-    expect(host.querySelector(".oe-reading-pane")).not.toBeNull();
-    expect(host.querySelectorAll('[role="separator"]')).toHaveLength(2);
+    // Collapsed: message-list column is flexible (calc), reading-pane column is 0.
+    expect(gridEl().getAttribute("style")).not.toContain("340px");
+    expect(gridEl().getAttribute("style")).toMatch(/0px 0px;/);
+
+    host.querySelector<HTMLElement>(".oe-thread-row")!.click();
+    flushSync();
+    // Re-expanded via opening a message: back to the same stored width.
+    expect(gridEl().getAttribute("style")).toContain("340px");
+    expect(gridEl().getAttribute("style")).not.toMatch(/0px 0px;/);
     unmount(app);
   });
 
@@ -142,7 +162,7 @@ describe("App.svelte smoke", () => {
     const host = document.createElement("div");
     const app = mount(App, { target: host, props: { vm: fakeVm(), onAddAccount: () => {} } });
     flushSync();
-    host.querySelector<HTMLElement>(".oe-new-message")!.click();
+    host.querySelector<HTMLElement>(".oe-new-message-full")!.click();
     flushSync();
     expect(host.querySelector(".oe-composer")).not.toBeNull();
     unmount(app);
@@ -175,7 +195,7 @@ describe("App.svelte — composer wiring", () => {
     const host = document.createElement("div");
     const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
     flushSync();
-    host.querySelector<HTMLElement>(".oe-new-message")!.click();
+    host.querySelector<HTMLElement>(".oe-new-message-full")!.click();
     expect(openNewMessage).toHaveBeenCalledOnce();
     unmount(app);
   });
@@ -190,7 +210,7 @@ describe("App.svelte — composer wiring", () => {
     const host = document.createElement("div");
     const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
     flushSync();
-    host.querySelector<HTMLElement>(".oe-new-message")!.click();
+    host.querySelector<HTMLElement>(".oe-new-message-full")!.click();
     flushSync();
     expect(openNewMessage).not.toHaveBeenCalled();
     expect(host.querySelector(".oe-composer-prompt")).not.toBeNull();
@@ -207,7 +227,7 @@ describe("App.svelte — composer wiring", () => {
     const host = document.createElement("div");
     const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
     flushSync();
-    host.querySelector<HTMLElement>(".oe-new-message")!.click();
+    host.querySelector<HTMLElement>(".oe-new-message-full")!.click();
     flushSync();
     host.querySelector<HTMLElement>(".oe-composer-prompt-discard")!.click();
     // Two microtask ticks to drain the async handler's `await vm.discardDraft()`
@@ -235,7 +255,7 @@ describe("App.svelte — composer wiring", () => {
     const host = document.createElement("div");
     const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
     flushSync();
-    host.querySelector<HTMLElement>(".oe-new-message")!.click();
+    host.querySelector<HTMLElement>(".oe-new-message-full")!.click();
     flushSync();
     host.querySelector<HTMLElement>(".oe-composer-prompt-save")!.click();
     await Promise.resolve();
@@ -258,7 +278,7 @@ describe("App.svelte — composer wiring", () => {
     const host = document.createElement("div");
     const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
     flushSync();
-    host.querySelector<HTMLElement>(".oe-new-message")!.click();
+    host.querySelector<HTMLElement>(".oe-new-message-full")!.click();
     flushSync();
     host.querySelector<HTMLElement>(".oe-composer-prompt-save")!.click();
     await Promise.resolve();
@@ -278,7 +298,7 @@ describe("App.svelte — composer wiring", () => {
     const host = document.createElement("div");
     const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
     flushSync();
-    host.querySelector<HTMLElement>(".oe-new-message")!.click();
+    host.querySelector<HTMLElement>(".oe-new-message-full")!.click();
     flushSync();
     host.querySelector<HTMLElement>(".oe-composer-prompt-cancel")!.click();
     flushSync();
@@ -393,6 +413,65 @@ describe("App.svelte — delete/archive wiring", () => {
     host.querySelector<HTMLElement>('[data-action="delete"]')!.click();
     expect(deleteThread).toHaveBeenCalledWith("t1");
     expect(host.querySelector(".oe-delete-confirm")).toBeNull();
+    unmount(app);
+  });
+
+  it("deleting the currently open thread collapses the reading pane, same as the close button", () => {
+    const deleteThread = vi.fn();
+    const vm = fakeVm({ openThreadId: "t1" });
+    Object.assign(vm, { deleteThread });
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    flushSync();
+    const gridStyle = () => host.querySelector<HTMLElement>(".oe-grid")!.getAttribute("style");
+    expect(gridStyle()).toContain("340px");
+
+    host.querySelector<HTMLElement>('[data-action="delete"]')!.click();
+    expect(deleteThread).toHaveBeenCalledWith("t1");
+    flushSync();
+    expect(gridStyle()).not.toContain("340px");
+    expect(gridStyle()).toMatch(/0px 0px;/);
+    unmount(app);
+  });
+
+  it("deleting a thread row that is NOT the open thread leaves the reading pane as-is", () => {
+    const deleteThread = vi.fn();
+    const vm = fakeVm({ openThreadId: "other" });
+    Object.assign(vm, { deleteThread });
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    flushSync();
+    const gridStyle = () => host.querySelector<HTMLElement>(".oe-grid")!.getAttribute("style");
+
+    host.querySelector<HTMLElement>('[data-action="delete"]')!.click();
+    expect(deleteThread).toHaveBeenCalledWith("t1");
+    flushSync();
+    expect(gridStyle()).toContain("340px");
+    expect(gridStyle()).not.toMatch(/0px 0px;/);
+    unmount(app);
+  });
+
+  it("deleting the currently open message collapses the reading pane", () => {
+    const deleteMessage = vi.fn();
+    const vm = fakeVm({
+      openThreadId: "t1",
+      openMessages: [{ summary: {
+        id: "m1", threadId: "t1", mailboxIds: ["INBOX"], from: { name: "Jane", email: "j@x.com" },
+        to: [], cc: [], subject: "Hello", snippet: "hi there", date: 1,
+        unread: true, hasAttachments: false, flagged: false,
+      } }],
+    });
+    Object.assign(vm, { deleteMessage });
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    flushSync();
+    const gridStyle = () => host.querySelector<HTMLElement>(".oe-grid")!.getAttribute("style");
+
+    host.querySelector<HTMLElement>('.oe-reading-actions [data-action="delete"]')!.click();
+    expect(deleteMessage).toHaveBeenCalledWith("m1");
+    flushSync();
+    expect(gridStyle()).not.toContain("340px");
+    expect(gridStyle()).toMatch(/0px 0px;/);
     unmount(app);
   });
 

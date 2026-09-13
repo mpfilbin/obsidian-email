@@ -7,12 +7,16 @@
   import Composer from "./Composer.svelte";
   import MessageBlock from "./MessageBlock.svelte";
 
-  let { openMessages, autoLoadImages, renderDeps, onClose, onDownload, isDraftsMailbox, isArchiveMailbox, isTrashMailbox, activeComposerMessageId, composerMode, composerProps, onOpenReply, onOpenForward, onEditDraft, onArchiveMessage, onDeleteMessage }: {
+  let { openMessages, autoLoadImages, renderDeps, onClose, onCollapse, onDownload, isDraftsMailbox, isArchiveMailbox, isTrashMailbox, activeComposerMessageId, composerMode, composerProps, onOpenReply, onOpenForward, onEditDraft, onArchiveMessage, onDeleteMessage }: {
     openMessages: ViewState["openMessages"];
     /** `prefs.autoLoadImages` — when true, remote content renders immediately. */
     autoLoadImages: boolean;
     renderDeps: { getInlineAttachment: (cid: string) => Promise<Blob | undefined>; openExternal: (url: string) => void };
     onClose: () => void;
+    /** Closes the thread AND collapses the reading pane's grid column, letting
+     *  the message list expand to fill the freed width. Distinct from
+     *  `onClose` (the subject header's ✕), which only closes the thread. */
+    onCollapse: () => void;
     onDownload: (messageId: string, att: AttachmentMeta) => void;
     isDraftsMailbox: boolean;
     isArchiveMailbox: boolean;
@@ -84,6 +88,9 @@
             <span class="oe-action-icon" use:icon={ACTION_ICON.delete}></span>Delete
           </button>
         {/if}
+        <button type="button" class="oe-collapse-reading" data-action="collapse" onclick={onCollapse} aria-label="Close reading pane" title="Close reading pane">
+          <span class="oe-action-icon" use:icon={ACTION_ICON.collapse}></span>
+        </button>
       </div>
     {/if}
     <div class="oe-reading-scroll">

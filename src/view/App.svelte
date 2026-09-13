@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { ViewModel, ViewState } from "./view-model";
+  import { icon } from "./icon-action";
   import AccountSwitcher from "./components/AccountSwitcher.svelte";
   import MailboxList from "./components/MailboxList.svelte";
   import MessageList from "./components/MessageList.svelte";
@@ -7,6 +8,7 @@
   import SearchBar from "./components/SearchBar.svelte";
   import Resizer from "./components/Resizer.svelte";
   import { clampPaneWidths, loadPaneWidths, savePaneWidths, type PaneWidths } from "./pane-layout";
+  import { showSyncingToast } from "./refresh-toast";
 
   let { vm, onAddAccount }: { vm: ViewModel; onAddAccount: () => void } = $props();
 
@@ -19,6 +21,14 @@
   const activeSyncing = $derived(
     state.accounts.find((a) => a.id === state.activeAccountId)?.status === "syncing",
   );
+  // Any account syncing — manual refresh or background poll alike — gets the
+  // same toast; replaces the old refresh-button spin and account-icon ring.
+  const anySyncing = $derived(state.accounts.some((a) => a.status === "syncing"));
+  $effect(() => {
+    if (!anySyncing) return;
+    const toast = showSyncingToast();
+    return () => toast.hide();
+  });
 
   const isDraftsMailbox = $derived(
     state.mailboxes.find((m) => m.id === state.activeMailboxId)?.kind === "drafts",
@@ -115,6 +125,16 @@
     requestSwitch(run);
   }
 
+  // Archiving/deleting the currently open thread or message makes the
+  // ViewModel call closeThread() internally — collapse the reading pane too
+  // in that case, exactly as if the floating close button had been clicked,
+  // rather than leaving it open-but-empty. Checked against `state` before
+  // the (async) provider call runs, since closeThread() only fires after
+  // that call resolves.
+  const closesOpenThread = (threadId: string): boolean => threadId === state.openThreadId;
+  const closesOpenMessage = (messageId: string): boolean =>
+    state.openMessages.some((m) => m.summary.id === messageId);
+
   const composerFieldProps = $derived(state.composer ? {
     to: state.composer.to, cc: state.composer.cc, bcc: state.composer.bcc,
     subject: state.composer.subject, bodyHtml: state.composer.bodyHtml,
@@ -141,36 +161,62 @@
     savePaneWidths(widths);
   }
 
-  const gridColumns = $derived(
-    `56px ${widths.mailboxes}px 6px ${widths.messageList}px ` +
-      (readingPaneCollapsed ? "0px 0px" : "6px minmax(200px, 1fr)"),
+  // Both column tracks below are expressed as plain lengths (px/calc), never
+  // `fr`/`minmax()`, specifically so the browser can smoothly interpolate
+  // grid-template-columns between the collapsed and expanded layouts — mixing
+  // track-sizing function types (e.g. minmax() vs a bare length) isn't
+  // reliably animatable. `widths.messageList` is untouched while collapsed,
+  // so re-expanding always lands back on the last resize-handle width.
+  let animateGridColumns = $state(false);
+  let animateGridColumnsTimer: ReturnType<typeof setTimeout> | undefined;
+  function setReadingPaneCollapsed(collapsed: boolean): void {
+    if (collapsed === readingPaneCollapsed) return;
+    clearTimeout(animateGridColumnsTimer);
+    animateGridColumns = true;
+    readingPaneCollapsed = collapsed;
+    // Only the explicit collapse/expand transition animates; a resize drag
+    // updates `widths` continuously and must track the pointer immediately.
+    animateGridColumnsTimer = setTimeout(() => { animateGridColumns = false; }, 250);
+  }
+
+  const gridColumns = $derived.by(() => {
+    const beforeMessageList = 56 + widths.mailboxes + 6;
+    if (readingPaneCollapsed) return `56px ${widths.mailboxes}px 6px calc(100% - ${beforeMessageList + 6}px) 0px 0px`;
+    const beforeReadingPane = beforeMessageList + widths.messageList + 6 + 6;
+    return `56px ${widths.mailboxes}px 6px ${widths.messageList}px 6px calc(100% - ${beforeReadingPane}px)`;
+  });
+  const gridStyle = $derived(
+    `grid-template-columns: ${gridColumns};` +
+      (animateGridColumns ? " transition: grid-template-columns 220ms ease;" : ""),
   );
 </script>
 
-<div class="obsidian-email-view oe-grid" style={`grid-template-columns: ${gridColumns};`}>
+<div class="obsidian-email-view oe-grid" style={gridStyle}>
   <AccountSwitcher
     accounts={state.accounts}
     activeId={state.activeAccountId}
     onSelect={(id) => requestSwitch(() => vm.selectAccount(id))}
     {onAddAccount}
   />
-  <MailboxList
-    mailboxes={state.mailboxes}
-    activeId={state.activeMailboxId}
-    onSelect={(id) => requestSwitch(() => vm.selectMailbox(id))}
-  />
+  <section class="oe-mailbox-col">
+    <button type="button" class="oe-new-message-full" onclick={() => requestSwitch(() => vm.openNewMessage())}>
+      <span class="oe-action-icon" use:icon={"pencil"}></span>New message
+    </button>
+    <MailboxList
+      mailboxes={state.mailboxes}
+      activeId={state.activeMailboxId}
+      onSelect={(id) => requestSwitch(() => vm.selectMailbox(id))}
+    />
+  </section>
   <Resizer label="Resize mailbox list" onDrag={resizeMailboxes} />
   <section class="oe-list-col">
     <SearchBar
       query={state.search.query}
       active={state.search.active}
       syncing={activeSyncing}
-      {readingPaneCollapsed}
       onSearch={(q) => vm.runSearch(q)}
       onClear={() => vm.clearSearch()}
       onRefresh={() => vm.refresh()}
-      onToggleReadingPane={() => (readingPaneCollapsed = !readingPaneCollapsed)}
-      onNewMessage={() => requestSwitch(() => vm.openNewMessage())}
     />
     {#if state.notice}
       <div class="oe-notice">{state.notice}</div>
@@ -180,36 +226,35 @@
       openThreadId={state.openThreadId}
       hasMore={state.hasMore}
       loading={state.loadingList}
-      onOpen={(id) => requestSwitch(() => vm.openThread(id))}
+      onOpen={(id) => requestSwitch(() => { vm.openThread(id); setReadingPaneCollapsed(false); })}
       onLoadMore={() => vm.loadMore()}
       {isDraftsMailbox}
       {isArchiveMailbox}
       {isTrashMailbox}
-      onArchiveThread={(id) => requestRowAction(() => vm.archiveThread(id))}
-      onDeleteThread={(id) => requestRowAction(() => requestDelete("thread", () => vm.deleteThread(id)))}
+      onArchiveThread={(id) => requestRowAction(() => { const closes = closesOpenThread(id); vm.archiveThread(id); if (closes) setReadingPaneCollapsed(true); })}
+      onDeleteThread={(id) => requestRowAction(() => requestDelete("thread", () => { const closes = closesOpenThread(id); vm.deleteThread(id); if (closes) setReadingPaneCollapsed(true); }))}
     />
   </section>
-  {#if !readingPaneCollapsed}
-    <Resizer label="Resize reading pane" onDrag={resizeMessageList} />
-    <ReadingPane
-      openMessages={state.openMessages}
-      autoLoadImages={state.autoLoadImages}
-      renderDeps={vm.renderDeps()}
-      onClose={() => requestSwitch(() => vm.closeThread())}
-      onDownload={(id, att) => vm.downloadAttachmentToDisk(id, att)}
-      {isDraftsMailbox}
-      {isArchiveMailbox}
-      {isTrashMailbox}
-      activeComposerMessageId={state.composer?.targetMessageId ?? null}
-      composerMode={state.composer?.mode ?? null}
-      composerProps={composerFieldProps}
-      onOpenReply={(id, mode) => requestSwitch(() => vm.openReply(id, mode))}
-      onOpenForward={(id) => requestSwitch(() => vm.openForward(id))}
-      onEditDraft={(id) => requestSwitch(() => vm.openDraftForEdit(id))}
-      onArchiveMessage={(id) => requestRowAction(() => vm.archiveMessage(id))}
-      onDeleteMessage={(id) => requestRowAction(() => requestDelete("message", () => vm.deleteMessage(id)))}
-    />
-  {/if}
+  <Resizer label="Resize reading pane" onDrag={resizeMessageList} />
+  <ReadingPane
+    openMessages={state.openMessages}
+    autoLoadImages={state.autoLoadImages}
+    renderDeps={vm.renderDeps()}
+    onClose={() => requestSwitch(() => vm.closeThread())}
+    onCollapse={() => requestSwitch(() => { vm.closeThread(); setReadingPaneCollapsed(true); })}
+    onDownload={(id, att) => vm.downloadAttachmentToDisk(id, att)}
+    {isDraftsMailbox}
+    {isArchiveMailbox}
+    {isTrashMailbox}
+    activeComposerMessageId={state.composer?.targetMessageId ?? null}
+    composerMode={state.composer?.mode ?? null}
+    composerProps={composerFieldProps}
+    onOpenReply={(id, mode) => requestSwitch(() => vm.openReply(id, mode))}
+    onOpenForward={(id) => requestSwitch(() => vm.openForward(id))}
+    onEditDraft={(id) => requestSwitch(() => vm.openDraftForEdit(id))}
+    onArchiveMessage={(id) => requestRowAction(() => { const closes = closesOpenMessage(id); vm.archiveMessage(id); if (closes) setReadingPaneCollapsed(true); })}
+    onDeleteMessage={(id) => requestRowAction(() => requestDelete("message", () => { const closes = closesOpenMessage(id); vm.deleteMessage(id); if (closes) setReadingPaneCollapsed(true); }))}
+  />
   {#if pendingSwitch}
     <div class="oe-composer-prompt">
       <p>You have an unsent message. Save it as a draft before switching?</p>
