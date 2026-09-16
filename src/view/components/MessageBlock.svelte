@@ -31,10 +31,18 @@
 
   const fmtAddr = (a: { name?: string; email: string }) => a.name ? `${a.name} <${a.email}>` : a.email;
   const attachments = $derived((body?.attachments ?? []).filter((a) => !a.inline));
+
+  // The header text (sender/date) is selectable (see .oe-reading-scroll), but
+  // it's also the click target for expand/collapse — without this guard,
+  // finishing a drag-to-select there immediately toggles the block shut.
+  function onHeaderClick(): void {
+    if (window.getSelection()?.toString()) return;
+    onToggle();
+  }
 </script>
 
 <article class="oe-message-block" class:is-expanded={expanded}>
-  <header class="oe-message-head" onclick={onToggle} role="button" tabindex="0"
+  <header class="oe-message-head" onclick={onHeaderClick} role="button" tabindex="0"
           onkeydown={(e) => (e.key === "Enter" ? onToggle() : null)}>
     <span class="oe-message-from">{summary.from.name || summary.from.email}</span>
     <span class="oe-message-date">{new Date(summary.date).toLocaleString()}</span>

@@ -87,6 +87,41 @@ describe("ReadingPane smoke", () => {
     unmount(app);
   });
 
+  it("does not toggle expansion when the header click ends a text selection", () => {
+    const host = document.createElement("div");
+    const app = mount(ReadingPaneHost, {
+      target: host,
+      props: {
+        initial: [msg("aa1", "A one"), msg("aa2", "A two")],
+        renderDeps, onClose: () => {}, onDownload: vi.fn(),
+      },
+    });
+    flushSync();
+    // Manually expand the non-last message.
+    const heads = host.querySelectorAll<HTMLElement>(".oe-message-head");
+    heads[0].click();
+    flushSync();
+    expect(host.querySelector(".oe-message-block.is-expanded")?.textContent).toContain("aa1");
+
+    // Ending a drag-selection on that same header must not collapse it.
+    const selectionSpy = vi.spyOn(window, "getSelection").mockReturnValue({
+      toString: () => "some selected text",
+    } as Selection);
+    heads[0].click();
+    flushSync();
+    expect(host.querySelector(".oe-message-block.is-expanded")?.textContent).toContain("aa1");
+
+    // A plain click (no active selection) still toggles normally — falls back
+    // to the last message expanding instead.
+    selectionSpy.mockReturnValue({ toString: () => "" } as Selection);
+    heads[0].click();
+    flushSync();
+    expect(host.querySelector(".oe-message-block.is-expanded")?.textContent).toContain("aa2");
+
+    selectionSpy.mockRestore();
+    unmount(app);
+  });
+
   it("renders a Load remote images button for blocked content", () => {
     const host = document.createElement("div");
     const msgs = open();
