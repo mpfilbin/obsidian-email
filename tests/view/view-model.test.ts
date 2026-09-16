@@ -824,4 +824,24 @@ describe("ViewModel — folder sync", () => {
     });
     expect(ctx.vm.getState().mailboxes.map((m) => m.id)).toEqual(["INBOX"]);
   });
+
+  it("preserves an active search instead of clearing it when the active mailbox is deleted elsewhere", async () => {
+    const ctx = await build();
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await ctx.vm.init();
+    await ctx.sync.syncAccount("a1"); // backfill
+    await ctx.vm.selectMailbox("SENT");
+    ctx.provider.setSearchResults("report", []);
+    await ctx.vm.runSearch("report");
+    expect(ctx.vm.getState().search).toEqual({ query: "report", active: true });
+
+    ctx.provider.removeMailbox("SENT");
+    await ctx.sync.syncAccount("a1"); // incremental — SENT is gone
+    await vi.waitFor(() => {
+      expect(ctx.vm.getState().activeMailboxId).toBe("INBOX");
+    });
+    // A background mailbox deletion isn't a user-initiated switch — the
+    // search the user is looking at must survive it.
+    expect(ctx.vm.getState().search).toEqual({ query: "report", active: true });
+  });
 });

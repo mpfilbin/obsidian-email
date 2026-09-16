@@ -230,6 +230,17 @@ export class ViewModel {
     this.set({ mailboxes: sorted });
     if (sorted.length === 0 || sorted.some((m) => m.id === this.state.activeMailboxId)) return;
     const fallback = sorted.find((m) => m.kind === "inbox") ?? sorted[0];
+    if (this.state.search.active) {
+      // selectMailbox clears the search — appropriate for a user-initiated
+      // switch, but not for one forced by the active mailbox disappearing
+      // out from under an in-progress search. Just retarget activeMailboxId
+      // and drop paging state (it's tied to the old mailbox's list), and
+      // leave the search results exactly as reloadList already does.
+      this.providerListToken = undefined;
+      this.providerListExhausted = false;
+      this.set({ activeMailboxId: fallback.id });
+      return;
+    }
     await this.selectMailbox(fallback.id);
   }
 

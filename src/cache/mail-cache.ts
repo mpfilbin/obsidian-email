@@ -45,16 +45,26 @@ export class MailCache {
     return removed.map((m) => m.id);
   }
 
-  /** Deletes cached messages that belong to any of the given (now-gone)
-   *  mailboxes — see replaceMailboxes. */
+  /** Removes the given (now-gone) mailboxes from every cached message's
+   *  membership — see replaceMailboxes. A message is only deleted outright
+   *  once none of its mailboxIds survive; one still belonging to a mailbox
+   *  that wasn't removed keeps its row, just without the stale id. In
+   *  practice a Graph message has exactly one mailboxId, but the type
+   *  doesn't guarantee that, and getting this wrong would silently delete a
+   *  message that's still visible in a mailbox we didn't touch. */
   async deleteMessagesByMailbox(accountId: string, mailboxIds: string[]): Promise<void> {
     if (!mailboxIds.length) return;
     const doomed = new Set(mailboxIds);
     const rows = await this.db.getAllFromIndex("messages", "by-account", accountId);
-    const toDelete = rows.filter((r) => r.mailboxIds.some((id) => doomed.has(id)));
-    if (!toDelete.length) return;
+    const affected = rows.filter((r) => r.mailboxIds.some((id) => doomed.has(id)));
+    if (!affected.length) return;
     const tx = this.db.transaction("messages", "readwrite");
-    await Promise.all(toDelete.map((r) => tx.store.delete(r.key)));
+    await Promise.all(
+      affected.map((r) => {
+        const remaining = r.mailboxIds.filter((id) => !doomed.has(id));
+        return remaining.length === 0 ? tx.store.delete(r.key) : tx.store.put({ ...r, mailboxIds: remaining });
+      }),
+    );
     await tx.done;
   }
 

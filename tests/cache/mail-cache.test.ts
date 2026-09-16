@@ -112,6 +112,14 @@ describe("MailCache", () => {
     expect(await cache.listMailboxMessages("a1", "INBOX")).toHaveLength(1);
   });
 
+  it("deleteMessagesByMailbox keeps a message that still belongs to a mailbox that wasn't removed", async () => {
+    await cache.upsertMessages("a1", [msg("m1", { mailboxIds: ["CUSTOM1", "INBOX"] })]);
+    await cache.deleteMessagesByMailbox("a1", ["CUSTOM1"]);
+    const [stored] = await cache.listMailboxMessages("a1", "INBOX");
+    expect(stored?.id).toBe("m1");
+    expect(stored?.mailboxIds).toEqual(["INBOX"]);
+  });
+
   it("clearAccount removes messages, bodies and mailboxes for that account only", async () => {
     await cache.upsertMessages("a1", [msg("m1")]);
     await cache.putMailboxes("a1", [{ id: "INBOX", name: "Inbox", kind: "inbox" }]);
