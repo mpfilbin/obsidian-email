@@ -43,7 +43,11 @@
 
 <article class="oe-message-block" class:is-expanded={expanded}>
   <header class="oe-message-head" onclick={onHeaderClick} role="button" tabindex="0"
-          onkeydown={(e) => (e.key === "Enter" ? onToggle() : null)}>
+          onkeydown={(e) => {
+            if (e.key !== "Enter" && e.key !== " ") return;
+            e.preventDefault();
+            onToggle();
+          }}>
     <span class="oe-message-from">{summary.from.name || summary.from.email}</span>
     <span class="oe-message-date">{new Date(summary.date).toLocaleString()}</span>
   </header>

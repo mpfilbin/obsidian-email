@@ -107,18 +107,47 @@ describe("ReadingPane smoke", () => {
     const selectionSpy = vi.spyOn(window, "getSelection").mockReturnValue({
       toString: () => "some selected text",
     } as Selection);
-    heads[0].click();
+    try {
+      heads[0].click();
+      flushSync();
+      expect(host.querySelector(".oe-message-block.is-expanded")?.textContent).toContain("aa1");
+
+      // A plain click (no active selection) still toggles normally — falls
+      // back to the last message expanding instead.
+      selectionSpy.mockReturnValue({ toString: () => "" } as Selection);
+      heads[0].click();
+      flushSync();
+      expect(host.querySelector(".oe-message-block.is-expanded")?.textContent).toContain("aa2");
+    } finally {
+      // A failed assertion above must not leak this spy into later tests.
+      selectionSpy.mockRestore();
+    }
+    unmount(app);
+  });
+
+  it("toggles expansion on Enter or Space, matching its ARIA button role", () => {
+    const host = document.createElement("div");
+    const app = mount(ReadingPaneHost, {
+      target: host,
+      props: {
+        initial: [msg("aa1", "A one"), msg("aa2", "A two")],
+        renderDeps, onClose: () => {}, onDownload: vi.fn(),
+      },
+    });
+    flushSync();
+    const head = host.querySelectorAll<HTMLElement>(".oe-message-head")[0];
+
+    head.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
     flushSync();
     expect(host.querySelector(".oe-message-block.is-expanded")?.textContent).toContain("aa1");
 
-    // A plain click (no active selection) still toggles normally — falls back
-    // to the last message expanding instead.
-    selectionSpy.mockReturnValue({ toString: () => "" } as Selection);
-    heads[0].click();
+    const spaceEvent = new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true });
+    head.dispatchEvent(spaceEvent);
     flushSync();
+    // Falls back to the last message expanding instead — Space toggled it shut.
     expect(host.querySelector(".oe-message-block.is-expanded")?.textContent).toContain("aa2");
+    expect(spaceEvent.defaultPrevented).toBe(true);
 
-    selectionSpy.mockRestore();
     unmount(app);
   });
 
