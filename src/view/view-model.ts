@@ -150,9 +150,11 @@ export class ViewModel {
     };
     this.unsubSync.push(
       deps.sync.changes.on((e) => {
-        if (e.accountId === this.state.activeAccountId && !this.state.search.active) {
-          void this.reloadList();
-        }
+        if (e.accountId !== this.state.activeAccountId) return;
+        // Independent of the search guard below — the folder list is UI
+        // chrome, not search results, so it stays live even mid-search.
+        void this.refreshMailboxes(e.accountId);
+        if (!this.state.search.active) void this.reloadList();
       }),
       deps.sync.states.on(() => this.refreshAccountStatuses()),
     );
@@ -214,6 +216,32 @@ export class ViewModel {
       composer: null,
     });
     if (inbox) await this.selectMailbox(inbox.id);
+  }
+
+  /** Re-reads the cached folder list for `accountId` and refreshes
+   *  `state.mailboxes` — called on every sync change so a folder created or
+   *  deleted elsewhere (another mail client) shows up without switching
+   *  accounts. Falls back to Inbox/first if the active mailbox was one of
+   *  the ones removed. */
+  private async refreshMailboxes(accountId: string): Promise<void> {
+    const mailboxes = await this.deps.cache.getMailboxes(accountId);
+    if (accountId !== this.state.activeAccountId) return; // stale by the time this resolved
+    const sorted = sortMailboxes(mailboxes);
+    this.set({ mailboxes: sorted });
+    if (sorted.length === 0 || sorted.some((m) => m.id === this.state.activeMailboxId)) return;
+    const fallback = sorted.find((m) => m.kind === "inbox") ?? sorted[0];
+    if (this.state.search.active) {
+      // selectMailbox clears the search — appropriate for a user-initiated
+      // switch, but not for one forced by the active mailbox disappearing
+      // out from under an in-progress search. Just retarget activeMailboxId
+      // and drop paging state (it's tied to the old mailbox's list), and
+      // leave the search results exactly as reloadList already does.
+      this.providerListToken = undefined;
+      this.providerListExhausted = false;
+      this.set({ activeMailboxId: fallback.id });
+      return;
+    }
+    await this.selectMailbox(fallback.id);
   }
 
   async selectMailbox(id: string): Promise<void> {
