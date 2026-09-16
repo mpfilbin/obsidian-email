@@ -27,6 +27,37 @@ export class MailCache {
     return rows.map(({ key: _k, accountId: _a, ...box }) => box);
   }
 
+  /** Replaces the cached folder list wholesale: upserts every box in `boxes`
+   *  and deletes any cached mailbox for this account that isn't in it (a
+   *  folder deleted server-side, e.g. from another mail client). Returns the
+   *  removed ids so the caller can also clean up messages that belonged only
+   *  to those folders. */
+  async replaceMailboxes(accountId: string, boxes: Mailbox[]): Promise<string[]> {
+    const existing = await this.db.getAllFromIndex("mailboxes", "by-account", accountId);
+    const keep = new Set(boxes.map((b) => b.id));
+    const removed = existing.filter((m) => !keep.has(m.id));
+    const tx = this.db.transaction("mailboxes", "readwrite");
+    await Promise.all([
+      ...boxes.map((b) => tx.store.put({ ...b, key: key(accountId, b.id), accountId })),
+      ...removed.map((m) => tx.store.delete(m.key)),
+    ]);
+    await tx.done;
+    return removed.map((m) => m.id);
+  }
+
+  /** Deletes cached messages that belong to any of the given (now-gone)
+   *  mailboxes — see replaceMailboxes. */
+  async deleteMessagesByMailbox(accountId: string, mailboxIds: string[]): Promise<void> {
+    if (!mailboxIds.length) return;
+    const doomed = new Set(mailboxIds);
+    const rows = await this.db.getAllFromIndex("messages", "by-account", accountId);
+    const toDelete = rows.filter((r) => r.mailboxIds.some((id) => doomed.has(id)));
+    if (!toDelete.length) return;
+    const tx = this.db.transaction("messages", "readwrite");
+    await Promise.all(toDelete.map((r) => tx.store.delete(r.key)));
+    await tx.done;
+  }
+
   async upsertMessages(accountId: string, msgs: MessageSummary[]): Promise<void> {
     const tx = this.db.transaction("messages", "readwrite");
     await Promise.all(

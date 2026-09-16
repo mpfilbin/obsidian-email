@@ -789,3 +789,39 @@ describe("ViewModel — saveMessageToVault", () => {
     expect(saveNote).not.toHaveBeenCalled();
   });
 });
+
+describe("ViewModel — folder sync", () => {
+  it("picks up a folder created elsewhere without switching accounts", async () => {
+    const ctx = await build();
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await ctx.vm.init();
+    expect(ctx.vm.getState().mailboxes.map((m) => m.id).sort()).toEqual(["INBOX", "SENT"]);
+
+    await ctx.sync.syncAccount("a1"); // backfill
+    ctx.provider.addMailbox({ id: "PROJ", name: "Project X", kind: "custom" });
+    await ctx.sync.syncAccount("a1"); // incremental — discovers PROJ
+    // The changes-emitter's listener calls refreshMailboxes fire-and-forget
+    // (`void this.refreshMailboxes(...)`), and it reads through fake-indexeddb
+    // (not a plain Promise chain), so syncAccount resolving doesn't guarantee
+    // it's finished — poll instead of guessing a microtask-tick count.
+    await vi.waitFor(() => {
+      expect(ctx.vm.getState().mailboxes.map((m) => m.id).sort()).toEqual(["INBOX", "PROJ", "SENT"]);
+    });
+  });
+
+  it("falls back to Inbox when the active mailbox is deleted elsewhere", async () => {
+    const ctx = await build();
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await ctx.vm.init();
+    await ctx.sync.syncAccount("a1"); // backfill
+    await ctx.vm.selectMailbox("SENT");
+    expect(ctx.vm.getState().activeMailboxId).toBe("SENT");
+
+    ctx.provider.removeMailbox("SENT");
+    await ctx.sync.syncAccount("a1"); // incremental — SENT is gone
+    await vi.waitFor(() => {
+      expect(ctx.vm.getState().activeMailboxId).toBe("INBOX");
+    });
+    expect(ctx.vm.getState().mailboxes.map((m) => m.id)).toEqual(["INBOX"]);
+  });
+});

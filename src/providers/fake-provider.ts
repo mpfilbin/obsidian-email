@@ -44,6 +44,14 @@ export class FakeProvider implements MailProvider {
     this.log.push({ seq: ++this.seq, type: "delete", id });
   }
 
+  addMailbox(box: Mailbox): void {
+    this.mailboxes = [...this.mailboxes.filter((b) => b.id !== box.id), box];
+  }
+
+  removeMailbox(id: string): void {
+    this.mailboxes = this.mailboxes.filter((b) => b.id !== id);
+  }
+
   setSearchResults(q: string, items: MessageSummary[]): void {
     this.searchResults.set(q, items);
   }

@@ -144,6 +144,16 @@ export class SyncEngine {
   }
 
   private async incremental(accountId: string, provider: MailProvider, cursor: SyncCursor): Promise<void> {
+    // Microsoft Graph's mail delta doesn't report folder create/delete/rename
+    // (mailboxChanges is always empty in practice), so the folder list is
+    // re-fetched and reconciled here on every cycle instead — cheap, and
+    // also keeps unread-count badges from going stale between backfills.
+    const boxes = await provider.listMailboxes();
+    const removedMailboxIds = await this.deps.cache.replaceMailboxes(accountId, boxes);
+    if (removedMailboxIds.length) {
+      await this.deps.cache.deleteMessagesByMailbox(accountId, removedMailboxIds);
+    }
+
     const result = await provider.syncSince(cursor);
     if (result.mailboxChanges.length) {
       await this.deps.cache.putMailboxes(accountId, result.mailboxChanges);

@@ -79,6 +79,39 @@ describe("MailCache", () => {
     expect(stored.from).toEqual({ email: "" });
   });
 
+  it("replaceMailboxes upserts the given folders and removes cached ones no longer present", async () => {
+    await cache.putMailboxes("a1", [
+      { id: "INBOX", name: "Inbox", kind: "inbox" },
+      { id: "CUSTOM1", name: "Old Project", kind: "custom" },
+    ]);
+    const removed = await cache.replaceMailboxes("a1", [
+      { id: "INBOX", name: "Inbox", kind: "inbox", unreadCount: 3 },
+      { id: "CUSTOM2", name: "New Project", kind: "custom" },
+    ]);
+    expect(removed).toEqual(["CUSTOM1"]);
+    const boxes = await cache.getMailboxes("a1");
+    expect(boxes.map((b) => b.id).sort()).toEqual(["CUSTOM2", "INBOX"]);
+    expect(boxes.find((b) => b.id === "INBOX")?.unreadCount).toBe(3);
+  });
+
+  it("replaceMailboxes leaves another account's cached folders untouched", async () => {
+    await cache.putMailboxes("a1", [{ id: "CUSTOM1", name: "Mine", kind: "custom" }]);
+    await cache.putMailboxes("a2", [{ id: "CUSTOM1", name: "Theirs", kind: "custom" }]);
+    await cache.replaceMailboxes("a1", []);
+    expect(await cache.getMailboxes("a1")).toHaveLength(0);
+    expect(await cache.getMailboxes("a2")).toHaveLength(1);
+  });
+
+  it("deleteMessagesByMailbox removes only messages in the given mailboxes", async () => {
+    await cache.upsertMessages("a1", [
+      msg("m1", { mailboxIds: ["CUSTOM1"] }),
+      msg("m2", { mailboxIds: ["INBOX"] }),
+    ]);
+    await cache.deleteMessagesByMailbox("a1", ["CUSTOM1"]);
+    expect(await cache.listMailboxMessages("a1", "CUSTOM1")).toHaveLength(0);
+    expect(await cache.listMailboxMessages("a1", "INBOX")).toHaveLength(1);
+  });
+
   it("clearAccount removes messages, bodies and mailboxes for that account only", async () => {
     await cache.upsertMessages("a1", [msg("m1")]);
     await cache.putMailboxes("a1", [{ id: "INBOX", name: "Inbox", kind: "inbox" }]);

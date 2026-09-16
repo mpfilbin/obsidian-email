@@ -52,6 +52,33 @@ describe("SyncEngine", () => {
     expect((await cache.listMailboxMessages("a1", "INBOX")).map((m) => m.id)).toEqual(["m2"]);
   });
 
+  it("picks up a folder created elsewhere during an incremental sync", async () => {
+    const provider = new FakeProvider({ mailboxes: [{ id: "INBOX", name: "Inbox", kind: "inbox" }] });
+    const { cache, engine } = await harness(provider);
+    await engine.syncAccount("a1"); // backfill
+    provider.addMailbox({ id: "PROJ", name: "Project X", kind: "custom" });
+    await engine.syncAccount("a1"); // incremental
+    expect((await cache.getMailboxes("a1")).map((b) => b.id).sort()).toEqual(["INBOX", "PROJ"]);
+  });
+
+  it("removes a folder deleted elsewhere, along with its cached messages, during an incremental sync", async () => {
+    const provider = new FakeProvider({
+      mailboxes: [{ id: "INBOX", name: "Inbox", kind: "inbox" }, { id: "PROJ", name: "Project X", kind: "custom" }],
+    });
+    const { cache, engine } = await harness(provider);
+    await engine.syncAccount("a1"); // backfill
+    // Custom folders aren't backfilled, but a message could still be cached
+    // for one from an earlier on-demand load — simulate that directly.
+    await cache.upsertMessages("a1", [{
+      id: "p1", threadId: "p1", mailboxIds: ["PROJ"], from: { email: "s@x.com" }, to: [], cc: [],
+      subject: "s", snippet: "", date: 1, unread: true, hasAttachments: false, flagged: false,
+    }]);
+    provider.removeMailbox("PROJ");
+    await engine.syncAccount("a1"); // incremental
+    expect((await cache.getMailboxes("a1")).map((b) => b.id)).toEqual(["INBOX"]);
+    expect(await cache.listMailboxMessages("a1", "PROJ")).toHaveLength(0);
+  });
+
   it("emits a CacheChange after a sync", async () => {
     const provider = new FakeProvider({ mailboxes: [{ id: "INBOX", name: "Inbox", kind: "inbox" }] });
     provider.addMessage(summary("m1", 1));
