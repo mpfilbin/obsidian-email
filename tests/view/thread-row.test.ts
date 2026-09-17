@@ -16,7 +16,7 @@ function baseProps(over: Partial<Record<string, unknown>> = {}) {
   return {
     thread, isOpen: false, onOpen: vi.fn(),
     isDraftsMailbox: false, isArchiveMailbox: false, isTrashMailbox: false,
-    onArchive: vi.fn(), onDelete: vi.fn(),
+    onArchive: vi.fn(), onDelete: vi.fn(), onContextMenu: vi.fn(),
     ...over,
   };
 }
@@ -75,6 +75,35 @@ describe("ThreadRow smoke", () => {
     flushSync();
     host.querySelector<HTMLElement>(".oe-thread-row")!.click();
     expect(onOpen).toHaveBeenCalledOnce();
+    unmount(app);
+  });
+
+  it("is draggable and puts the thread id on the drag payload under the custom MIME type", () => {
+    const host = document.createElement("div");
+    const app = mount(ThreadRow, { target: host, props: baseProps() });
+    flushSync();
+    const row = host.querySelector<HTMLElement>(".oe-thread-row")!;
+    expect(row.getAttribute("draggable")).toBe("true");
+
+    const setData = vi.fn();
+    const event = new Event("dragstart", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "dataTransfer", { value: { setData } });
+    row.dispatchEvent(event);
+    expect(setData).toHaveBeenCalledWith("application/x-oe-thread-id", "t1");
+    unmount(app);
+  });
+
+  it("right-clicking calls onContextMenu and suppresses the native menu", () => {
+    const onContextMenu = vi.fn();
+    const host = document.createElement("div");
+    const app = mount(ThreadRow, { target: host, props: baseProps({ onContextMenu }) });
+    flushSync();
+    const row = host.querySelector<HTMLElement>(".oe-thread-row")!;
+    const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    const preventSpy = vi.spyOn(event, "preventDefault");
+    row.dispatchEvent(event);
+    expect(preventSpy).toHaveBeenCalled();
+    expect(onContextMenu).toHaveBeenCalledWith(event);
     unmount(app);
   });
 });

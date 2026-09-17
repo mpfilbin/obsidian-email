@@ -1,15 +1,16 @@
-import { Notice, Plugin, normalizePath, requestUrl } from "obsidian";
+import { Menu, Notice, Plugin, normalizePath, requestUrl } from "obsidian";
 import type { Vault, WorkspaceLeaf } from "obsidian";
 import type { HttpPost } from "./auth/oauth-client";
 import type { SecretStore } from "./auth/token-manager";
 import { SettingsStore } from "./settings/settings-store";
 import { PluginContext } from "./plugin-context";
-import { MailView, MAIL_VIEW_TYPE } from "./view/mail-view";
+import { MailView, MAIL_VIEW_TYPE, type MailboxContextMenuHandler, type ThreadContextMenuHandler } from "./view/mail-view";
 import { EmailSettingTab } from "./settings/settings-tab";
 import { makeObsidianHttp } from "./providers/obsidian-http";
 import { Logger } from "./util/logger";
 import { safeAttachmentName, uniqueAttachmentPath } from "./util/safe-filename";
 import { SaveEmailModal } from "./view/save-email-modal";
+import { FolderNameModal } from "./view/folder-name-modal";
 
 export default class EmailPlugin extends Plugin {
   private ctx?: PluginContext;
@@ -112,16 +113,73 @@ export default class EmailPlugin extends Plugin {
       }).open();
     };
 
+    const promptFolderName = (onSubmit: (name: string) => void): void => {
+      new FolderNameModal(this.app, { heading: "New folder", submitLabel: "Create" }, onSubmit).open();
+    };
+
+    const showMailboxContextMenu: MailboxContextMenuHandler = (evt, currentName, onRename, onDelete) => {
+      const menu = new Menu();
+      menu.addItem((item) =>
+        item
+          .setTitle("Rename")
+          .setIcon("pencil")
+          .onClick(() => {
+            new FolderNameModal(
+              this.app,
+              { heading: "Rename folder", submitLabel: "Rename", defaultName: currentName },
+              onRename,
+            ).open();
+          }),
+      );
+      menu.addItem((item) =>
+        item
+          .setTitle("Delete")
+          .setIcon("trash-2")
+          .setWarning(true)
+          .onClick(() => onDelete()),
+      );
+      menu.showAtMouseEvent(evt);
+    };
+
+    // Obsidian's public Menu API has no submenu support, so "Move" opens a
+    // second menu chained off the same click rather than nesting one — the
+    // closest native-feeling equivalent. Pure presentation: the actual move
+    // (with its unsaved-composer and reading-pane-collapse guards) happens
+    // back in App.svelte via `onMove`, not here.
+    //
+    // The chained menu is positioned from the ORIGINAL right-click's
+    // coordinates, captured up front, rather than from the "Move" item's own
+    // click event: on desktop a MenuItem can be backed by a native OS menu,
+    // whose click callback doesn't carry a real DOM mouse position — using it
+    // for showAtMouseEvent put the submenu at (0, 0) instead of near the row.
+    const showThreadContextMenu: ThreadContextMenuHandler = (evt, candidates, onMove) => {
+      const position = { x: evt.clientX, y: evt.clientY };
+      const menu = new Menu();
+      menu.addItem((item) =>
+        item
+          .setTitle("Move")
+          .setIcon("folder-input")
+          .onClick(() => {
+            const folderMenu = new Menu();
+            for (const box of candidates) {
+              folderMenu.addItem((folderItem) => folderItem.setTitle(box.name).onClick(() => onMove(box.id)));
+            }
+            folderMenu.showAtPosition(position);
+          }),
+      );
+      menu.showAtMouseEvent(evt);
+    };
+
     this.ctx = await PluginContext.create(
       settings,
-      { http, secrets, post, openExternal, saveBlob, saveNote },
+      { http, secrets, post, openExternal, saveBlob, saveNote, promptFolderName },
       logger,
     );
     const ctx = this.ctx;
 
     this.registerView(
       MAIL_VIEW_TYPE,
-      (leaf) => new MailView(leaf, ctx.vm, () => this.openSettings()),
+      (leaf) => new MailView(leaf, ctx.vm, () => this.openSettings(), showThreadContextMenu, showMailboxContextMenu),
     );
 
     this.addRibbonIcon("mail", "Open mail", () => void this.activateView());

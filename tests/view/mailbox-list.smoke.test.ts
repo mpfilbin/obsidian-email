@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { mount, unmount, flushSync } from "svelte";
 import MailboxList from "../../src/view/components/MailboxList.svelte";
+import { THREAD_DRAG_TYPE } from "../../src/view/drag-types";
 import type { Mailbox } from "../../src/providers/types";
 
 const mailboxes: Mailbox[] = [
@@ -10,12 +11,18 @@ const mailboxes: Mailbox[] = [
   { id: "LBL1", name: "Projects", kind: "custom" },
 ];
 
+function dragEvent(type: string, dataTransfer: Record<string, unknown>): Event {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "dataTransfer", { value: dataTransfer });
+  return event;
+}
+
 describe("MailboxList smoke", () => {
   it("renders a distinct icon per mailbox kind", () => {
     const host = document.createElement("div");
     const app = mount(MailboxList, {
       target: host,
-      props: { mailboxes, activeId: "INBOX", onSelect: vi.fn() },
+      props: { mailboxes, activeId: "INBOX", onSelect: vi.fn(), onDropThread: vi.fn() },
     });
     flushSync();
     const icons = [...host.querySelectorAll(".oe-mailbox-icon")].map((el) => el.getAttribute("data-icon"));
@@ -26,9 +33,102 @@ describe("MailboxList smoke", () => {
   it("calls onSelect with the clicked mailbox id", () => {
     const onSelect = vi.fn();
     const host = document.createElement("div");
-    const app = mount(MailboxList, { target: host, props: { mailboxes, activeId: "INBOX", onSelect } });
+    const app = mount(MailboxList, { target: host, props: { mailboxes, activeId: "INBOX", onSelect, onDropThread: vi.fn() } });
     [...host.querySelectorAll(".oe-mailbox")][1].dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(onSelect).toHaveBeenCalledWith("SENT");
+    unmount(app);
+  });
+
+  it("allows dragging a thread over a different mailbox and shows the drag-over state", () => {
+    const host = document.createElement("div");
+    const app = mount(MailboxList, { target: host, props: { mailboxes, activeId: "INBOX", onSelect: vi.fn(), onDropThread: vi.fn() } });
+    flushSync();
+    const sentRow = [...host.querySelectorAll<HTMLElement>(".oe-mailbox")][1];
+    const event = dragEvent("dragover", { types: [THREAD_DRAG_TYPE] });
+    const preventSpy = vi.spyOn(event, "preventDefault");
+    sentRow.dispatchEvent(event);
+    flushSync();
+    expect(preventSpy).toHaveBeenCalled();
+    expect(sentRow.classList.contains("is-drag-over")).toBe(true);
+    unmount(app);
+  });
+
+  it("refuses to allow dropping a thread onto the currently active mailbox", () => {
+    const host = document.createElement("div");
+    const app = mount(MailboxList, { target: host, props: { mailboxes, activeId: "INBOX", onSelect: vi.fn(), onDropThread: vi.fn() } });
+    flushSync();
+    const inboxRow = [...host.querySelectorAll<HTMLElement>(".oe-mailbox")][0];
+    const event = dragEvent("dragover", { types: [THREAD_DRAG_TYPE] });
+    const preventSpy = vi.spyOn(event, "preventDefault");
+    inboxRow.dispatchEvent(event);
+    expect(preventSpy).not.toHaveBeenCalled();
+    unmount(app);
+  });
+
+  it("ignores a drag whose payload isn't a thread (e.g. an OS file drop)", () => {
+    const host = document.createElement("div");
+    const app = mount(MailboxList, { target: host, props: { mailboxes, activeId: "INBOX", onSelect: vi.fn(), onDropThread: vi.fn() } });
+    flushSync();
+    const sentRow = [...host.querySelectorAll<HTMLElement>(".oe-mailbox")][1];
+    const event = dragEvent("dragover", { types: ["Files"] });
+    const preventSpy = vi.spyOn(event, "preventDefault");
+    sentRow.dispatchEvent(event);
+    expect(preventSpy).not.toHaveBeenCalled();
+    unmount(app);
+  });
+
+  it("dropping a thread onto a mailbox calls onDropThread with the thread id and target mailbox", () => {
+    const onDropThread = vi.fn();
+    const host = document.createElement("div");
+    const app = mount(MailboxList, { target: host, props: { mailboxes, activeId: "INBOX", onSelect: vi.fn(), onDropThread } });
+    flushSync();
+    const sentRow = [...host.querySelectorAll<HTMLElement>(".oe-mailbox")][1];
+    const event = dragEvent("drop", { types: [THREAD_DRAG_TYPE], getData: () => "t1" });
+    sentRow.dispatchEvent(event);
+    expect(onDropThread).toHaveBeenCalledWith("t1", "SENT");
+    unmount(app);
+  });
+
+  it("dropping onto the currently active mailbox does not call onDropThread", () => {
+    const onDropThread = vi.fn();
+    const host = document.createElement("div");
+    const app = mount(MailboxList, { target: host, props: { mailboxes, activeId: "INBOX", onSelect: vi.fn(), onDropThread } });
+    flushSync();
+    const inboxRow = [...host.querySelectorAll<HTMLElement>(".oe-mailbox")][0];
+    const event = dragEvent("drop", { types: [THREAD_DRAG_TYPE], getData: () => "t1" });
+    inboxRow.dispatchEvent(event);
+    expect(onDropThread).not.toHaveBeenCalled();
+    unmount(app);
+  });
+
+  it("right-clicking a custom folder calls onContextMenu and suppresses the native menu", () => {
+    const onContextMenu = vi.fn();
+    const host = document.createElement("div");
+    const app = mount(MailboxList, {
+      target: host,
+      props: { mailboxes, activeId: "INBOX", onSelect: vi.fn(), onDropThread: vi.fn(), onContextMenu },
+    });
+    flushSync();
+    const projectsRow = [...host.querySelectorAll<HTMLElement>(".oe-mailbox")][3]; // LBL1, kind: custom
+    const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    const preventSpy = vi.spyOn(event, "preventDefault");
+    projectsRow.dispatchEvent(event);
+    expect(preventSpy).toHaveBeenCalled();
+    expect(onContextMenu).toHaveBeenCalledWith(event, "LBL1");
+    unmount(app);
+  });
+
+  it("right-clicking a built-in folder does not call onContextMenu — Graph doesn't allow renaming those", () => {
+    const onContextMenu = vi.fn();
+    const host = document.createElement("div");
+    const app = mount(MailboxList, {
+      target: host,
+      props: { mailboxes, activeId: "INBOX", onSelect: vi.fn(), onDropThread: vi.fn(), onContextMenu },
+    });
+    flushSync();
+    const inboxRow = [...host.querySelectorAll<HTMLElement>(".oe-mailbox")][0];
+    inboxRow.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    expect(onContextMenu).not.toHaveBeenCalled();
     unmount(app);
   });
 });

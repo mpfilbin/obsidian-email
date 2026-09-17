@@ -23,6 +23,7 @@ export class FakeProvider implements MailProvider {
   private bodies: Record<string, MessageBody>;
   private searchResults = new Map<string, MessageSummary[]>();
   private seq = 0;
+  private mailboxSeq = 0;
   private log: Array<{ seq: number; type: "upsert" | "delete"; msg?: MessageSummary; id?: string }> = [];
   readonly sentLog: SentLogEntry[] = [];
   readonly drafts = new Map<string, OutgoingMessage>();
@@ -54,6 +55,25 @@ export class FakeProvider implements MailProvider {
 
   setSearchResults(q: string, items: MessageSummary[]): void {
     this.searchResults.set(q, items);
+  }
+
+  async createMailbox(name: string): Promise<Mailbox> {
+    const box: Mailbox = { id: `FAKE-FOLDER-${++this.mailboxSeq}`, name, kind: "custom" };
+    this.addMailbox(box);
+    return box;
+  }
+
+  async renameMailbox(id: string, name: string): Promise<Mailbox> {
+    const box = this.mailboxes.find((b) => b.id === id);
+    if (!box) throw new Error(`no such mailbox: ${id}`);
+    const renamed: Mailbox = { ...box, name };
+    this.addMailbox(renamed);
+    return renamed;
+  }
+
+  async deleteMailbox(id: string): Promise<void> {
+    if (!this.mailboxes.some((b) => b.id === id)) throw new Error(`no such mailbox: ${id}`);
+    this.removeMailbox(id);
   }
 
   async listMailboxes(): Promise<Mailbox[]> {
@@ -152,5 +172,11 @@ export class FakeProvider implements MailProvider {
     if (!m) throw new Error(`no such message: ${id}`);
     const moved: MessageSummary = { ...m, mailboxIds: ["ARCHIVE"] };
     this.addMessage(moved);
+  }
+
+  async moveMessage(id: string, destinationMailboxId: string): Promise<void> {
+    const m = this.messages.get(id);
+    if (!m) throw new Error(`no such message: ${id}`);
+    this.addMessage({ ...m, mailboxIds: [destinationMailboxId] });
   }
 }

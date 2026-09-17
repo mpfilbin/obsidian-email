@@ -9,8 +9,24 @@
   import Resizer from "./components/Resizer.svelte";
   import { clampPaneWidths, loadPaneWidths, savePaneWidths, type PaneWidths } from "./pane-layout";
   import { showSyncingToast } from "./refresh-toast";
+  import type { Mailbox } from "../providers/types";
 
-  let { vm, onAddAccount }: { vm: ViewModel; onAddAccount: () => void } = $props();
+  let { vm, onAddAccount, onThreadContextMenu, onMailboxContextMenu }: {
+    vm: ViewModel;
+    onAddAccount: () => void;
+    /** Shows the host's native context menu (built in main.ts, since it
+     *  needs Obsidian's real Menu class) with a "Move" command; `onMove`
+     *  is called back with whichever folder the user picks. */
+    onThreadContextMenu: (evt: MouseEvent, candidates: Mailbox[], onMove: (destinationMailboxId: string) => void) => void;
+    /** Shows the host's native context menu with "Rename" and "Delete"
+     *  commands; `onRename`/`onDelete` are called back if confirmed. */
+    onMailboxContextMenu: (
+      evt: MouseEvent,
+      currentName: string,
+      onRename: (newName: string) => void,
+      onDelete: () => void,
+    ) => void;
+  } = $props();
 
   // `vm` is a stable prop for the life of the view; reading it here to seed
   // the initial snapshot is intentional.
@@ -109,6 +125,14 @@
     pendingDelete = null;
     p?.run();
   }
+
+  // Deleting a folder is always irreversible — Graph has no soft-delete /
+  // Trash equivalent for folders the way it does for messages — so this
+  // confirms unconditionally, unlike requestDelete's Trash/search-only gate.
+  function requestDeleteMailbox(run: () => void): void {
+    if (pendingSwitch) return;
+    pendingDelete = { label: "folder", run };
+  }
   function cancelDelete(): void {
     pendingDelete = null;
   }
@@ -134,6 +158,18 @@
   const closesOpenThread = (threadId: string): boolean => threadId === state.openThreadId;
   const closesOpenMessage = (messageId: string): boolean =>
     state.openMessages.some((m) => m.summary.id === messageId);
+
+  // Shared by drag-and-drop (MailboxList's onDropThread) and the row context
+  // menu's "Move" command — same guards as archive/delete: the unsaved-
+  // composer prompt via requestRowAction, and collapsing the reading pane if
+  // the moved thread was the open one.
+  function moveThread(threadId: string, destinationMailboxId: string): void {
+    requestRowAction(() => {
+      const closes = closesOpenThread(threadId);
+      vm.moveThread(threadId, destinationMailboxId);
+      if (closes) setReadingPaneCollapsed(true);
+    });
+  }
 
   const composerFieldProps = $derived(state.composer ? {
     to: state.composer.to, cc: state.composer.cc, bcc: state.composer.bcc,
@@ -206,7 +242,21 @@
       mailboxes={state.mailboxes}
       activeId={state.activeMailboxId}
       onSelect={(id) => requestSwitch(() => vm.selectMailbox(id))}
+      onDropThread={(threadId, destinationId) => moveThread(threadId, destinationId)}
+      onContextMenu={(evt, id) => {
+        const box = state.mailboxes.find((m) => m.id === id);
+        if (!box) return;
+        onMailboxContextMenu(
+          evt,
+          box.name,
+          (newName) => vm.renameMailbox(id, newName),
+          () => requestRowAction(() => requestDeleteMailbox(() => { void vm.deleteMailbox(id); })),
+        );
+      }}
     />
+    <button type="button" class="oe-new-folder" onclick={() => vm.requestCreateMailbox()}>
+      <span class="oe-action-icon" use:icon={"folder-plus"}></span>New folder
+    </button>
   </section>
   <Resizer label="Resize mailbox list" onDrag={resizeMailboxes} />
   <section class="oe-list-col">
@@ -233,6 +283,12 @@
       {isTrashMailbox}
       onArchiveThread={(id) => requestRowAction(() => { const closes = closesOpenThread(id); vm.archiveThread(id); if (closes) setReadingPaneCollapsed(true); })}
       onDeleteThread={(id) => requestRowAction(() => requestDelete("thread", () => { const closes = closesOpenThread(id); vm.deleteThread(id); if (closes) setReadingPaneCollapsed(true); }))}
+      onThreadContextMenu={(evt, id) =>
+        onThreadContextMenu(
+          evt,
+          state.mailboxes.filter((m) => m.id !== state.activeMailboxId),
+          (destinationId) => moveThread(id, destinationId),
+        )}
     />
   </section>
   <Resizer label="Resize reading pane" onDrag={resizeMessageList} />

@@ -102,6 +102,17 @@ describe("MailCache", () => {
     expect(await cache.getMailboxes("a2")).toHaveLength(1);
   });
 
+  it("deleteMailboxes removes only the given ids, leaving the rest and other accounts untouched", async () => {
+    await cache.putMailboxes("a1", [
+      { id: "INBOX", name: "Inbox", kind: "inbox" },
+      { id: "CUSTOM1", name: "Project X", kind: "custom" },
+    ]);
+    await cache.putMailboxes("a2", [{ id: "CUSTOM1", name: "Theirs", kind: "custom" }]);
+    await cache.deleteMailboxes("a1", ["CUSTOM1"]);
+    expect((await cache.getMailboxes("a1")).map((b) => b.id)).toEqual(["INBOX"]);
+    expect(await cache.getMailboxes("a2")).toHaveLength(1);
+  });
+
   it("deleteMessagesByMailbox removes only messages in the given mailboxes", async () => {
     await cache.upsertMessages("a1", [
       msg("m1", { mailboxIds: ["CUSTOM1"] }),

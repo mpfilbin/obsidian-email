@@ -3,10 +3,13 @@
   import { icon } from "../icon-action";
   import type { ThreadView } from "../view-model";
 
-  let { thread, isOpen, onOpen, isDraftsMailbox, isArchiveMailbox, isTrashMailbox, onArchive, onDelete }: {
+  import { THREAD_DRAG_TYPE } from "../drag-types";
+
+  let { thread, isOpen, onOpen, isDraftsMailbox, isArchiveMailbox, isTrashMailbox, onArchive, onDelete, onContextMenu }: {
     thread: ThreadView; isOpen: boolean; onOpen: () => void;
     isDraftsMailbox: boolean; isArchiveMailbox: boolean; isTrashMailbox: boolean;
     onArchive: () => void; onDelete: () => void;
+    onContextMenu: (evt: MouseEvent) => void;
   } = $props();
 
   const newest = $derived(thread.messages[thread.messages.length - 1]);
@@ -32,6 +35,9 @@
   role="button"
   tabindex="0"
   onkeydown={(e) => (e.key === "Enter" ? onOpen() : null)}
+  oncontextmenu={(e) => { e.preventDefault(); onContextMenu(e); }}
+  draggable="true"
+  ondragstart={(e) => e.dataTransfer?.setData(THREAD_DRAG_TYPE, thread.threadId)}
 >
   <div class="oe-thread-line1">
     <span class="oe-thread-sender">{sender}</span>

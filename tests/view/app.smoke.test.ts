@@ -2,7 +2,9 @@ import { describe, it, expect, vi } from "vitest";
 import { mount, unmount, flushSync } from "svelte";
 import * as obsidian from "obsidian";
 import App from "../../src/view/App.svelte";
+import { THREAD_DRAG_TYPE } from "../../src/view/drag-types";
 import type { ThreadView, ViewModel, ViewState } from "../../src/view/view-model";
+import type { Mailbox } from "../../src/providers/types";
 
 /** A one-message thread shaped like the fixture's default row, for the tests
  *  below that need a second row to act on. */
@@ -65,6 +67,7 @@ function fakeVm(state: Partial<ViewState> = {}): ViewModel {
     hasUnsavedComposerContent: vi.fn().mockReturnValue(false),
     send: vi.fn(), saveDraft: vi.fn(), discardDraft: vi.fn(), closeComposer: vi.fn(),
     deleteMessage: vi.fn(), archiveMessage: vi.fn(), deleteThread: vi.fn(), archiveThread: vi.fn(),
+    moveThread: vi.fn(), requestCreateMailbox: vi.fn(), renameMailbox: vi.fn(), deleteMailbox: vi.fn(),
     // Test-only escape hatch, so an overridden method can push state the way
     // the real ViewModel would (e.g. a saveDraft that sets composer.error).
     __setState: set,
@@ -165,6 +168,18 @@ describe("App.svelte smoke", () => {
     host.querySelector<HTMLElement>(".oe-new-message-full")!.click();
     flushSync();
     expect(host.querySelector(".oe-composer")).not.toBeNull();
+    unmount(app);
+  });
+
+  it("clicking New folder calls vm.requestCreateMailbox", () => {
+    const requestCreateMailbox = vi.fn();
+    const vm = fakeVm();
+    Object.assign(vm, { requestCreateMailbox });
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    flushSync();
+    host.querySelector<HTMLElement>(".oe-new-folder")!.click();
+    expect(requestCreateMailbox).toHaveBeenCalledOnce();
     unmount(app);
   });
 
@@ -391,6 +406,123 @@ describe("App.svelte — composer wiring", () => {
 });
 
 describe("App.svelte — delete/archive wiring", () => {
+  it("dropping a thread row onto a different mailbox calls vm.moveThread", () => {
+    const moveThread = vi.fn();
+    const vm = fakeVm({
+      mailboxes: [{ id: "INBOX", name: "Inbox", kind: "inbox" }, { id: "PROJ", name: "Project X", kind: "custom" }],
+    });
+    Object.assign(vm, { moveThread });
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {}, onThreadContextMenu: vi.fn() } });
+    flushSync();
+    const projRow = [...host.querySelectorAll<HTMLElement>(".oe-mailbox")].find((el) => el.textContent?.includes("Project X"))!;
+    const event = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "dataTransfer", { value: { types: [THREAD_DRAG_TYPE], getData: () => "t1" } });
+    projRow.dispatchEvent(event);
+    expect(moveThread).toHaveBeenCalledWith("t1", "PROJ");
+    unmount(app);
+  });
+
+  it("right-clicking a thread row offers every mailbox except the active one, and picking one calls vm.moveThread", () => {
+    const moveThread = vi.fn();
+    const vm = fakeVm({
+      mailboxes: [{ id: "INBOX", name: "Inbox", kind: "inbox" }, { id: "PROJ", name: "Project X", kind: "custom" }],
+      activeMailboxId: "INBOX",
+    });
+    Object.assign(vm, { moveThread });
+    const onThreadContextMenu = vi.fn();
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {}, onThreadContextMenu } });
+    flushSync();
+    host.querySelector<HTMLElement>(".oe-thread-row")!.dispatchEvent(
+      new MouseEvent("contextmenu", { bubbles: true, cancelable: true }),
+    );
+    expect(onThreadContextMenu).toHaveBeenCalledOnce();
+    const [, candidates, onMove] = onThreadContextMenu.mock.calls[0] as [MouseEvent, Mailbox[], (id: string) => void];
+    expect(candidates.map((m) => m.id)).toEqual(["PROJ"]);
+
+    onMove("PROJ");
+    expect(moveThread).toHaveBeenCalledWith("t1", "PROJ");
+    unmount(app);
+  });
+
+  it("right-clicking a custom folder invokes onMailboxContextMenu with its name, and confirming calls vm.renameMailbox", () => {
+    const renameMailbox = vi.fn();
+    const vm = fakeVm({
+      mailboxes: [{ id: "INBOX", name: "Inbox", kind: "inbox" }, { id: "PROJ", name: "Project X", kind: "custom" }],
+    });
+    Object.assign(vm, { renameMailbox });
+    const onMailboxContextMenu = vi.fn();
+    const host = document.createElement("div");
+    const app = mount(App, {
+      target: host,
+      props: { vm, onAddAccount: () => {}, onThreadContextMenu: vi.fn(), onMailboxContextMenu },
+    });
+    flushSync();
+    const projRow = [...host.querySelectorAll<HTMLElement>(".oe-mailbox")].find((el) => el.textContent?.includes("Project X"))!;
+    projRow.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    expect(onMailboxContextMenu).toHaveBeenCalledOnce();
+    const [, name, onRename] = onMailboxContextMenu.mock.calls[0] as [MouseEvent, string, (n: string) => void];
+    expect(name).toBe("Project X");
+
+    onRename("Project Y");
+    expect(renameMailbox).toHaveBeenCalledWith("PROJ", "Project Y");
+    unmount(app);
+  });
+
+  it("deleting a folder always shows a confirm prompt first, even outside Trash/search", () => {
+    const deleteMailbox = vi.fn();
+    const vm = fakeVm({
+      mailboxes: [{ id: "INBOX", name: "Inbox", kind: "inbox" }, { id: "PROJ", name: "Project X", kind: "custom" }],
+    });
+    Object.assign(vm, { deleteMailbox });
+    const onMailboxContextMenu = vi.fn();
+    const host = document.createElement("div");
+    const app = mount(App, {
+      target: host,
+      props: { vm, onAddAccount: () => {}, onThreadContextMenu: vi.fn(), onMailboxContextMenu },
+    });
+    flushSync();
+    const projRow = [...host.querySelectorAll<HTMLElement>(".oe-mailbox")].find((el) => el.textContent?.includes("Project X"))!;
+    projRow.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    const [, , , onDelete] = onMailboxContextMenu.mock.calls[0] as [MouseEvent, string, (n: string) => void, () => void];
+
+    onDelete();
+    flushSync();
+    expect(deleteMailbox).not.toHaveBeenCalled();
+    expect(host.querySelector(".oe-delete-confirm")).not.toBeNull();
+
+    host.querySelector<HTMLElement>(".oe-delete-confirm")!.click();
+    expect(deleteMailbox).toHaveBeenCalledWith("PROJ");
+    unmount(app);
+  });
+
+  it("canceling a folder-delete confirm prompt does not call vm.deleteMailbox", () => {
+    const deleteMailbox = vi.fn();
+    const vm = fakeVm({
+      mailboxes: [{ id: "INBOX", name: "Inbox", kind: "inbox" }, { id: "PROJ", name: "Project X", kind: "custom" }],
+    });
+    Object.assign(vm, { deleteMailbox });
+    const onMailboxContextMenu = vi.fn();
+    const host = document.createElement("div");
+    const app = mount(App, {
+      target: host,
+      props: { vm, onAddAccount: () => {}, onThreadContextMenu: vi.fn(), onMailboxContextMenu },
+    });
+    flushSync();
+    const projRow = [...host.querySelectorAll<HTMLElement>(".oe-mailbox")].find((el) => el.textContent?.includes("Project X"))!;
+    projRow.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    const [, , , onDelete] = onMailboxContextMenu.mock.calls[0] as [MouseEvent, string, (n: string) => void, () => void];
+
+    onDelete();
+    flushSync();
+    host.querySelector<HTMLElement>(".oe-delete-cancel")!.click();
+    flushSync();
+    expect(deleteMailbox).not.toHaveBeenCalled();
+    expect(host.querySelector(".oe-delete-confirm")).toBeNull();
+    unmount(app);
+  });
+
   it("clicking Archive on a thread row calls vm.archiveThread", () => {
     const archiveThread = vi.fn();
     const vm = fakeVm();

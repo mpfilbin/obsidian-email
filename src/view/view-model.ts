@@ -65,6 +65,8 @@ export interface ViewModelDeps {
   openExternal: (url: string) => void;
   saveBlob: (blob: Blob, filename: string) => Promise<void>;
   saveNote: (defaultPath: string, content: string) => void;
+  /** Prompts for a new folder name; calls `onSubmit` with it if confirmed. */
+  promptFolderName: (onSubmit: (name: string) => void) => void;
 }
 
 const PAGE = 50;
@@ -251,6 +253,62 @@ export class ViewModel {
     await this.reloadList();
   }
 
+  /** Prompts for a name via the host, then creates the folder. */
+  requestCreateMailbox(): void {
+    this.deps.promptFolderName((name) => { void this.createMailbox(name); });
+  }
+
+  private async createMailbox(name: string): Promise<void> {
+    const acct = this.state.activeAccountId;
+    const provider = acct ? this.deps.getProvider(acct) : undefined;
+    if (!acct || !provider) return;
+    try {
+      const box = await provider.createMailbox(name);
+      await this.deps.cache.putMailboxes(acct, [box]);
+      this.set({ mailboxes: sortMailboxes([...this.state.mailboxes, box]) });
+      // A newly created folder is empty, but jumping straight into it is a
+      // nicer confirmation that it worked than leaving the user where they
+      // were and making them find it themselves in the (now longer) list.
+      await this.selectMailbox(box.id);
+    } catch (err) {
+      this.set({ notice: this.errorMessage(err) });
+    }
+  }
+
+  /** Renames a folder — triggered from the mailbox list's context menu,
+   *  which prompts for the new name itself (main.ts) before calling this. */
+  async renameMailbox(id: string, newName: string): Promise<void> {
+    const acct = this.state.activeAccountId;
+    const provider = acct ? this.deps.getProvider(acct) : undefined;
+    if (!acct || !provider) return;
+    try {
+      const box = await provider.renameMailbox(id, newName);
+      await this.deps.cache.putMailboxes(acct, [box]);
+      this.set({ mailboxes: sortMailboxes(this.state.mailboxes.map((m) => (m.id === id ? box : m))) });
+    } catch (err) {
+      this.set({ notice: this.errorMessage(err) });
+    }
+  }
+
+  /** Permanently deletes a folder and its messages — the context menu's
+   *  "Delete" already confirmed this with the user (App.svelte) before
+   *  calling here, since Graph has no undo for a deleted folder. Reuses
+   *  refreshMailboxes' existing fallback so a deleted active mailbox behaves
+   *  exactly like one removed by another mail client mid-sync. */
+  async deleteMailbox(id: string): Promise<void> {
+    const acct = this.state.activeAccountId;
+    const provider = acct ? this.deps.getProvider(acct) : undefined;
+    if (!acct || !provider) return;
+    try {
+      await provider.deleteMailbox(id);
+      await this.deps.cache.deleteMailboxes(acct, [id]);
+      await this.deps.cache.deleteMessagesByMailbox(acct, [id]);
+      await this.refreshMailboxes(acct);
+    } catch (err) {
+      this.set({ notice: this.errorMessage(err) });
+    }
+  }
+
   private async reloadList(): Promise<void> {
     const acct = this.state.activeAccountId;
     const mb = this.state.activeMailboxId;
@@ -397,6 +455,12 @@ export class ViewModel {
     if (err instanceof AuthError) {
       return "Reauthentication required — go to Settings → Email and click Re-authenticate.";
     }
+    // Graph rejects deleting/renaming its own protected system folders (e.g.
+    // "Snoozed") without flagging them as such ahead of time — there's no
+    // `wellKnownName` to detect this client-side, so we only find out here.
+    if (err instanceof Error && err.message.includes("Distinguished folders cannot be deleted")) {
+      return "This is a built-in Outlook folder and can't be deleted.";
+    }
     return err instanceof Error ? err.message : String(err);
   }
 
@@ -512,7 +576,7 @@ export class ViewModel {
   private async actOnThread(
     threadId: string,
     action: (provider: MailProvider, id: string) => Promise<void>,
-    pastTense: "Deleted" | "Archived",
+    pastTense: "Deleted" | "Archived" | "Moved",
   ): Promise<void> {
     const acct = this.state.activeAccountId;
     const provider = acct ? this.deps.getProvider(acct) : undefined;
@@ -554,6 +618,13 @@ export class ViewModel {
 
   async archiveThread(threadId: string): Promise<void> {
     await this.actOnThread(threadId, (provider, id) => provider.archiveMessage(id), "Archived");
+  }
+
+  /** Moves every message in the thread to `destinationMailboxId` (an id from
+   *  `state.mailboxes`) — used by both drag-and-drop and the row context
+   *  menu's "Move" command. */
+  async moveThread(threadId: string, destinationMailboxId: string): Promise<void> {
+    await this.actOnThread(threadId, (provider, id) => provider.moveMessage(id, destinationMailboxId), "Moved");
   }
 
   async openDraftForEdit(messageId: string): Promise<void> {

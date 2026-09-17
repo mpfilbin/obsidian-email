@@ -637,6 +637,25 @@ describe("ViewModel — delete/archive", () => {
     expect(ctx.vm.getState().openThreadId).toBeNull();
   });
 
+  it("moveThread moves every message in the conversation to the destination mailbox", async () => {
+    const ctx = await build();
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1), sum("m2", "t1", 2), sum("m3", "t2", 3)]);
+    ctx.provider.addMessage(sum("m1", "t1", 1));
+    ctx.provider.addMessage(sum("m2", "t1", 2));
+    ctx.provider.addMessage(sum("m3", "t2", 3));
+    await ctx.vm.init();
+    await ctx.vm.openThread("t1");
+    const spy = vi.spyOn(ctx.provider, "moveMessage");
+
+    await ctx.vm.moveThread("t1", "PROJ");
+
+    expect(spy).toHaveBeenCalledWith("m1", "PROJ");
+    expect(spy).toHaveBeenCalledWith("m2", "PROJ");
+    expect(ctx.vm.getState().threads.map((t) => t.threadId)).toEqual(["t2"]);
+    expect(ctx.vm.getState().openThreadId).toBeNull();
+  });
+
   it("archiveThread reports partial failure without discarding what succeeded", async () => {
     const ctx = await build();
     await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
@@ -843,5 +862,143 @@ describe("ViewModel — folder sync", () => {
     // A background mailbox deletion isn't a user-initiated switch — the
     // search the user is looking at must survive it.
     expect(ctx.vm.getState().search).toEqual({ query: "report", active: true });
+  });
+});
+
+describe("ViewModel — requestCreateMailbox", () => {
+  it("prompts for a name, creates the folder via the provider, and switches to it", async () => {
+    const ctx = await build();
+    let submit: ((name: string) => void) | undefined;
+    const vm = new ViewModel({
+      cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
+      isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {},
+      promptFolderName: (onSubmit) => { submit = onSubmit; },
+    });
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await vm.init();
+
+    vm.requestCreateMailbox();
+    expect(submit).toBeTypeOf("function");
+    submit!("Project X");
+    await vi.waitFor(() => {
+      expect(vm.getState().mailboxes.map((m) => m.name)).toContain("Project X");
+    });
+
+    const created = vm.getState().mailboxes.find((m) => m.name === "Project X")!;
+    expect(created.kind).toBe("custom");
+    expect(vm.getState().activeMailboxId).toBe(created.id);
+    expect((await ctx.cache.getMailboxes("a1")).map((m) => m.name)).toContain("Project X");
+  });
+
+  it("sets a notice instead of creating the folder when the provider call fails", async () => {
+    const ctx = await build();
+    let submit: ((name: string) => void) | undefined;
+    const vm = new ViewModel({
+      cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
+      isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {},
+      promptFolderName: (onSubmit) => { submit = onSubmit; },
+    });
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await vm.init();
+    vi.spyOn(ctx.provider, "createMailbox").mockRejectedValue(new Error("network down"));
+
+    vm.requestCreateMailbox();
+    submit!("Project X");
+    await vi.waitFor(() => {
+      expect(vm.getState().notice).toBeTruthy();
+    });
+    expect(vm.getState().mailboxes.map((m) => m.name)).not.toContain("Project X");
+  });
+});
+
+describe("ViewModel — renameMailbox", () => {
+  it("renames the folder via the provider and updates cache and state", async () => {
+    const ctx = await build();
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    ctx.provider.addMailbox({ id: "PROJ", name: "Project X", kind: "custom" });
+    await ctx.cache.putMailboxes("a1", [{ id: "PROJ", name: "Project X", kind: "custom" }]);
+    await ctx.vm.init();
+
+    await ctx.vm.renameMailbox("PROJ", "Project Y");
+
+    expect(ctx.vm.getState().mailboxes.find((m) => m.id === "PROJ")?.name).toBe("Project Y");
+    expect((await ctx.cache.getMailboxes("a1")).find((m) => m.id === "PROJ")?.name).toBe("Project Y");
+  });
+
+  it("sets a notice instead of renaming when the provider call fails", async () => {
+    const ctx = await build();
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    ctx.provider.addMailbox({ id: "PROJ", name: "Project X", kind: "custom" });
+    await ctx.cache.putMailboxes("a1", [{ id: "PROJ", name: "Project X", kind: "custom" }]);
+    await ctx.vm.init();
+    vi.spyOn(ctx.provider, "renameMailbox").mockRejectedValue(new Error("network down"));
+
+    await ctx.vm.renameMailbox("PROJ", "Project Y");
+
+    expect(ctx.vm.getState().notice).toBeTruthy();
+    expect(ctx.vm.getState().mailboxes.find((m) => m.id === "PROJ")?.name).toBe("Project X");
+  });
+});
+
+describe("ViewModel — deleteMailbox", () => {
+  it("deletes the folder via the provider and cleans up its cached messages", async () => {
+    const ctx = await build();
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    ctx.provider.addMailbox({ id: "PROJ", name: "Project X", kind: "custom" });
+    await ctx.cache.putMailboxes("a1", [{ id: "PROJ", name: "Project X", kind: "custom" }]);
+    await ctx.cache.upsertMessages("a1", [{
+      id: "p1", threadId: "tp1", mailboxIds: ["PROJ"], from: { email: "s@x.com" }, to: [], cc: [],
+      subject: "s", snippet: "", date: 1, unread: true, hasAttachments: false, flagged: false,
+    }]);
+    await ctx.vm.init();
+
+    await ctx.vm.deleteMailbox("PROJ");
+
+    expect(ctx.vm.getState().mailboxes.map((m) => m.id)).not.toContain("PROJ");
+    expect(await ctx.cache.getMailboxes("a1")).not.toContainEqual(expect.objectContaining({ id: "PROJ" }));
+    expect(await ctx.cache.listMailboxMessages("a1", "PROJ")).toHaveLength(0);
+  });
+
+  it("falls back to Inbox when the deleted folder was the active mailbox", async () => {
+    const ctx = await build();
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    ctx.provider.addMailbox({ id: "PROJ", name: "Project X", kind: "custom" });
+    await ctx.cache.putMailboxes("a1", [{ id: "PROJ", name: "Project X", kind: "custom" }]);
+    await ctx.vm.init();
+    await ctx.vm.selectMailbox("PROJ");
+
+    await ctx.vm.deleteMailbox("PROJ");
+
+    expect(ctx.vm.getState().activeMailboxId).toBe("INBOX");
+  });
+
+  it("sets a notice instead of deleting when the provider call fails", async () => {
+    const ctx = await build();
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    ctx.provider.addMailbox({ id: "PROJ", name: "Project X", kind: "custom" });
+    await ctx.cache.putMailboxes("a1", [{ id: "PROJ", name: "Project X", kind: "custom" }]);
+    await ctx.vm.init();
+    vi.spyOn(ctx.provider, "deleteMailbox").mockRejectedValue(new Error("network down"));
+
+    await ctx.vm.deleteMailbox("PROJ");
+
+    expect(ctx.vm.getState().notice).toBeTruthy();
+    expect(ctx.vm.getState().mailboxes.map((m) => m.id)).toContain("PROJ");
+  });
+
+  it("shows a friendly notice when Graph rejects deleting one of its own protected folders", async () => {
+    const ctx = await build();
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    ctx.provider.addMailbox({ id: "SNOOZED", name: "Snoozed", kind: "custom" });
+    await ctx.cache.putMailboxes("a1", [{ id: "SNOOZED", name: "Snoozed", kind: "custom" }]);
+    await ctx.vm.init();
+    vi.spyOn(ctx.provider, "deleteMailbox").mockRejectedValue(
+      new Error("Graph 400: Distinguished folders cannot be deleted."),
+    );
+
+    await ctx.vm.deleteMailbox("SNOOZED");
+
+    expect(ctx.vm.getState().notice).toBe("This is a built-in Outlook folder and can't be deleted.");
+    expect(ctx.vm.getState().mailboxes.map((m) => m.id)).toContain("SNOOZED");
   });
 });

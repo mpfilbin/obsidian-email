@@ -2,7 +2,7 @@
   import type { ThreadView } from "../view-model";
   import ThreadRow from "./ThreadRow.svelte";
 
-  let { threads, openThreadId, hasMore, loading, onOpen, onLoadMore, isDraftsMailbox, isArchiveMailbox, isTrashMailbox, onArchiveThread, onDeleteThread }: {
+  let { threads, openThreadId, hasMore, loading, onOpen, onLoadMore, isDraftsMailbox, isArchiveMailbox, isTrashMailbox, onArchiveThread, onDeleteThread, onThreadContextMenu }: {
     threads: ThreadView[];
     openThreadId: string | null;
     hasMore: boolean;
@@ -14,6 +14,7 @@
     isTrashMailbox: boolean;
     onArchiveThread: (threadId: string) => void;
     onDeleteThread: (threadId: string) => void;
+    onThreadContextMenu: (evt: MouseEvent, threadId: string) => void;
   } = $props();
 
   let sentinel = $state<HTMLElement | null>(null);
@@ -42,6 +43,7 @@
       {isTrashMailbox}
       onArchive={() => onArchiveThread(t.threadId)}
       onDelete={() => onDeleteThread(t.threadId)}
+      onContextMenu={(evt) => onThreadContextMenu(evt, t.threadId)}
     />
   {/each}
   {#if loading}<p class="oe-loading">Loading…</p>{/if}
