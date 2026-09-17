@@ -85,6 +85,13 @@ export interface SyncResult {
 export interface MailProvider {
   readonly kind: ProviderKind;
   listMailboxes(): Promise<Mailbox[]>;
+  /** Creates a new top-level custom folder (mailbox). */
+  createMailbox(name: string): Promise<Mailbox>;
+  /** Renames an existing folder. */
+  renameMailbox(id: string, name: string): Promise<Mailbox>;
+  /** Permanently deletes a folder and everything in it — Graph has no
+   *  soft-delete for folders the way it does for messages. */
+  deleteMailbox(id: string): Promise<void>;
   listMessages(mailboxId: string, pageToken?: string): Promise<Page<MessageSummary>>;
   getMessageBody(id: string): Promise<MessageBody>;
   getAttachment(messageId: string, attachmentId: string): Promise<ArrayBuffer>;
@@ -123,6 +130,9 @@ export interface MailProvider {
 
   /** Moves a message to the Archive well-known folder. */
   archiveMessage(id: string): Promise<void>;
+
+  /** Moves a message to an arbitrary mailbox (by its Mailbox.id). */
+  moveMessage(id: string, destinationMailboxId: string): Promise<void>;
 }
 
 /** Thrown when the account must re-authenticate (refresh failed / revoked). */

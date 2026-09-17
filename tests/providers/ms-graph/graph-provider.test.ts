@@ -31,6 +31,34 @@ describe("GraphProvider", () => {
     expect(req.mock.calls[0][0].url).toBe("https://graph.microsoft.com/v1.0/x?$skiptoken=Z");
   });
 
+  it("createMailbox POSTs /me/mailFolders and maps the created folder as a custom mailbox", async () => {
+    const req = vi.fn(async () => resp({ id: "AAANewFolder", displayName: "Project X" }));
+    const p = new GraphProvider({ http: { request: req }, getAccessToken: async () => "at" });
+    const box = await p.createMailbox("Project X");
+    expect(req.mock.calls[0][0].url).toBe("https://graph.microsoft.com/v1.0/me/mailFolders");
+    expect(req.mock.calls[0][0].method).toBe("POST");
+    expect(JSON.parse(req.mock.calls[0][0].body)).toEqual({ displayName: "Project X" });
+    expect(box).toEqual({ id: "AAANewFolder", name: "Project X", kind: "custom" });
+  });
+
+  it("renameMailbox PATCHes /me/mailFolders/{id} with the new displayName", async () => {
+    const req = vi.fn(async () => resp({ id: "AAAFolder", displayName: "Renamed" }));
+    const p = new GraphProvider({ http: { request: req }, getAccessToken: async () => "at" });
+    const box = await p.renameMailbox("AAAFolder", "Renamed");
+    expect(req.mock.calls[0][0].url).toBe("https://graph.microsoft.com/v1.0/me/mailFolders/AAAFolder");
+    expect(req.mock.calls[0][0].method).toBe("PATCH");
+    expect(JSON.parse(req.mock.calls[0][0].body)).toEqual({ displayName: "Renamed" });
+    expect(box).toEqual({ id: "AAAFolder", name: "Renamed", kind: "custom" });
+  });
+
+  it("deleteMailbox DELETEs /me/mailFolders/{id}", async () => {
+    const req = vi.fn(async () => resp({}, 204));
+    const p = new GraphProvider({ http: { request: req }, getAccessToken: async () => "at" });
+    await p.deleteMailbox("AAAFolder");
+    expect(req.mock.calls[0][0].url).toBe("https://graph.microsoft.com/v1.0/me/mailFolders/AAAFolder");
+    expect(req.mock.calls[0][0].method).toBe("DELETE");
+  });
+
   it("syncSince collects upserts and @removed deletions and stores the new deltaLink", async () => {
     const http: HttpClient = { request: vi.fn(async () => resp(fx("delta-page.json"))) };
     const p = new GraphProvider({ http, getAccessToken: async () => "at" });
@@ -50,6 +78,22 @@ describe("GraphProvider", () => {
     const http: HttpClient = { request: vi.fn(async () => resp({}, 401)) };
     const p = new GraphProvider({ http, getAccessToken: async () => "at" });
     await expect(p.listMailboxes()).rejects.toMatchObject({ name: "AuthError" });
+  });
+
+  it("includes Graph's error.message in a rejected request's message, not just the bare status", async () => {
+    const http: HttpClient = {
+      request: vi.fn(async () => resp(
+        { error: { code: "ErrorInvalidRequest", message: "Distinguished folders cannot be deleted." } },
+        400,
+      )),
+    };
+    const p = new GraphProvider({ http, getAccessToken: async () => "at" });
+    await expect(p.deleteMailbox("AAAFolder")).rejects.toMatchObject({
+      name: "ProviderError",
+      status: 400,
+      code: "ErrorInvalidRequest",
+      message: "Graph 400: Distinguished folders cannot be deleted.",
+    });
   });
 
   const staleCursor = {
@@ -194,6 +238,15 @@ describe("GraphProvider — delete/archive", () => {
     expect(req.mock.calls[0][0].url).toBe("https://graph.microsoft.com/v1.0/me/messages/m1/move");
     expect(req.mock.calls[0][0].method).toBe("POST");
     expect(JSON.parse(req.mock.calls[0][0].body)).toEqual({ destinationId: "archive" });
+  });
+
+  it("moveMessage POSTs /me/messages/{id}/move with the given destinationId", async () => {
+    const req = vi.fn(async () => resp({}, 200));
+    const p = new GraphProvider({ http: { request: req }, getAccessToken: async () => "at" });
+    await p.moveMessage("m1", "AAMkCustomFolder");
+    expect(req.mock.calls[0][0].url).toBe("https://graph.microsoft.com/v1.0/me/messages/m1/move");
+    expect(req.mock.calls[0][0].method).toBe("POST");
+    expect(JSON.parse(req.mock.calls[0][0].body)).toEqual({ destinationId: "AAMkCustomFolder" });
   });
 
   it("deleteDraft still DELETEs /me/messages/{id} after the refactor", async () => {

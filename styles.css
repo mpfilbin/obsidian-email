@@ -40,6 +40,7 @@
   line-height: 1.3;
 }
 .oe-mailbox.is-active { background: var(--background-modifier-hover); }
+.oe-mailbox.is-drag-over { outline: 2px solid var(--interactive-accent); outline-offset: -2px; }
 .oe-mailbox-icon { display: flex; align-items: center; justify-content: center; width: 16px; height: 16px; flex-shrink: 0; color: var(--text-muted); }
 .oe-mailbox-icon svg { width: 14px; height: 14px; }
 .oe-mailbox.is-active .oe-mailbox-icon { color: var(--text-normal); }
@@ -136,6 +137,16 @@
 .oe-new-message-full:hover { background: var(--interactive-accent-hover); }
 .oe-new-message-full .oe-action-icon { width: 16px; height: 16px; }
 .oe-new-message-full .oe-action-icon svg { width: 16px; height: 16px; }
+.oe-new-folder {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  height: auto; margin: 0 8px 8px; padding: 6px 12px;
+  border: 1px solid var(--background-modifier-border); border-radius: 6px;
+  background: transparent; color: var(--text-muted);
+  cursor: pointer; font-size: 12px;
+}
+.oe-new-folder:hover { color: var(--text-normal); }
+.oe-new-folder .oe-action-icon { width: 14px; height: 14px; }
+.oe-new-folder .oe-action-icon svg { width: 14px; height: 14px; }
 .oe-reading-actions, .oe-thread-actions { display: flex; gap: 6px; padding: 0 10px 8px; }
 .oe-reading-actions button, .oe-thread-actions button { display: inline-flex; align-items: center; gap: 4px; height: auto; background: transparent; border: 1px solid var(--background-modifier-border); border-radius: 4px; padding: 3px 8px; font-size: 12px; color: var(--text-muted); cursor: pointer; }
 .oe-reading-actions button:hover, .oe-thread-actions button:hover { color: var(--text-normal); }

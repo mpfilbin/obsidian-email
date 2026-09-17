@@ -1,18 +1,47 @@
 <script lang="ts">
   import type { Mailbox } from "../../providers/types";
+  import { THREAD_DRAG_TYPE } from "../drag-types";
   import { icon } from "../icon-action";
   import { mailboxIcon } from "../mailbox-icons";
 
-  let { mailboxes, activeId, onSelect }: {
+  let { mailboxes, activeId, onSelect, onDropThread, onContextMenu }: {
     mailboxes: Mailbox[];
     activeId: string | null;
     onSelect: (id: string) => void;
+    onDropThread: (threadId: string, destinationMailboxId: string) => void;
+    /** Only fired for custom folders — Graph doesn't allow renaming the
+     *  built-in ones (Inbox, Sent, Drafts, etc.). */
+    onContextMenu: (evt: MouseEvent, mailboxId: string) => void;
   } = $props();
+
+  let dragOverId = $state<string | null>(null);
 </script>
 
 <nav class="oe-mailboxes">
   {#each mailboxes as mb (mb.id)}
-    <button class="oe-mailbox" class:is-active={mb.id === activeId} onclick={() => onSelect(mb.id)}>
+    <button
+      class="oe-mailbox"
+      class:is-active={mb.id === activeId}
+      class:is-drag-over={dragOverId === mb.id}
+      onclick={() => onSelect(mb.id)}
+      oncontextmenu={(e) => {
+        if (mb.kind !== "custom") return;
+        e.preventDefault();
+        onContextMenu(e, mb.id);
+      }}
+      ondragover={(e) => {
+        if (mb.id === activeId || !e.dataTransfer?.types.includes(THREAD_DRAG_TYPE)) return;
+        e.preventDefault();
+        dragOverId = mb.id;
+      }}
+      ondragleave={() => { if (dragOverId === mb.id) dragOverId = null; }}
+      ondrop={(e) => {
+        dragOverId = null;
+        if (mb.id === activeId) return;
+        const threadId = e.dataTransfer?.getData(THREAD_DRAG_TYPE);
+        if (threadId) onDropThread(threadId, mb.id);
+      }}
+    >
       <span class="oe-mailbox-icon" use:icon={mailboxIcon(mb.kind)}></span>
       <span class="oe-mailbox-name">{mb.name}</span>
       {#if mb.unreadCount}<span class="oe-count">{mb.unreadCount}</span>{/if}

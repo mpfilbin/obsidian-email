@@ -27,6 +27,14 @@ export class MailCache {
     return rows.map(({ key: _k, accountId: _a, ...box }) => box);
   }
 
+  /** Removes specific mailboxes by id — used when the user deletes a folder
+   *  (as opposed to replaceMailboxes' full-list reconcile from a sync). */
+  async deleteMailboxes(accountId: string, ids: string[]): Promise<void> {
+    const tx = this.db.transaction("mailboxes", "readwrite");
+    await Promise.all(ids.map((id) => tx.store.delete(key(accountId, id))));
+    await tx.done;
+  }
+
   /** Replaces the cached folder list wholesale: upserts every box in `boxes`
    *  and deletes any cached mailbox for this account that isn't in it (a
    *  folder deleted server-side, e.g. from another mail client). Returns the

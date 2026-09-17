@@ -105,6 +105,52 @@ describe("FakeProvider — delete/archive", () => {
     await expect(p.archiveMessage("nope")).rejects.toThrow();
   });
 
+  it("moveMessage moves the message to the given mailbox", async () => {
+    const p = new FakeProvider({ messages: [
+      { id: "m1", threadId: "t1", mailboxIds: ["INBOX"], from: { email: "a@x.com" }, to: [], cc: [],
+        subject: "s", snippet: "", date: 1, unread: false, hasAttachments: false, flagged: false },
+    ] });
+    await p.moveMessage("m1", "PROJ");
+    expect((await p.listMessages("INBOX")).items).toEqual([]);
+    expect((await p.listMessages("PROJ")).items.map((m) => m.id)).toEqual(["m1"]);
+  });
+
+  it("moveMessage throws for an unknown id", async () => {
+    const p = new FakeProvider();
+    await expect(p.moveMessage("nope", "PROJ")).rejects.toThrow();
+  });
+
+  it("createMailbox adds a new custom folder with a generated id", async () => {
+    const p = new FakeProvider();
+    const box = await p.createMailbox("Project X");
+    expect(box).toMatchObject({ name: "Project X", kind: "custom" });
+    expect(box.id).toBeTruthy();
+    expect((await p.listMailboxes()).map((b) => b.id)).toContain(box.id);
+  });
+
+  it("renameMailbox updates the folder's name in place", async () => {
+    const p = new FakeProvider({ mailboxes: [{ id: "F1", name: "Old", kind: "custom" }] });
+    const box = await p.renameMailbox("F1", "New");
+    expect(box).toEqual({ id: "F1", name: "New", kind: "custom" });
+    expect((await p.listMailboxes()).find((b) => b.id === "F1")?.name).toBe("New");
+  });
+
+  it("renameMailbox throws for an unknown id", async () => {
+    const p = new FakeProvider();
+    await expect(p.renameMailbox("nope", "New")).rejects.toThrow();
+  });
+
+  it("deleteMailbox removes the folder from the list", async () => {
+    const p = new FakeProvider({ mailboxes: [{ id: "F1", name: "Project X", kind: "custom" }] });
+    await p.deleteMailbox("F1");
+    expect((await p.listMailboxes()).map((b) => b.id)).not.toContain("F1");
+  });
+
+  it("deleteMailbox throws for an unknown id", async () => {
+    const p = new FakeProvider();
+    await expect(p.deleteMailbox("nope")).rejects.toThrow();
+  });
+
   it("both actions are visible to syncSince (log-backed)", async () => {
     const p = new FakeProvider({ messages: [
       { id: "m1", threadId: "t1", mailboxIds: ["INBOX"], from: { email: "a@x.com" }, to: [], cc: [],

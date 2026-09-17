@@ -22,6 +22,14 @@ function graphErrorCode(json: unknown): string | undefined {
   return typeof code === "string" ? code : undefined;
 }
 
+/** Pull Graph's human-readable `error.message` out of an error body — the
+ *  bare status code alone ("Graph 400") gives no clue why a request was
+ *  rejected, and this is the only place that detail is available. */
+function graphErrorMessage(json: unknown): string | undefined {
+  const message = (json as { error?: { message?: unknown } } | undefined)?.error?.message;
+  return typeof message === "string" ? message : undefined;
+}
+
 export class GraphProvider implements MailProvider {
   readonly kind = "ms-graph" as const;
   private base: string;
@@ -47,14 +55,18 @@ export class GraphProvider implements MailProvider {
         throw new AuthError(`Graph ${res.status}`);
       }
       if (res.status === 429 || res.status >= 500) {
+        const retryDetail = graphErrorMessage(res.json);
         return {
           retry: true,
           afterMs: parseRetryAfter(res.headers["retry-after"], Date.now()),
-          error: new ProviderError(`Graph ${res.status}`, res.status, true),
+          error: new ProviderError(
+            retryDetail ? `Graph ${res.status}: ${retryDetail}` : `Graph ${res.status}`, res.status, true,
+          ),
         };
       }
       if (res.status < 200 || res.status >= 300) {
-        const err = new ProviderError(`Graph ${res.status}`, res.status);
+        const detail = graphErrorMessage(res.json);
+        const err = new ProviderError(detail ? `Graph ${res.status}: ${detail}` : `Graph ${res.status}`, res.status);
         // Carried so `syncSince` can recognize a `resyncRequired` delta link.
         err.code = graphErrorCode(res.json);
         throw err;
@@ -74,6 +86,24 @@ export class GraphProvider implements MailProvider {
       "/me/mailFolders?$top=100",
     );
     return mapGraphFolders(data.value ?? []);
+  }
+
+  async createMailbox(name: string): Promise<Mailbox> {
+    const created = await this.request<Parameters<typeof mapGraphFolders>[0][number]>(
+      "/me/mailFolders", "POST", { displayName: name },
+    );
+    return mapGraphFolders([created])[0];
+  }
+
+  async renameMailbox(id: string, name: string): Promise<Mailbox> {
+    const updated = await this.request<Parameters<typeof mapGraphFolders>[0][number]>(
+      `/me/mailFolders/${id}`, "PATCH", { displayName: name },
+    );
+    return mapGraphFolders([updated])[0];
+  }
+
+  async deleteMailbox(id: string): Promise<void> {
+    await this.request<void>(`/me/mailFolders/${id}`, "DELETE");
   }
 
   async listMessages(folderId: string, pageToken?: string): Promise<Page<MessageSummary>> {
@@ -158,6 +188,10 @@ export class GraphProvider implements MailProvider {
 
   async archiveMessage(id: string): Promise<void> {
     await this.request<void>(`/me/messages/${id}/move`, "POST", { destinationId: "archive" });
+  }
+
+  async moveMessage(id: string, destinationMailboxId: string): Promise<void> {
+    await this.request<void>(`/me/messages/${id}/move`, "POST", { destinationId: destinationMailboxId });
   }
 
   private async syncFolders(): Promise<string[]> {
