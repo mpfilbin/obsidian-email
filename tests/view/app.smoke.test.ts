@@ -35,7 +35,7 @@ function fakeVm(state: Partial<ViewState> = {}): ViewModel {
     }],
     hasMore: false, loadingList: false, autoLoadImages: false,
     search: { query: "", active: false },
-    openThreadId: null, openMessages: [], notice: null,
+    openThreadId: null, openMessages: [],
     composer: null,
     ...state,
   };
@@ -61,7 +61,7 @@ function fakeVm(state: Partial<ViewState> = {}): ViewModel {
     downloadAttachment: vi.fn(), downloadAttachmentToDisk: vi.fn(),
     openReply: vi.fn(), openForward: vi.fn(),
     openNewMessage: vi.fn(() => {
-      set({ composer: { mode: "new", to: [], cc: [], bcc: [], subject: "", bodyHtml: "", sending: false, error: null, savedSnapshot: null } });
+      set({ composer: { mode: "new", to: [], cc: [], bcc: [], subject: "", bodyHtml: "", attachments: [], sending: false, error: null, savedSnapshot: null } });
     }),
     openDraftForEdit: vi.fn(), updateComposerFields: vi.fn(), updateComposerBody: vi.fn(),
     hasUnsavedComposerContent: vi.fn().mockReturnValue(false),
@@ -85,13 +85,6 @@ describe("App.svelte smoke", () => {
     expect(host.textContent).toContain("Inbox");
     expect(host.textContent).toContain("Hello");
     expect(host.textContent).toContain("Jane");
-    unmount(app);
-  });
-
-  it("shows the notice bar when set", () => {
-    const host = document.createElement("div");
-    const app = mount(App, { target: host, props: { vm: fakeVm({ notice: "Offline" }), onAddAccount: () => {} } });
-    expect(host.textContent).toContain("Offline");
     unmount(app);
   });
 
@@ -218,7 +211,7 @@ describe("App.svelte — composer wiring", () => {
   it("switching composers with unsaved content shows a save/discard/cancel prompt instead of switching immediately", () => {
     const openNewMessage = vi.fn();
     const vm = fakeVm({ composer: {
-      mode: "new", to: [], cc: [], bcc: [], subject: "", bodyHtml: "<p>hi</p>", sending: false, error: null, savedSnapshot: null,
+      mode: "new", to: [], cc: [], bcc: [], subject: "", bodyHtml: "<p>hi</p>", attachments: [], sending: false, error: null, savedSnapshot: null,
     } });
     (vm as unknown as { openNewMessage: typeof openNewMessage; hasUnsavedComposerContent: () => boolean }).openNewMessage = openNewMessage;
     (vm as unknown as { hasUnsavedComposerContent: () => boolean }).hasUnsavedComposerContent = () => true;
@@ -236,7 +229,7 @@ describe("App.svelte — composer wiring", () => {
     const discardDraft = vi.fn().mockResolvedValue(undefined);
     const openNewMessage = vi.fn();
     const vm = fakeVm({ composer: {
-      mode: "reply", targetMessageId: "m1", to: [], cc: [], bcc: [], subject: "", bodyHtml: "<p>hi</p>", sending: false, error: null, savedSnapshot: null,
+      mode: "reply", targetMessageId: "m1", to: [], cc: [], bcc: [], subject: "", bodyHtml: "<p>hi</p>", attachments: [], sending: false, error: null, savedSnapshot: null,
     } });
     Object.assign(vm, { discardDraft, openNewMessage, hasUnsavedComposerContent: () => true });
     const host = document.createElement("div");
@@ -259,7 +252,7 @@ describe("App.svelte — composer wiring", () => {
   it("prompt's Save draft does not switch when the save fails, leaving the error visible", async () => {
     const openNewMessage = vi.fn();
     const vm = fakeVm({ composer: {
-      mode: "new", to: [], cc: [], bcc: [], subject: "", bodyHtml: "<p>hi</p>", sending: false, error: null, savedSnapshot: null,
+      mode: "new", to: [], cc: [], bcc: [], subject: "", bodyHtml: "<p>hi</p>", attachments: [], sending: false, error: null, savedSnapshot: null,
     } });
     // saveDraft swallows its own errors and reports them through
     // composer.error rather than throwing, exactly as the ViewModel does.
@@ -286,7 +279,7 @@ describe("App.svelte — composer wiring", () => {
   it("prompt's Save draft proceeds with the switch once the save succeeds", async () => {
     const openNewMessage = vi.fn();
     const vm = fakeVm({ composer: {
-      mode: "editDraft", draftId: "d1", to: [], cc: [], bcc: [], subject: "", bodyHtml: "<p>hi</p>", sending: false, error: null, savedSnapshot: null,
+      mode: "editDraft", draftId: "d1", to: [], cc: [], bcc: [], subject: "", bodyHtml: "<p>hi</p>", attachments: [], sending: false, error: null, savedSnapshot: null,
     } });
     const saveDraft = vi.fn().mockResolvedValue(undefined);
     Object.assign(vm, { saveDraft, openNewMessage, hasUnsavedComposerContent: () => true });
@@ -307,7 +300,7 @@ describe("App.svelte — composer wiring", () => {
   it("prompt's Cancel leaves the current composer open and does not switch", () => {
     const openNewMessage = vi.fn();
     const vm = fakeVm({ composer: {
-      mode: "new", to: [], cc: [], bcc: [], subject: "", bodyHtml: "<p>hi</p>", sending: false, error: null, savedSnapshot: null,
+      mode: "new", to: [], cc: [], bcc: [], subject: "", bodyHtml: "<p>hi</p>", attachments: [], sending: false, error: null, savedSnapshot: null,
     } });
     Object.assign(vm, { openNewMessage, hasUnsavedComposerContent: () => true });
     const host = document.createElement("div");
@@ -325,7 +318,7 @@ describe("App.svelte — composer wiring", () => {
   it("opening a thread with an unmodified composer open goes straight through", () => {
     const openThread = vi.fn();
     const vm = fakeVm({ composer: {
-      mode: "new", to: [], cc: [], bcc: [], subject: "", bodyHtml: "", sending: false, error: null, savedSnapshot: null,
+      mode: "new", to: [], cc: [], bcc: [], subject: "", bodyHtml: "", attachments: [], sending: false, error: null, savedSnapshot: null,
     } });
     Object.assign(vm, { openThread });
     const host = document.createElement("div");
@@ -344,7 +337,7 @@ describe("App.svelte — composer wiring", () => {
     const selectMailbox = vi.fn();
     const vm = fakeVm({
       mailboxes: [{ id: "INBOX", name: "Inbox", kind: "inbox" }, { id: "SENT", name: "Sent", kind: "sent" }],
-      composer: { mode: "new", to: [], cc: [], bcc: [], subject: "", bodyHtml: "", sending: false, error: null, savedSnapshot: null },
+      composer: { mode: "new", to: [], cc: [], bcc: [], subject: "", bodyHtml: "", attachments: [], sending: false, error: null, savedSnapshot: null },
     });
     Object.assign(vm, { selectMailbox });
     const host = document.createElement("div");
@@ -362,7 +355,7 @@ describe("App.svelte — composer wiring", () => {
     const openThread = vi.fn();
     const vm = fakeVm({
       mailboxes: [{ id: "INBOX", name: "Inbox", kind: "inbox" }, { id: "SENT", name: "Sent", kind: "sent" }],
-      composer: { mode: "new", to: [], cc: [], bcc: [], subject: "", bodyHtml: "<p>hi</p>", sending: false, error: null, savedSnapshot: null },
+      composer: { mode: "new", to: [], cc: [], bcc: [], subject: "", bodyHtml: "<p>hi</p>", attachments: [], sending: false, error: null, savedSnapshot: null },
     });
     Object.assign(vm, { selectMailbox, openThread, hasUnsavedComposerContent: () => true });
     const host = document.createElement("div");
@@ -645,7 +638,7 @@ describe("App.svelte — delete/archive wiring", () => {
     const vm = fakeVm({
       mailboxes: [{ id: "TRASH", name: "Deleted Items", kind: "trash" }],
       activeMailboxId: "TRASH",
-      composer: { mode: "reply", targetMessageId: "m1", to: [], cc: [], bcc: [], subject: "", bodyHtml: "<p>hi</p>", sending: false, error: null, savedSnapshot: null },
+      composer: { mode: "reply", targetMessageId: "m1", to: [], cc: [], bcc: [], subject: "", bodyHtml: "<p>hi</p>", attachments: [], sending: false, error: null, savedSnapshot: null },
     });
     Object.assign(vm, { deleteThread, hasUnsavedComposerContent: () => true });
     const host = document.createElement("div");
@@ -710,7 +703,7 @@ describe("App.svelte — delete/archive wiring", () => {
     const vm = fakeVm({
       threads: [threadView("t1", "m1", "Hello"), threadView("t2", "m2", "Second")],
       openThreadId: "t1",
-      composer: { mode: "reply", targetMessageId: "m1", to: [], cc: [], bcc: [], subject: "", bodyHtml: "<p>typed reply</p>", sending: false, error: null, savedSnapshot: null },
+      composer: { mode: "reply", targetMessageId: "m1", to: [], cc: [], bcc: [], subject: "", bodyHtml: "<p>typed reply</p>", attachments: [], sending: false, error: null, savedSnapshot: null },
     });
     Object.assign(vm, { archiveThread, discardDraft, hasUnsavedComposerContent: () => true });
     const host = document.createElement("div");
@@ -739,7 +732,7 @@ describe("App.svelte — delete/archive wiring", () => {
     const vm = fakeVm({
       threads: [threadView("t1", "m1", "Hello"), threadView("t2", "m2", "Second")],
       openThreadId: "t1",
-      composer: { mode: "reply", targetMessageId: "m1", to: [], cc: [], bcc: [], subject: "", bodyHtml: "<p>typed reply</p>", sending: false, error: null, savedSnapshot: null },
+      composer: { mode: "reply", targetMessageId: "m1", to: [], cc: [], bcc: [], subject: "", bodyHtml: "<p>typed reply</p>", attachments: [], sending: false, error: null, savedSnapshot: null },
     });
     Object.assign(vm, { deleteThread, discardDraft, hasUnsavedComposerContent: () => true });
     const host = document.createElement("div");
@@ -770,7 +763,7 @@ describe("App.svelte — delete/archive wiring", () => {
         to: [], cc: [], subject: "Hello", snippet: "hi there", date: 1,
         unread: true, hasAttachments: false, flagged: false,
       } }],
-      composer: { mode: "reply", targetMessageId: "m1", to: [], cc: [], bcc: [], subject: "", bodyHtml: "<p>typed reply</p>", sending: false, error: null, savedSnapshot: null },
+      composer: { mode: "reply", targetMessageId: "m1", to: [], cc: [], bcc: [], subject: "", bodyHtml: "<p>typed reply</p>", attachments: [], sending: false, error: null, savedSnapshot: null },
     });
     Object.assign(vm, { archiveMessage, discardDraft, hasUnsavedComposerContent: () => true });
     const host = document.createElement("div");

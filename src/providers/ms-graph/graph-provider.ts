@@ -150,8 +150,23 @@ export class GraphProvider implements MailProvider {
     };
   }
 
+  /** Graph only accepts attachments inline at creation time (sendMail / a new
+   *  draft) — `updateDraft` never calls this, since its PATCH endpoint has no
+   *  way to replace a message's attachments. */
+  private graphAttachments(msg: OutgoingMessage): Record<string, unknown>[] | undefined {
+    return msg.attachments?.map((a) => ({
+      "@odata.type": "#microsoft.graph.fileAttachment",
+      name: a.filename,
+      contentType: a.mimeType,
+      contentBytes: a.contentBytes,
+    }));
+  }
+
   async sendNewMessage(msg: OutgoingMessage): Promise<void> {
-    await this.request<void>("/me/sendMail", "POST", { message: this.outgoingBody(msg) });
+    const attachments = this.graphAttachments(msg);
+    await this.request<void>("/me/sendMail", "POST", {
+      message: { ...this.outgoingBody(msg), ...(attachments ? { attachments } : {}) },
+    });
   }
 
   async replyToMessage(id: string, mode: "reply" | "replyAll", commentHtml: string): Promise<void> {
@@ -166,7 +181,10 @@ export class GraphProvider implements MailProvider {
   }
 
   async createDraft(msg: OutgoingMessage): Promise<string> {
-    const data = await this.request<{ id: string }>("/me/messages", "POST", this.outgoingBody(msg));
+    const attachments = this.graphAttachments(msg);
+    const data = await this.request<{ id: string }>("/me/messages", "POST", {
+      ...this.outgoingBody(msg), ...(attachments ? { attachments } : {}),
+    });
     return data.id;
   }
 

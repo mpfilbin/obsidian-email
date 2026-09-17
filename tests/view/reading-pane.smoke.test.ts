@@ -179,8 +179,9 @@ describe("ReadingPane smoke", () => {
 
 describe("ReadingPane — reply/forward/edit actions", () => {
   const composerProps = {
-    to: [], cc: [], bcc: [], subject: "", bodyHtml: "", sending: false, error: null,
-    onFieldsChange: vi.fn(), onBodyChange: vi.fn(), onSend: vi.fn(), onSaveDraft: vi.fn(), onDiscard: vi.fn(),
+    to: [], cc: [], bcc: [], subject: "", bodyHtml: "", attachments: [], sending: false, error: null,
+    onFieldsChange: vi.fn(), onBodyChange: vi.fn(), onRemoveAttachment: vi.fn(),
+    onSend: vi.fn(), onSaveDraft: vi.fn(), onDiscard: vi.fn(),
   };
 
   it("shows Reply/Reply all/Forward buttons on a message when not in the Drafts mailbox", () => {

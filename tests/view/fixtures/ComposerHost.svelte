@@ -1,16 +1,18 @@
 <script lang="ts">
-  import type { Address } from "../../../src/providers/types";
+  import type { Address, OutgoingAttachment } from "../../../src/providers/types";
   import Composer from "../../../src/view/components/Composer.svelte";
 
-  let { initial, sending = false, error = null, onFieldsChange, onBodyChange, onSend, onSaveDraft, onDiscard }: {
+  let { initial, sending = false, error = null, onFieldsChange, onBodyChange, onRemoveAttachment = () => {}, onSend, onSaveDraft, onDiscard }: {
     initial: {
       mode: "reply" | "replyAll" | "forward" | "new" | "editDraft";
       to: Address[]; cc: Address[]; bcc: Address[]; subject: string; bodyHtml: string;
+      attachments?: OutgoingAttachment[];
     };
     sending?: boolean;
     error?: string | null;
     onFieldsChange: (patch: Partial<{ to: Address[]; cc: Address[]; bcc: Address[]; subject: string }>) => void;
     onBodyChange: (html: string) => void;
+    onRemoveAttachment?: (index: number) => void;
     onSend: () => void;
     onSaveDraft: () => void;
     onDiscard: () => void;
@@ -28,10 +30,12 @@
   bcc={fields.bcc}
   subject={fields.subject}
   bodyHtml={fields.bodyHtml}
+  attachments={fields.attachments ?? []}
   {sending}
   {error}
   {onFieldsChange}
   {onBodyChange}
+  {onRemoveAttachment}
   {onSend}
   {onSaveDraft}
   {onDiscard}

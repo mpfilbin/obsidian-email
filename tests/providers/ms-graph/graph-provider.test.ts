@@ -190,6 +190,45 @@ describe("GraphProvider — send/draft", () => {
     expect(req.mock.calls[0][0].method).toBe("PATCH");
   });
 
+  it("sendNewMessage includes a fileAttachment when the message has one staged", async () => {
+    const req = vi.fn(async () => resp({}, 202));
+    const p = new GraphProvider({ http: { request: req }, getAccessToken: async () => "at" });
+    await p.sendNewMessage({
+      to: [], cc: [], bcc: [], subject: "S", bodyHtml: "<p>b</p>",
+      attachments: [{ filename: "note.md", mimeType: "text/markdown", contentBytes: "aGk=" }],
+    });
+    const body = JSON.parse(req.mock.calls[0][0].body);
+    expect(body.message.attachments).toEqual([{
+      "@odata.type": "#microsoft.graph.fileAttachment",
+      name: "note.md", contentType: "text/markdown", contentBytes: "aGk=",
+    }]);
+  });
+
+  it("createDraft includes a fileAttachment when the message has one staged", async () => {
+    const req = vi.fn(async () => resp({ id: "draft-1" }, 201));
+    const p = new GraphProvider({ http: { request: req }, getAccessToken: async () => "at" });
+    await p.createDraft({
+      to: [], cc: [], bcc: [], subject: "S", bodyHtml: "<p>b</p>",
+      attachments: [{ filename: "note.md", mimeType: "text/markdown", contentBytes: "aGk=" }],
+    });
+    const body = JSON.parse(req.mock.calls[0][0].body);
+    expect(body.attachments).toEqual([{
+      "@odata.type": "#microsoft.graph.fileAttachment",
+      name: "note.md", contentType: "text/markdown", contentBytes: "aGk=",
+    }]);
+  });
+
+  it("updateDraft never sends attachments, even when the message carries them", async () => {
+    const req = vi.fn(async () => resp({}, 200));
+    const p = new GraphProvider({ http: { request: req }, getAccessToken: async () => "at" });
+    await p.updateDraft("draft-1", {
+      to: [], cc: [], bcc: [], subject: "S2", bodyHtml: "<p>b2</p>",
+      attachments: [{ filename: "note.md", mimeType: "text/markdown", contentBytes: "aGk=" }],
+    });
+    const body = JSON.parse(req.mock.calls[0][0].body);
+    expect(body.attachments).toBeUndefined();
+  });
+
   it("sendDraft POSTs /me/messages/{id}/send", async () => {
     const req = vi.fn(async () => resp({}, 202));
     const p = new GraphProvider({ http: { request: req }, getAccessToken: async () => "at" });

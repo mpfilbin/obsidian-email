@@ -25,6 +25,8 @@ export interface ContextHostDeps {
   saveNote: (defaultPath: string, content: string) => void;
   /** Prompts the user for a new folder name. */
   promptFolderName: (onSubmit: (name: string) => void) => void;
+  /** Shows a transient, auto-dismissing toast. */
+  showNotice: (message: string) => void;
   now?: () => number;
   /** Test-only seam: lets a spec inject a fake OAuth loopback server. */
   makeLoopback?: (host: "127.0.0.1" | "localhost") => LoopbackLike;
@@ -123,6 +125,7 @@ export class PluginContext {
       saveBlob: host.saveBlob,
       saveNote: host.saveNote,
       promptFolderName: host.promptFolderName,
+      showNotice: host.showNotice,
     });
 
     const ctx = new PluginContext(

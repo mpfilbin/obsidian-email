@@ -5,12 +5,22 @@ export interface Address {
   email: string;
 }
 
+export interface OutgoingAttachment {
+  filename: string;
+  mimeType: string;
+  /** Base64-encoded file content. */
+  contentBytes: string;
+}
+
 export interface OutgoingMessage {
   to: Address[];
   cc: Address[];
   bcc: Address[];
   subject: string;
   bodyHtml: string;
+  /** Only honored when the message is first created (sendMail / new draft) —
+   *  Graph's draft PATCH endpoint doesn't support replacing attachments. */
+  attachments?: OutgoingAttachment[];
 }
 
 export type MailboxKind =

@@ -1,5 +1,5 @@
 import { Menu, Notice, Plugin, normalizePath, requestUrl } from "obsidian";
-import type { Vault, WorkspaceLeaf } from "obsidian";
+import type { TFile, Vault, WorkspaceLeaf } from "obsidian";
 import type { HttpPost } from "./auth/oauth-client";
 import type { SecretStore } from "./auth/token-manager";
 import { SettingsStore } from "./settings/settings-store";
@@ -9,8 +9,11 @@ import { EmailSettingTab } from "./settings/settings-tab";
 import { makeObsidianHttp } from "./providers/obsidian-http";
 import { Logger } from "./util/logger";
 import { safeAttachmentName, uniqueAttachmentPath } from "./util/safe-filename";
+import { arrayBufferToBase64 } from "./util/base64";
 import { SaveEmailModal } from "./view/save-email-modal";
 import { FolderNameModal } from "./view/folder-name-modal";
+import { NotePickerModal } from "./view/note-picker-modal";
+import { renderNoteToHtml } from "./view/note-to-html";
 
 export default class EmailPlugin extends Plugin {
   private ctx?: PluginContext;
@@ -117,6 +120,21 @@ export default class EmailPlugin extends Plugin {
       new FolderNameModal(this.app, { heading: "New folder", submitLabel: "Create" }, onSubmit).open();
     };
 
+    const showNotice = (message: string): void => {
+      new Notice(message);
+    };
+
+    // "Any note from my vault": the active note if one's a Markdown file,
+    // else a fuzzy-search picker over every note in the vault.
+    const resolveNote = (onResolve: (file: TFile) => void): void => {
+      const active = this.app.workspace.getActiveFile();
+      if (active?.extension === "md") {
+        onResolve(active);
+        return;
+      }
+      new NotePickerModal(this.app, onResolve).open();
+    };
+
     const showMailboxContextMenu: MailboxContextMenuHandler = (evt, currentName, onRename, onDelete) => {
       const menu = new Menu();
       menu.addItem((item) =>
@@ -172,7 +190,7 @@ export default class EmailPlugin extends Plugin {
 
     this.ctx = await PluginContext.create(
       settings,
-      { http, secrets, post, openExternal, saveBlob, saveNote, promptFolderName },
+      { http, secrets, post, openExternal, saveBlob, saveNote, promptFolderName, showNotice },
       logger,
     );
     const ctx = this.ctx;
@@ -184,6 +202,40 @@ export default class EmailPlugin extends Plugin {
 
     this.addRibbonIcon("mail", "Open mail", () => void this.activateView());
     this.addCommand({ id: "open", name: "Open mail", callback: () => void this.activateView() });
+    this.addCommand({
+      id: "compose-from-note",
+      name: "Create email from note",
+      callback: () => {
+        resolveNote((file) => {
+          void (async () => {
+            try {
+              const bodyHtml = await renderNoteToHtml(this.app, file);
+              await this.activateView();
+              ctx.vm.openComposeFromNote(file.basename, bodyHtml);
+            } catch (err) {
+              new Notice(`Couldn't create an email from "${file.basename}": ${(err as Error).message}`);
+            }
+          })();
+        });
+      },
+    });
+    this.addCommand({
+      id: "compose-with-note-attached",
+      name: "Create email with note attached",
+      callback: () => {
+        resolveNote((file) => {
+          void (async () => {
+            try {
+              const contentBytes = arrayBufferToBase64(await this.app.vault.readBinary(file));
+              await this.activateView();
+              ctx.vm.openComposeWithAttachment({ filename: file.name, mimeType: "text/markdown", contentBytes });
+            } catch (err) {
+              new Notice(`Couldn't attach "${file.name}": ${(err as Error).message}`);
+            }
+          })();
+        });
+      },
+    });
     this.addSettingTab(new EmailSettingTab(this, ctx, settings));
 
     ctx.sync.start(settings.pollIntervalMs());

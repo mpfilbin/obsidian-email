@@ -34,6 +34,7 @@ function hostDeps() {
     saveBlob: vi.fn().mockResolvedValue(undefined),
     saveNote: vi.fn(),
     promptFolderName: vi.fn(),
+    showNotice: vi.fn(),
     now: () => 0,
   };
 }

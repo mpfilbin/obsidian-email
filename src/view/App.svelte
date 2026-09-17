@@ -174,9 +174,11 @@
   const composerFieldProps = $derived(state.composer ? {
     to: state.composer.to, cc: state.composer.cc, bcc: state.composer.bcc,
     subject: state.composer.subject, bodyHtml: state.composer.bodyHtml,
+    attachments: state.composer.attachments,
     sending: state.composer.sending, error: state.composer.error,
     onFieldsChange: (patch: Parameters<typeof vm.updateComposerFields>[0]) => vm.updateComposerFields(patch),
     onBodyChange: (html: string) => vm.updateComposerBody(html),
+    onRemoveAttachment: (index: number) => vm.removeComposerAttachment(index),
     onSend: () => vm.send(),
     onSaveDraft: () => vm.saveDraft(),
     onDiscard: () => vm.discardDraft(),
@@ -268,9 +270,6 @@
       onClear={() => vm.clearSearch()}
       onRefresh={() => vm.refresh()}
     />
-    {#if state.notice}
-      <div class="oe-notice">{state.notice}</div>
-    {/if}
     <MessageList
       threads={state.threads}
       openThreadId={state.openThreadId}
