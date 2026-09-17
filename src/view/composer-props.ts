@@ -1,4 +1,4 @@
-import type { Address } from "../providers/types";
+import type { Address, OutgoingAttachment } from "../providers/types";
 
 export interface ComposerFieldProps {
   to: Address[];
@@ -6,10 +6,12 @@ export interface ComposerFieldProps {
   bcc: Address[];
   subject: string;
   bodyHtml: string;
+  attachments: OutgoingAttachment[];
   sending: boolean;
   error: string | null;
   onFieldsChange: (patch: Partial<{ to: Address[]; cc: Address[]; bcc: Address[]; subject: string }>) => void;
   onBodyChange: (html: string) => void;
+  onRemoveAttachment: (index: number) => void;
   onSend: () => void;
   onSaveDraft: () => void;
   onDiscard: () => void;

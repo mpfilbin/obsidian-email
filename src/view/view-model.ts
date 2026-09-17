@@ -1,4 +1,4 @@
-import type { Address, AttachmentMeta, Mailbox, MailProvider, MessageBody, MessageSummary, OutgoingMessage, ProviderKind } from "../providers/types";
+import type { Address, AttachmentMeta, Mailbox, MailProvider, MessageBody, MessageSummary, OutgoingAttachment, OutgoingMessage, ProviderKind } from "../providers/types";
 import { AuthError } from "../providers/types";
 import type { MailCache } from "../cache/mail-cache";
 import type { SyncEngine, SyncStatus } from "../sync/sync-engine";
@@ -21,6 +21,7 @@ export interface ComposerSnapshot {
   bcc: Address[];
   subject: string;
   bodyHtml: string;
+  attachments: OutgoingAttachment[];
 }
 
 export interface ComposerState {
@@ -32,6 +33,7 @@ export interface ComposerState {
   bcc: Address[];
   subject: string;
   bodyHtml: string;
+  attachments: OutgoingAttachment[];
   sending: boolean;
   error: string | null;
   /** What was last loaded/saved, for `hasUnsavedComposerContent`. Only the
@@ -52,7 +54,6 @@ export interface ViewState {
   search: { query: string; active: boolean };
   openThreadId: string | null;
   openMessages: Array<{ summary: MessageSummary; body?: MessageBody }>;
-  notice: string | null;
   composer: ComposerState | null;
 }
 
@@ -67,6 +68,9 @@ export interface ViewModelDeps {
   saveNote: (defaultPath: string, content: string) => void;
   /** Prompts for a new folder name; calls `onSubmit` with it if confirmed. */
   promptFolderName: (onSubmit: (name: string) => void) => void;
+  /** Shows a transient, auto-dismissing toast (Obsidian's own `Notice`) —
+   *  used for one-off confirmations and errors instead of persistent state. */
+  showNotice: (message: string) => void;
 }
 
 const PAGE = 50;
@@ -100,7 +104,7 @@ function normalizeBody(html: string): string {
 }
 
 function snapshotOf(c: ComposerSnapshot): ComposerSnapshot {
-  return { to: c.to, cc: c.cc, bcc: c.bcc, subject: c.subject, bodyHtml: c.bodyHtml };
+  return { to: c.to, cc: c.cc, bcc: c.bcc, subject: c.subject, bodyHtml: c.bodyHtml, attachments: c.attachments };
 }
 
 /** Compares by value, not identity: every field edit replaces the array. */
@@ -109,9 +113,16 @@ function sameAddresses(a: Address[], b: Address[]): boolean {
   return key(a) === key(b);
 }
 
+/** Attachments are only ever staged wholesale (never edited in place), so
+ *  comparing filenames is enough to detect a real add/remove. */
+function sameAttachments(a: OutgoingAttachment[], b: OutgoingAttachment[]): boolean {
+  return a.map((x) => x.filename).join(",") === b.map((x) => x.filename).join(",");
+}
+
 function sameSnapshot(a: ComposerSnapshot, b: ComposerSnapshot): boolean {
   return sameAddresses(a.to, b.to) && sameAddresses(a.cc, b.cc) && sameAddresses(a.bcc, b.bcc)
-    && a.subject === b.subject && normalizeBody(a.bodyHtml) === normalizeBody(b.bodyHtml);
+    && a.subject === b.subject && normalizeBody(a.bodyHtml) === normalizeBody(b.bodyHtml)
+    && sameAttachments(a.attachments, b.attachments);
 }
 
 export class ViewModel {
@@ -119,7 +130,7 @@ export class ViewModel {
     accounts: [], activeAccountId: null, mailboxes: [], activeMailboxId: null,
     threads: [], hasMore: false, loadingList: false, autoLoadImages: false,
     search: { query: "", active: false },
-    openThreadId: null, openMessages: [], notice: null,
+    openThreadId: null, openMessages: [],
     composer: null,
   };
   private listeners = new Set<(s: ViewState) => void>();
@@ -271,7 +282,7 @@ export class ViewModel {
       // were and making them find it themselves in the (now longer) list.
       await this.selectMailbox(box.id);
     } catch (err) {
-      this.set({ notice: this.errorMessage(err) });
+      this.deps.showNotice(this.errorMessage(err));
     }
   }
 
@@ -286,7 +297,7 @@ export class ViewModel {
       await this.deps.cache.putMailboxes(acct, [box]);
       this.set({ mailboxes: sortMailboxes(this.state.mailboxes.map((m) => (m.id === id ? box : m))) });
     } catch (err) {
-      this.set({ notice: this.errorMessage(err) });
+      this.deps.showNotice(this.errorMessage(err));
     }
   }
 
@@ -305,7 +316,7 @@ export class ViewModel {
       await this.deps.cache.deleteMessagesByMailbox(acct, [id]);
       await this.refreshMailboxes(acct);
     } catch (err) {
-      this.set({ notice: this.errorMessage(err) });
+      this.deps.showNotice(this.errorMessage(err));
     }
   }
 
@@ -348,7 +359,7 @@ export class ViewModel {
       this.providerListToken = page.nextPageToken;
       this.providerListExhausted = !page.nextPageToken;
     } catch {
-      this.set({ notice: "Couldn't load more messages." });
+      this.deps.showNotice("Couldn't load more messages.");
     }
     await this.reloadList();
   }
@@ -370,7 +381,7 @@ export class ViewModel {
           body = await provider.getMessageBody(s.id);
           await this.deps.cache.putBody(acct, body);
         } catch {
-          this.set({ notice: "Couldn't load a message body." });
+          this.deps.showNotice("Couldn't load a message body.");
         }
       }
       if (this.state.openThreadId !== threadId) return;
@@ -396,20 +407,29 @@ export class ViewModel {
     this.set({ openThreadId: null, openMessages: [], composer: null });
   }
 
-  private openComposer(state: Omit<ComposerState, "to" | "cc" | "bcc" | "subject" | "bodyHtml" | "sending" | "error" | "savedSnapshot">): void {
+  private openComposer(
+    state: Omit<ComposerState, "to" | "cc" | "bcc" | "subject" | "bodyHtml" | "attachments" | "sending" | "error" | "savedSnapshot">,
+    initial?: { subject?: string; bodyHtml?: string; attachments?: OutgoingAttachment[] },
+  ): void {
     const composer: ComposerState = {
       // Explicit undefined defaults (rather than omitting the keys) so
       // consumers can rely on `targetMessageId`/`draftId` always being
       // present on the composer object, even when not applicable to `mode`.
       targetMessageId: undefined, draftId: undefined,
       ...state,
-      to: [], cc: [], bcc: [], subject: "", bodyHtml: "", sending: false, error: null,
+      to: [], cc: [], bcc: [],
+      subject: initial?.subject ?? "",
+      bodyHtml: initial?.bodyHtml ?? "",
+      attachments: initial?.attachments ?? [],
+      sending: false, error: null,
       savedSnapshot: null,
     };
     // A "new" composer can be saved as a draft, so it starts from a snapshot
-    // of its own (empty) fields; reply/replyAll/forward have no save path and
-    // stay on the body-content check in `hasUnsavedComposerContent`.
-    this.set({ composer: composer.mode === "new" ? { ...composer, savedSnapshot: snapshotOf(composer) } : composer });
+    // of its own fields — but always the BLANK ones, even when pre-filled
+    // (from a note): closing without saving should warn about losing that
+    // content exactly as it would for anything typed by hand.
+    const blank: ComposerSnapshot = { to: [], cc: [], bcc: [], subject: "", bodyHtml: "", attachments: [] };
+    this.set({ composer: composer.mode === "new" ? { ...composer, savedSnapshot: blank } : composer });
   }
 
   openReply(messageId: string, mode: "reply" | "replyAll"): void {
@@ -424,6 +444,20 @@ export class ViewModel {
     this.openComposer({ mode: "new" });
   }
 
+  /** Opens a new composer pre-filled with a note's content, rendered to
+   *  HTML, as the body — triggered from the "Create email from note"
+   *  command (main.ts), which does the Markdown rendering itself. */
+  openComposeFromNote(subject: string, bodyHtml: string): void {
+    this.openComposer({ mode: "new" }, { subject, bodyHtml });
+  }
+
+  /** Opens a blank new composer with a note already staged as an
+   *  attachment — triggered from the "Create email with note attached"
+   *  command. */
+  openComposeWithAttachment(attachment: OutgoingAttachment): void {
+    this.openComposer({ mode: "new" }, { attachments: [attachment] });
+  }
+
   updateComposerFields(patch: Partial<Pick<ComposerState, "to" | "cc" | "bcc" | "subject">>): void {
     if (!this.state.composer) return;
     this.set({ composer: { ...this.state.composer, ...patch } });
@@ -432,6 +466,13 @@ export class ViewModel {
   updateComposerBody(html: string): void {
     if (!this.state.composer) return;
     this.set({ composer: { ...this.state.composer, bodyHtml: html } });
+  }
+
+  removeComposerAttachment(index: number): void {
+    if (!this.state.composer) return;
+    this.set({
+      composer: { ...this.state.composer, attachments: this.state.composer.attachments.filter((_, i) => i !== index) },
+    });
   }
 
   hasUnsavedComposerContent(): boolean {
@@ -468,6 +509,7 @@ export class ViewModel {
     return {
       to: c.to, cc: c.cc, bcc: c.bcc, subject: c.subject,
       bodyHtml: sanitizeEmailHtml(c.bodyHtml, { allowRemote: true }).html,
+      ...(c.attachments.length ? { attachments: c.attachments } : {}),
     };
   }
 
@@ -497,7 +539,8 @@ export class ViewModel {
         await provider.updateDraft(c.draftId!, this.outgoingMessage(c));
         await provider.sendDraft(c.draftId!);
       }
-      this.set({ composer: null, notice: "Sent." });
+      this.set({ composer: null });
+      this.deps.showNotice("Sent.");
     } catch (err) {
       this.set({ composer: { ...this.state.composer!, sending: false, error: this.errorMessage(err) } });
     }
@@ -546,7 +589,7 @@ export class ViewModel {
       if (this.state.openMessages.some((m) => m.summary.id === messageId)) this.closeThread();
       await this.reloadListUnlessSearching();
     } catch (err) {
-      this.set({ notice: this.errorMessage(err) });
+      this.deps.showNotice(this.errorMessage(err));
     }
   }
 
@@ -588,7 +631,7 @@ export class ViewModel {
       // the partial-failure notice below can't fire for an empty input, so say
       // so explicitly rather than appearing to do nothing at all.
       if (messages.length === 0) {
-        this.set({ notice: "Couldn't find any messages in that thread." });
+        this.deps.showNotice("Couldn't find any messages in that thread.");
         return;
       }
       const results = await Promise.allSettled(messages.map((m) => action(provider, m.id)));
@@ -598,17 +641,17 @@ export class ViewModel {
       if (this.state.openThreadId === threadId) this.closeThread();
       await this.reloadListUnlessSearching();
       if (failedCount > 0) {
-        this.set({
-          notice: succeededIds.length === 0
+        this.deps.showNotice(
+          succeededIds.length === 0
             ? `Couldn't ${pastTense.toLowerCase()} this thread.`
             : `${pastTense} ${succeededIds.length} of ${messages.length} messages — ${failedCount} failed.`,
-        });
+        );
       }
     } catch (err) {
       // The cache reads/writes and the reload can all throw (an IndexedDB
       // failure, say); without this the rejection escapes unhandled and the
       // user is told nothing. Mirrors `actOnMessage`.
-      this.set({ notice: this.errorMessage(err) });
+      this.deps.showNotice(this.errorMessage(err));
     }
   }
 
@@ -639,7 +682,7 @@ export class ViewModel {
     // the next save would overwrite the real draft with them.
     const summary = this.state.openMessages.find((m) => m.summary.id === messageId)?.summary;
     if (!summary) {
-      this.set({ notice: "Couldn't open that draft." });
+      this.deps.showNotice("Couldn't open that draft.");
       return;
     }
     let body: MessageBody;
@@ -648,7 +691,7 @@ export class ViewModel {
     } catch {
       // Leave the composer untouched: a partial one bound to this draftId
       // would overwrite the draft with whatever it managed to prefill.
-      this.set({ notice: "Couldn't load a message body." });
+      this.deps.showNotice("Couldn't load a message body.");
       return;
     }
     const composer: ComposerState = {
@@ -660,6 +703,10 @@ export class ViewModel {
       bcc: summary.bcc ?? [],
       subject: summary.subject,
       bodyHtml: body.html ?? "",
+      // An existing draft's attachments (if any) already live on the
+      // server; they aren't surfaced here for editing, and updateDraft
+      // never touches them, so they simply stay as they are.
+      attachments: [],
       sending: false,
       error: null,
       savedSnapshot: null,
@@ -696,7 +743,7 @@ export class ViewModel {
       const acct = this.state.activeAccountId;
       body = acct ? await this.deps.cache.getBody(acct, messageId) : undefined;
       if (!body) {
-        this.set({ notice: "Message body still loading — try again in a moment." });
+        this.deps.showNotice("Message body still loading — try again in a moment.");
         return;
       }
     }
@@ -713,10 +760,10 @@ export class ViewModel {
     const provider = acct ? this.deps.getProvider(acct) : undefined;
     if (!acct || !provider) return;
     if (!this.deps.isOnline()) {
-      this.set({ notice: "Search is unavailable while offline." });
+      this.deps.showNotice("Search is unavailable while offline.");
       return;
     }
-    this.set({ loadingList: true, notice: null });
+    this.set({ loadingList: true });
     try {
       const page = await provider.search(query);
       this.set({
@@ -726,12 +773,13 @@ export class ViewModel {
         loadingList: false,
       });
     } catch {
-      this.set({ loadingList: false, notice: "Search failed." });
+      this.set({ loadingList: false });
+      this.deps.showNotice("Search failed.");
     }
   }
 
   async clearSearch(): Promise<void> {
-    this.set({ search: { query: "", active: false }, notice: null });
+    this.set({ search: { query: "", active: false } });
     await this.reloadList();
   }
 

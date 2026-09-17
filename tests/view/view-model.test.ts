@@ -32,11 +32,13 @@ async function build() {
   const sync = new SyncEngine({
     cache, cursors, getProvider: () => provider, listAccountIds: () => ["a1"], logger,
   });
+  const showNotice = vi.fn();
   const vm = new ViewModel({
     cache, sync, settings, getProvider: () => provider, isOnline: () => true,
     openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {},
+    promptFolderName: () => {}, showNotice,
   });
-  return { cache, provider, sync, settings, vm };
+  return { cache, provider, sync, settings, vm, showNotice };
 }
 
 /**
@@ -116,16 +118,18 @@ describe("ViewModel", () => {
   });
 
   it("runSearch offline sets a notice and does not clear the list", async () => {
+    const showNotice = vi.fn();
     const offlineVm = new ViewModel({
       cache: ctx.cache, sync: ctx.sync, settings: (ctx as never as { settings: SettingsStore }).settings ?? await SettingsStore.load({ loadData: async () => ({ accounts: [{ id: "a1", email: "e", provider: "ms-graph", clientId: "c", addedAt: 0 }] }), saveData: async () => {} }),
       getProvider: () => ctx.provider, isOnline: () => false,
       openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {},
+      promptFolderName: () => {}, showNotice,
     });
     await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
     await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1)]);
     await offlineVm.init();
     await offlineVm.runSearch("anything");
-    expect(offlineVm.getState().notice).toMatch(/offline/i);
+    expect(showNotice).toHaveBeenCalledWith(expect.stringMatching(/offline/i));
     expect(offlineVm.getState().threads.map((t) => t.threadId)).toEqual(["t1"]);
   });
 
@@ -299,7 +303,7 @@ describe("ViewModel — composer", () => {
     ctx.vm.openReply("m1", "reply");
     expect(ctx.vm.getState().composer).toEqual({
       mode: "reply", targetMessageId: "m1", draftId: undefined,
-      to: [], cc: [], bcc: [], subject: "", sending: false, error: null, bodyHtml: "",
+      to: [], cc: [], bcc: [], subject: "", sending: false, error: null, bodyHtml: "", attachments: [],
       savedSnapshot: null,
     });
   });
@@ -312,7 +316,7 @@ describe("ViewModel — composer", () => {
     ctx.vm.openForward("m1");
     expect(ctx.vm.getState().composer).toEqual({
       mode: "forward", targetMessageId: "m1", draftId: undefined,
-      to: [], cc: [], bcc: [], subject: "", sending: false, error: null, bodyHtml: "",
+      to: [], cc: [], bcc: [], subject: "", sending: false, error: null, bodyHtml: "", attachments: [],
       savedSnapshot: null,
     });
   });
@@ -400,6 +404,62 @@ describe("ViewModel — composer", () => {
     expect(ctx.vm.hasUnsavedComposerContent()).toBe(true);
   });
 
+  it("openComposeFromNote opens a new composer pre-filled with a subject and rendered body", async () => {
+    const ctx = await build();
+    await ctx.vm.init();
+    ctx.vm.openComposeFromNote("My Note", "<h1>My Note</h1><p>content</p>");
+    const c = ctx.vm.getState().composer;
+    expect(c?.mode).toBe("new");
+    expect(c?.subject).toBe("My Note");
+    expect(c?.bodyHtml).toBe("<h1>My Note</h1><p>content</p>");
+    expect(c?.attachments).toEqual([]);
+  });
+
+  it("openComposeFromNote's pre-filled content counts as unsaved, so closing would warn", async () => {
+    const ctx = await build();
+    await ctx.vm.init();
+    ctx.vm.openComposeFromNote("My Note", "<p>content</p>");
+    expect(ctx.vm.hasUnsavedComposerContent()).toBe(true);
+  });
+
+  it("openComposeWithAttachment opens a blank new composer with the note staged as an attachment", async () => {
+    const ctx = await build();
+    await ctx.vm.init();
+    ctx.vm.openComposeWithAttachment({ filename: "My Note.md", mimeType: "text/markdown", contentBytes: "aGk=" });
+    const c = ctx.vm.getState().composer;
+    expect(c?.mode).toBe("new");
+    expect(c?.subject).toBe("");
+    expect(c?.bodyHtml).toBe("");
+    expect(c?.attachments).toEqual([{ filename: "My Note.md", mimeType: "text/markdown", contentBytes: "aGk=" }]);
+  });
+
+  it("a staged attachment alone counts as unsaved content, even with no typed text", async () => {
+    const ctx = await build();
+    await ctx.vm.init();
+    ctx.vm.openComposeWithAttachment({ filename: "My Note.md", mimeType: "text/markdown", contentBytes: "aGk=" });
+    expect(ctx.vm.hasUnsavedComposerContent()).toBe(true);
+  });
+
+  it("removeComposerAttachment removes just the given attachment", async () => {
+    const ctx = await build();
+    await ctx.vm.init();
+    ctx.vm.openComposeWithAttachment({ filename: "a.md", mimeType: "text/markdown", contentBytes: "YQ==" });
+    ctx.vm.removeComposerAttachment(0);
+    expect(ctx.vm.getState().composer?.attachments).toEqual([]);
+  });
+
+  it("send includes staged attachments in a new message", async () => {
+    const ctx = await build();
+    await ctx.vm.init();
+    ctx.vm.openComposeWithAttachment({ filename: "note.md", mimeType: "text/markdown", contentBytes: "aGk=" });
+    ctx.vm.updateComposerFields({ to: [{ email: "a@x.com" }] });
+    const sendSpy = vi.spyOn(ctx.provider, "sendNewMessage");
+    await ctx.vm.send();
+    expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({
+      attachments: [{ filename: "note.md", mimeType: "text/markdown", contentBytes: "aGk=" }],
+    }));
+  });
+
   it("closeComposer clears composer with no provider calls", async () => {
     const ctx = await build();
     await ctx.vm.init();
@@ -423,7 +483,7 @@ describe("ViewModel — composer", () => {
       message: { to: [{ email: "a@x.com" }], cc: [], bcc: [], subject: "Hi", bodyHtml: "<p>hi</p>" },
     }]);
     expect(ctx.vm.getState().composer).toBeNull();
-    expect(ctx.vm.getState().notice).toMatch(/sent/i);
+    expect(ctx.showNotice).toHaveBeenCalledWith(expect.stringMatching(/sent/i));
   });
 
   it("send dispatches to replyToMessage for mode=reply/replyAll", async () => {
@@ -555,7 +615,7 @@ describe("ViewModel — composer", () => {
     const id = await openDraftInReadingPane(ctx);
     ctx.provider.getMessageBody = vi.fn().mockRejectedValue(new Error("network down"));
     await expect(ctx.vm.openDraftForEdit(id)).resolves.toBeUndefined();
-    expect(ctx.vm.getState().notice).toMatch(/couldn't load/i);
+    expect(ctx.showNotice).toHaveBeenCalledWith(expect.stringMatching(/couldn't load/i));
     expect(ctx.vm.getState().composer).toBeNull();
   });
 
@@ -615,7 +675,7 @@ describe("ViewModel — delete/archive", () => {
     await ctx.vm.deleteMessage("m1");
 
     expect(ctx.vm.getState().threads.map((t) => t.threadId)).toEqual(["t1"]);
-    expect(ctx.vm.getState().notice).toContain("network down");
+    expect(ctx.showNotice).toHaveBeenCalledWith(expect.stringContaining("network down"));
   });
 
   it("deleteThread deletes every message in the conversation, concurrently, and closes the thread if open", async () => {
@@ -675,7 +735,7 @@ describe("ViewModel — delete/archive", () => {
     // and the partial failure is reported, not silently swallowed.
     expect(ctx.vm.getState().threads.map((t) => t.threadId)).toEqual(["t1"]);
     expect(ctx.vm.getState().threads[0].messages.map((m) => m.id)).toEqual(["m2"]);
-    expect(ctx.vm.getState().notice).toMatch(/1 of 2/);
+    expect(ctx.showNotice).toHaveBeenCalledWith(expect.stringMatching(/1 of 2/));
   });
 
   it("deleteThread sets a notice when the cache read fails instead of rejecting", async () => {
@@ -688,7 +748,7 @@ describe("ViewModel — delete/archive", () => {
 
     await ctx.vm.deleteThread("t1");
 
-    expect(ctx.vm.getState().notice).toContain("db is closed");
+    expect(ctx.showNotice).toHaveBeenCalledWith(expect.stringContaining("db is closed"));
   });
 
   it("archiveThread reports a thread with no cached messages instead of silently doing nothing", async () => {
@@ -703,7 +763,7 @@ describe("ViewModel — delete/archive", () => {
     await ctx.vm.archiveThread("t-never-cached");
 
     expect(spy).not.toHaveBeenCalled();
-    expect(ctx.vm.getState().notice).toMatch(/couldn't find any messages/i);
+    expect(ctx.showNotice).toHaveBeenCalledWith(expect.stringMatching(/couldn't find any messages/i));
   });
 });
 
@@ -754,6 +814,7 @@ describe("ViewModel — saveMessageToVault", () => {
     const vm = new ViewModel({
       cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
       isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote,
+      promptFolderName: () => {}, showNotice: vi.fn(),
     });
     await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
     await vm.init();
@@ -780,10 +841,12 @@ describe("ViewModel — saveMessageToVault", () => {
 
   it("sets a notice instead of saving when the body never loaded and isn't cached", async () => {
     const saveNote = vi.fn();
+    const showNotice = vi.fn();
     const ctx = await build();
     const vm = new ViewModel({
       cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
       isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote,
+      promptFolderName: () => {}, showNotice,
     });
     await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
     await vm.init();
@@ -794,7 +857,7 @@ describe("ViewModel — saveMessageToVault", () => {
     await vm.saveMessageToVault("m1");
 
     expect(saveNote).not.toHaveBeenCalled();
-    expect(vm.getState().notice).toMatch(/still loading/i);
+    expect(showNotice).toHaveBeenCalledWith(expect.stringMatching(/still loading/i));
   });
 
   it("does nothing for a message id that isn't currently open", async () => {
@@ -803,6 +866,7 @@ describe("ViewModel — saveMessageToVault", () => {
     const vm = new ViewModel({
       cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
       isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote,
+      promptFolderName: () => {}, showNotice: vi.fn(),
     });
     await vm.saveMessageToVault("does-not-exist");
     expect(saveNote).not.toHaveBeenCalled();
@@ -872,7 +936,7 @@ describe("ViewModel — requestCreateMailbox", () => {
     const vm = new ViewModel({
       cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
       isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {},
-      promptFolderName: (onSubmit) => { submit = onSubmit; },
+      promptFolderName: (onSubmit) => { submit = onSubmit; }, showNotice: vi.fn(),
     });
     await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
     await vm.init();
@@ -893,10 +957,11 @@ describe("ViewModel — requestCreateMailbox", () => {
   it("sets a notice instead of creating the folder when the provider call fails", async () => {
     const ctx = await build();
     let submit: ((name: string) => void) | undefined;
+    const showNotice = vi.fn();
     const vm = new ViewModel({
       cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
       isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {},
-      promptFolderName: (onSubmit) => { submit = onSubmit; },
+      promptFolderName: (onSubmit) => { submit = onSubmit; }, showNotice,
     });
     await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
     await vm.init();
@@ -905,7 +970,7 @@ describe("ViewModel — requestCreateMailbox", () => {
     vm.requestCreateMailbox();
     submit!("Project X");
     await vi.waitFor(() => {
-      expect(vm.getState().notice).toBeTruthy();
+      expect(showNotice).toHaveBeenCalled();
     });
     expect(vm.getState().mailboxes.map((m) => m.name)).not.toContain("Project X");
   });
@@ -935,7 +1000,7 @@ describe("ViewModel — renameMailbox", () => {
 
     await ctx.vm.renameMailbox("PROJ", "Project Y");
 
-    expect(ctx.vm.getState().notice).toBeTruthy();
+    expect(ctx.showNotice).toHaveBeenCalled();
     expect(ctx.vm.getState().mailboxes.find((m) => m.id === "PROJ")?.name).toBe("Project X");
   });
 });
@@ -982,7 +1047,7 @@ describe("ViewModel — deleteMailbox", () => {
 
     await ctx.vm.deleteMailbox("PROJ");
 
-    expect(ctx.vm.getState().notice).toBeTruthy();
+    expect(ctx.showNotice).toHaveBeenCalled();
     expect(ctx.vm.getState().mailboxes.map((m) => m.id)).toContain("PROJ");
   });
 
@@ -998,7 +1063,7 @@ describe("ViewModel — deleteMailbox", () => {
 
     await ctx.vm.deleteMailbox("SNOOZED");
 
-    expect(ctx.vm.getState().notice).toBe("This is a built-in Outlook folder and can't be deleted.");
+    expect(ctx.showNotice).toHaveBeenCalledWith("This is a built-in Outlook folder and can't be deleted.");
     expect(ctx.vm.getState().mailboxes.map((m) => m.id)).toContain("SNOOZED");
   });
 });

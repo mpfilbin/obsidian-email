@@ -6,9 +6,10 @@ import ComposerHost from "./fixtures/ComposerHost.svelte";
 function baseProps(over: Partial<Record<string, unknown>> = {}) {
   return {
     mode: "new" as const,
-    to: [], cc: [], bcc: [], subject: "", bodyHtml: "",
+    to: [], cc: [], bcc: [], subject: "", bodyHtml: "", attachments: [],
     sending: false, error: null,
-    onFieldsChange: vi.fn(), onBodyChange: vi.fn(), onSend: vi.fn(), onSaveDraft: vi.fn(), onDiscard: vi.fn(),
+    onFieldsChange: vi.fn(), onBodyChange: vi.fn(), onRemoveAttachment: vi.fn(),
+    onSend: vi.fn(), onSaveDraft: vi.fn(), onDiscard: vi.fn(),
     ...over,
   };
 }
@@ -65,6 +66,36 @@ describe("Composer smoke", () => {
     toInput.value = "a@x.com, b@y.com";
     toInput.dispatchEvent(new Event("change", { bubbles: true }));
     expect(onFieldsChange).toHaveBeenCalledWith({ to: [{ email: "a@x.com" }, { email: "b@y.com" }] });
+    unmount(app);
+  });
+
+  it("renders a chip for each staged attachment, and none when there are none", () => {
+    const host = document.createElement("div");
+    const app = mount(Composer, { target: host, props: baseProps() });
+    flushSync();
+    expect(host.querySelector(".oe-composer-attachments")).toBeNull();
+    unmount(app);
+  });
+
+  it("clicking an attachment's remove button calls onRemoveAttachment with its index", () => {
+    const onRemoveAttachment = vi.fn();
+    const host = document.createElement("div");
+    const app = mount(Composer, {
+      target: host,
+      props: baseProps({
+        attachments: [
+          { filename: "a.md", mimeType: "text/markdown", contentBytes: "YQ==" },
+          { filename: "b.md", mimeType: "text/markdown", contentBytes: "Yg==" },
+        ],
+        onRemoveAttachment,
+      }),
+    });
+    flushSync();
+    const chips = host.querySelectorAll(".oe-composer-attachment");
+    expect(chips).toHaveLength(2);
+    expect(chips[1].textContent).toContain("b.md");
+    chips[1].querySelector<HTMLButtonElement>(".oe-composer-attachment-remove")!.click();
+    expect(onRemoveAttachment).toHaveBeenCalledWith(1);
     unmount(app);
   });
 

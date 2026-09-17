@@ -1,15 +1,17 @@
 <script lang="ts">
   import Quill from "quill";
   import { untrack } from "svelte";
-  import type { Address } from "../../providers/types";
+  import type { Address, OutgoingAttachment } from "../../providers/types";
   import { parseRecipients } from "../parse-recipients";
 
-  let { mode, to, cc, bcc, subject, bodyHtml, sending, error, onFieldsChange, onBodyChange, onSend, onSaveDraft, onDiscard }: {
+  let { mode, to, cc, bcc, subject, bodyHtml, attachments, sending, error, onFieldsChange, onBodyChange, onRemoveAttachment, onSend, onSaveDraft, onDiscard }: {
     mode: "reply" | "replyAll" | "forward" | "new" | "editDraft";
     to: Address[]; cc: Address[]; bcc: Address[]; subject: string; bodyHtml: string;
+    attachments: OutgoingAttachment[];
     sending: boolean; error: string | null;
     onFieldsChange: (patch: Partial<{ to: Address[]; cc: Address[]; bcc: Address[]; subject: string }>) => void;
     onBodyChange: (html: string) => void;
+    onRemoveAttachment: (index: number) => void;
     onSend: () => void;
     onSaveDraft: () => void;
     onDiscard: () => void;
@@ -112,6 +114,21 @@
   {#if parseWarning}<p class="oe-composer-warning">{parseWarning}</p>{/if}
 
   <div class="oe-composer-editor" bind:this={editorHost}></div>
+
+  {#if attachments.length}
+    <ul class="oe-composer-attachments">
+      {#each attachments as att, i (att.filename)}
+        <li class="oe-composer-attachment">
+          <span class="oe-composer-attachment-name">{att.filename}</span>
+          <button
+            type="button" class="oe-composer-attachment-remove"
+            aria-label={`Remove ${att.filename}`}
+            onclick={() => onRemoveAttachment(i)}
+          >×</button>
+        </li>
+      {/each}
+    </ul>
+  {/if}
 
   {#if error}<p class="oe-composer-error">{error}</p>{/if}
 
