@@ -114,9 +114,11 @@ function sameAddresses(a: Address[], b: Address[]): boolean {
 }
 
 /** Attachments are only ever staged wholesale (never edited in place), so
- *  comparing filenames is enough to detect a real add/remove. */
+ *  comparing filenames positionally is enough to detect a real add/remove —
+ *  and avoids miscomparing a comma-joined string when a filename itself
+ *  contains a comma. */
 function sameAttachments(a: OutgoingAttachment[], b: OutgoingAttachment[]): boolean {
-  return a.map((x) => x.filename).join(",") === b.map((x) => x.filename).join(",");
+  return a.length === b.length && a.every((x, i) => x.filename === b[i].filename);
 }
 
 function sameSnapshot(a: ComposerSnapshot, b: ComposerSnapshot): boolean {
