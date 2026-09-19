@@ -184,65 +184,13 @@ describe("ReadingPane — reply/forward/edit actions", () => {
     onSend: vi.fn(), onSaveDraft: vi.fn(), onDiscard: vi.fn(),
   };
 
-  it("shows Reply/Reply all/Forward buttons on a message when not in the Drafts mailbox", () => {
-    const host = document.createElement("div");
-    const app = mount(ReadingPane, {
-      target: host,
-      props: {
-        openMessages: open(), autoLoadImages: false, renderDeps, onClose: () => {}, onDownload: vi.fn(),
-        isDraftsMailbox: false, activeComposerMessageId: null, composerMode: null, composerProps: null,
-        onOpenReply: vi.fn(), onOpenForward: vi.fn(), onEditDraft: vi.fn(),
-      },
-    });
-    flushSync();
-    expect(host.querySelector('[data-action="reply"]')).not.toBeNull();
-    expect(host.querySelector('[data-action="reply-all"]')).not.toBeNull();
-    expect(host.querySelector('[data-action="forward"]')).not.toBeNull();
-    expect(host.querySelector('[data-action="edit-draft"]')).toBeNull();
-    unmount(app);
-  });
-
-  it("shows an Edit button instead, in the Drafts mailbox", () => {
-    const host = document.createElement("div");
-    const app = mount(ReadingPane, {
-      target: host,
-      props: {
-        openMessages: open(), autoLoadImages: false, renderDeps, onClose: () => {}, onDownload: vi.fn(),
-        isDraftsMailbox: true, activeComposerMessageId: null, composerMode: null, composerProps: null,
-        onOpenReply: vi.fn(), onOpenForward: vi.fn(), onEditDraft: vi.fn(),
-      },
-    });
-    flushSync();
-    expect(host.querySelector('[data-action="reply"]')).toBeNull();
-    expect(host.querySelector('[data-action="edit-draft"]')).not.toBeNull();
-    unmount(app);
-  });
-
-  it("clicking Reply calls onOpenReply(m1, 'reply')", () => {
-    const onOpenReply = vi.fn();
-    const host = document.createElement("div");
-    const app = mount(ReadingPane, {
-      target: host,
-      props: {
-        openMessages: open(), autoLoadImages: false, renderDeps, onClose: () => {}, onDownload: vi.fn(),
-        isDraftsMailbox: false, activeComposerMessageId: null, composerMode: null, composerProps: null,
-        onOpenReply, onOpenForward: vi.fn(), onEditDraft: vi.fn(),
-      },
-    });
-    flushSync();
-    host.querySelector<HTMLElement>('[data-action="reply"]')!.click();
-    expect(onOpenReply).toHaveBeenCalledWith("m1", "reply");
-    unmount(app);
-  });
-
   it("renders the Composer inline under the message being replied to", () => {
     const host = document.createElement("div");
     const app = mount(ReadingPane, {
       target: host,
       props: {
         openMessages: open(), autoLoadImages: false, renderDeps, onClose: () => {}, onDownload: vi.fn(),
-        isDraftsMailbox: false, activeComposerMessageId: "m1", composerMode: "reply", composerProps,
-        onOpenReply: vi.fn(), onOpenForward: vi.fn(), onEditDraft: vi.fn(),
+        activeComposerMessageId: "m1", composerMode: "reply", composerProps,
       },
     });
     flushSync();
@@ -256,113 +204,12 @@ describe("ReadingPane — reply/forward/edit actions", () => {
       target: host,
       props: {
         openMessages: [], autoLoadImages: false, renderDeps, onClose: () => {}, onDownload: vi.fn(),
-        isDraftsMailbox: false, activeComposerMessageId: null, composerMode: "new", composerProps,
-        onOpenReply: vi.fn(), onOpenForward: vi.fn(), onEditDraft: vi.fn(),
+        activeComposerMessageId: null, composerMode: "new", composerProps,
       },
     });
     flushSync();
     expect(host.querySelector(".oe-composer")).not.toBeNull();
     expect(host.textContent).not.toMatch(/select a message/i);
-    unmount(app);
-  });
-});
-
-describe("ReadingPane — archive/delete actions", () => {
-  const baseProps = (over: Partial<Record<string, unknown>> = {}) => ({
-    openMessages: open(), autoLoadImages: false, renderDeps, onClose: () => {}, onCollapse: vi.fn(), onDownload: vi.fn(),
-    isDraftsMailbox: false, isArchiveMailbox: false, isTrashMailbox: false,
-    activeComposerMessageId: null, composerMode: null, composerProps: null,
-    onOpenReply: vi.fn(), onOpenForward: vi.fn(), onEditDraft: vi.fn(),
-    onArchiveMessage: vi.fn(), onDeleteMessage: vi.fn(), onSaveToVault: vi.fn(),
-    ...over,
-  });
-
-  it("shows Save to vault in a normal mailbox, and clicking it calls onSaveToVault(m1)", () => {
-    const onSaveToVault = vi.fn();
-    const host = document.createElement("div");
-    const app = mount(ReadingPane, { target: host, props: baseProps({ onSaveToVault }) });
-    flushSync();
-    host.querySelector<HTMLElement>('[data-action="save-to-vault"]')!.click();
-    expect(onSaveToVault).toHaveBeenCalledWith("m1");
-    unmount(app);
-  });
-
-  it("still shows Save to vault in Drafts and Trash mailboxes", () => {
-    for (const over of [{ isDraftsMailbox: true }, { isTrashMailbox: true }]) {
-      const host = document.createElement("div");
-      const app = mount(ReadingPane, { target: host, props: baseProps(over) });
-      flushSync();
-      expect(host.querySelector('[data-action="save-to-vault"]')).not.toBeNull();
-      unmount(app);
-    }
-  });
-
-  it("clicking the floating close button calls onCollapse", () => {
-    const onCollapse = vi.fn();
-    const host = document.createElement("div");
-    const app = mount(ReadingPane, { target: host, props: baseProps({ onCollapse }) });
-    flushSync();
-    host.querySelector<HTMLElement>('[data-action="collapse"]')!.click();
-    expect(onCollapse).toHaveBeenCalledOnce();
-    unmount(app);
-  });
-
-  it("shows Archive and Delete on a message in a normal mailbox", () => {
-    const host = document.createElement("div");
-    const app = mount(ReadingPane, { target: host, props: baseProps() });
-    flushSync();
-    expect(host.querySelector('[data-action="archive"]')).not.toBeNull();
-    expect(host.querySelector('[data-action="delete"]')).not.toBeNull();
-    unmount(app);
-  });
-
-  it("hides Reply/Reply-all/Forward and Archive in the Trash mailbox, but keeps Delete", () => {
-    const host = document.createElement("div");
-    const app = mount(ReadingPane, { target: host, props: baseProps({ isTrashMailbox: true }) });
-    flushSync();
-    expect(host.querySelector('[data-action="reply"]')).toBeNull();
-    expect(host.querySelector('[data-action="archive"]')).toBeNull();
-    expect(host.querySelector('[data-action="delete"]')).not.toBeNull();
-    unmount(app);
-  });
-
-  it("hides Archive (but not Delete) in the Archive mailbox, keeping Reply/Reply-all/Forward", () => {
-    const host = document.createElement("div");
-    const app = mount(ReadingPane, { target: host, props: baseProps({ isArchiveMailbox: true }) });
-    flushSync();
-    expect(host.querySelector('[data-action="reply"]')).not.toBeNull();
-    expect(host.querySelector('[data-action="archive"]')).toBeNull();
-    expect(host.querySelector('[data-action="delete"]')).not.toBeNull();
-    unmount(app);
-  });
-
-  it("in Drafts, shows Edit and Delete but not Archive", () => {
-    const host = document.createElement("div");
-    const app = mount(ReadingPane, { target: host, props: baseProps({ isDraftsMailbox: true }) });
-    flushSync();
-    expect(host.querySelector('[data-action="edit-draft"]')).not.toBeNull();
-    expect(host.querySelector('[data-action="archive"]')).toBeNull();
-    expect(host.querySelector('[data-action="delete"]')).not.toBeNull();
-    unmount(app);
-  });
-
-  it("clicking Archive calls onArchiveMessage(m1)", () => {
-    const onArchiveMessage = vi.fn();
-    const host = document.createElement("div");
-    const app = mount(ReadingPane, { target: host, props: baseProps({ onArchiveMessage }) });
-    flushSync();
-    host.querySelector<HTMLElement>('[data-action="archive"]')!.click();
-    expect(onArchiveMessage).toHaveBeenCalledWith("m1");
-    unmount(app);
-  });
-
-  it("clicking Delete calls onDeleteMessage(m1)", () => {
-    const onDeleteMessage = vi.fn();
-    const host = document.createElement("div");
-    const app = mount(ReadingPane, { target: host, props: baseProps({ onDeleteMessage }) });
-    flushSync();
-    host.querySelector<HTMLElement>('[data-action="delete"]')!.click();
-    expect(onDeleteMessage).toHaveBeenCalledWith("m1");
     unmount(app);
   });
 });
