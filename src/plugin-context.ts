@@ -3,7 +3,7 @@ import type { HttpClient } from "./providers/http";
 import type { HttpPost } from "./auth/oauth-client";
 import type { SecretStore } from "./auth/token-manager";
 import type { AccountConfig } from "./providers/provider-factory";
-import type { MailProvider, ProviderKind } from "./providers/types";
+import type { MailProvider, OutgoingAttachment, ProviderKind } from "./providers/types";
 import type { Logger } from "./util/logger";
 import type { SettingsStore } from "./settings/settings-store";
 import { CursorStore } from "./cache/cursor-store";
@@ -25,6 +25,10 @@ export interface ContextHostDeps {
   saveNote: (defaultPath: string, content: string) => void;
   /** Prompts the user for a new folder name. */
   promptFolderName: (onSubmit: (name: string) => void) => void;
+  /** Prompts for a folder's new name, pre-filled. */
+  promptFolderRename: (currentName: string, onSubmit: (name: string) => void) => void;
+  /** Picks a vault note and reads it as an attachment. */
+  pickNoteAttachment: () => Promise<OutgoingAttachment | undefined>;
   /** Shows a transient, auto-dismissing toast. */
   showNotice: (message: string) => void;
   now?: () => number;
@@ -125,6 +129,8 @@ export class PluginContext {
       saveBlob: host.saveBlob,
       saveNote: host.saveNote,
       promptFolderName: host.promptFolderName,
+      promptFolderRename: host.promptFolderRename,
+      pickNoteAttachment: host.pickNoteAttachment,
       showNotice: host.showNotice,
     });
 

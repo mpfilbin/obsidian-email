@@ -33,12 +33,14 @@ async function build() {
     cache, cursors, getProvider: () => provider, listAccountIds: () => ["a1"], logger,
   });
   const showNotice = vi.fn();
+  const promptFolderRename = vi.fn();
+  const pickNoteAttachment = vi.fn();
   const vm = new ViewModel({
     cache, sync, settings, getProvider: () => provider, isOnline: () => true,
     openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {},
-    promptFolderName: () => {}, showNotice,
+    promptFolderName: () => {}, promptFolderRename, pickNoteAttachment, showNotice,
   });
-  return { cache, provider, sync, settings, vm, showNotice };
+  return { cache, provider, sync, settings, vm, showNotice, promptFolderRename, pickNoteAttachment };
 }
 
 /**
@@ -123,7 +125,7 @@ describe("ViewModel", () => {
       cache: ctx.cache, sync: ctx.sync, settings: (ctx as never as { settings: SettingsStore }).settings ?? await SettingsStore.load({ loadData: async () => ({ accounts: [{ id: "a1", email: "e", provider: "ms-graph", clientId: "c", addedAt: 0 }] }), saveData: async () => {} }),
       getProvider: () => ctx.provider, isOnline: () => false,
       openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {},
-      promptFolderName: () => {}, showNotice,
+      promptFolderName: () => {}, promptFolderRename: () => {}, pickNoteAttachment: async () => undefined, showNotice,
     });
     await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
     await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1)]);
@@ -814,7 +816,7 @@ describe("ViewModel — saveMessageToVault", () => {
     const vm = new ViewModel({
       cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
       isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote,
-      promptFolderName: () => {}, showNotice: vi.fn(),
+      promptFolderName: () => {}, promptFolderRename: () => {}, pickNoteAttachment: async () => undefined, showNotice: vi.fn(),
     });
     await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
     await vm.init();
@@ -846,7 +848,7 @@ describe("ViewModel — saveMessageToVault", () => {
     const vm = new ViewModel({
       cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
       isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote,
-      promptFolderName: () => {}, showNotice,
+      promptFolderName: () => {}, promptFolderRename: () => {}, pickNoteAttachment: async () => undefined, showNotice,
     });
     await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
     await vm.init();
@@ -866,7 +868,7 @@ describe("ViewModel — saveMessageToVault", () => {
     const vm = new ViewModel({
       cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
       isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote,
-      promptFolderName: () => {}, showNotice: vi.fn(),
+      promptFolderName: () => {}, promptFolderRename: () => {}, pickNoteAttachment: async () => undefined, showNotice: vi.fn(),
     });
     await vm.saveMessageToVault("does-not-exist");
     expect(saveNote).not.toHaveBeenCalled();
@@ -936,7 +938,7 @@ describe("ViewModel — requestCreateMailbox", () => {
     const vm = new ViewModel({
       cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
       isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {},
-      promptFolderName: (onSubmit) => { submit = onSubmit; }, showNotice: vi.fn(),
+      promptFolderName: (onSubmit) => { submit = onSubmit; }, promptFolderRename: () => {}, pickNoteAttachment: async () => undefined, showNotice: vi.fn(),
     });
     await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
     await vm.init();
@@ -961,7 +963,7 @@ describe("ViewModel — requestCreateMailbox", () => {
     const vm = new ViewModel({
       cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
       isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {},
-      promptFolderName: (onSubmit) => { submit = onSubmit; }, showNotice,
+      promptFolderName: (onSubmit) => { submit = onSubmit; }, promptFolderRename: () => {}, pickNoteAttachment: async () => undefined, showNotice,
     });
     await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
     await vm.init();
@@ -1065,5 +1067,83 @@ describe("ViewModel — deleteMailbox", () => {
 
     expect(ctx.showNotice).toHaveBeenCalledWith("This is a built-in Outlook folder and can't be deleted.");
     expect(ctx.vm.getState().mailboxes.map((m) => m.id)).toContain("SNOOZED");
+  });
+});
+
+describe("ViewModel — ribbon prefs", () => {
+  it("mirrors ribbon prefs into state on selectAccount", async () => {
+    const ctx = await build();
+    await ctx.settings.updatePrefs({ ribbonEnabled: false, ribbonCollapsedByDefault: true });
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await ctx.vm.init();
+    expect(ctx.vm.getState().ribbonEnabled).toBe(false);
+    expect(ctx.vm.getState().ribbonCollapsedByDefault).toBe(true);
+  });
+
+  it("defaults to ribbon enabled and expanded before any account is selected", async () => {
+    const ctx = await build();
+    expect(ctx.vm.getState().ribbonEnabled).toBe(true);
+    expect(ctx.vm.getState().ribbonCollapsedByDefault).toBe(false);
+  });
+});
+
+describe("ViewModel — requestRenameMailbox", () => {
+  it("prompts with the folder's current name and renames on submit", async () => {
+    const ctx = await build();
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    ctx.provider.addMailbox({ id: "PROJ", name: "Project X", kind: "custom" });
+    await ctx.cache.putMailboxes("a1", [{ id: "PROJ", name: "Project X", kind: "custom" }]);
+    await ctx.vm.init();
+
+    ctx.vm.requestRenameMailbox("PROJ");
+    expect(ctx.promptFolderRename).toHaveBeenCalledWith("Project X", expect.any(Function));
+    ctx.promptFolderRename.mock.calls[0][1]("Project Y");
+    await vi.waitFor(() => {
+      expect(ctx.vm.getState().mailboxes.find((m) => m.id === "PROJ")?.name).toBe("Project Y");
+    });
+  });
+
+  it("does nothing for an unknown mailbox id", async () => {
+    const ctx = await build();
+    await ctx.vm.init();
+    ctx.vm.requestRenameMailbox("nope");
+    expect(ctx.promptFolderRename).not.toHaveBeenCalled();
+  });
+});
+
+describe("ViewModel — attach a note to the open composer", () => {
+  const att = { filename: "n.md", mimeType: "text/markdown", contentBytes: "aGk=" };
+
+  it("addComposerAttachment appends to the open composer", async () => {
+    const ctx = await build();
+    await ctx.vm.init();
+    ctx.vm.openNewMessage();
+    ctx.vm.addComposerAttachment(att);
+    expect(ctx.vm.getState().composer?.attachments).toEqual([att]);
+  });
+
+  it("addComposerAttachment is a no-op with no composer open", async () => {
+    const ctx = await build();
+    await ctx.vm.init();
+    ctx.vm.addComposerAttachment(att);
+    expect(ctx.vm.getState().composer).toBeNull();
+  });
+
+  it("requestAttachNote attaches whatever the host picker resolves with", async () => {
+    const ctx = await build();
+    await ctx.vm.init();
+    ctx.vm.openNewMessage();
+    ctx.pickNoteAttachment.mockResolvedValue(att);
+    await ctx.vm.requestAttachNote();
+    expect(ctx.vm.getState().composer?.attachments).toEqual([att]);
+  });
+
+  it("requestAttachNote leaves the composer alone when the picker yields nothing", async () => {
+    const ctx = await build();
+    await ctx.vm.init();
+    ctx.vm.openNewMessage();
+    ctx.pickNoteAttachment.mockResolvedValue(undefined);
+    await ctx.vm.requestAttachNote();
+    expect(ctx.vm.getState().composer?.attachments).toEqual([]);
   });
 });
