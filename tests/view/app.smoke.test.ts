@@ -907,6 +907,86 @@ describe("App.svelte — ribbon", () => {
     unmount(app);
   });
 
+  it("passes the collapse-by-default pref through to the ribbon", () => {
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: appProps(fakeVm({ ribbonCollapsedByDefault: true })) });
+    flushSync();
+    expect(host.querySelector(".oe-ribbon")!.classList.contains("collapsed")).toBe(true);
+    expect(host.querySelector(".oe-ribbon-panel")).toBeNull();
+    unmount(app);
+  });
+
+  it("target message falls back to the last message when the expanded one is removed", () => {
+    const messageFor = (id: string) => ({ summary: threadView("t1", id, `S ${id}`).messages[0], body: undefined });
+    const [m0, m1, m2] = [messageFor("m0"), messageFor("m1"), messageFor("m2")];
+    const vm = fakeVm({ openThreadId: "t1", openMessages: [m0, m1, m2] });
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: appProps(vm) });
+    flushSync();
+    const reply = () => host.querySelector<HTMLElement>('.oe-ribbon [data-action="reply"]')!.click();
+
+    host.querySelectorAll<HTMLElement>(".oe-message-head")[1].click(); // expand m1
+    flushSync();
+    reply();
+    expect(vm.openReply).toHaveBeenLastCalledWith("m1", "reply");
+
+    setStateOf(vm)({ openMessages: [m0, m2] }); // m1 removed, first id unchanged
+    flushSync();
+    reply();
+    expect(vm.openReply).toHaveBeenLastCalledWith("m2", "reply");
+    unmount(app);
+  });
+
+  describe("with a top-level composer hiding the open thread", () => {
+    const composerOf = (mode: "new" | "editDraft" | "reply") => ({
+      mode, to: [], cc: [], bcc: [], subject: "", bodyHtml: "", attachments: [], sending: false, error: null, savedSnapshot: null,
+    });
+    const openThreadState = (): Partial<ViewState> => ({
+      openThreadId: "t1",
+      openMessages: [{ summary: threadView("t1", "m1", "Hello").messages[0], body: undefined }],
+      mailboxes: [{ id: "INBOX", name: "Inbox", kind: "inbox" }, { id: "P", name: "Project", kind: "custom" }],
+    });
+    const isDisabled = (host: HTMLElement, tab: string, action: string): boolean => {
+      host.querySelector<HTMLElement>(`.oe-ribbon-tab[data-tab="${tab}"]`)!.click();
+      flushSync();
+      return host.querySelector<HTMLButtonElement>(`.oe-ribbon [data-action="${action}"]`)!.disabled;
+    };
+
+    it("disables the message-targeting actions for a new-message composer", () => {
+      const vm = fakeVm({ ...openThreadState(), composer: composerOf("new") });
+      const host = document.createElement("div");
+      const app = mount(App, { target: host, props: appProps(vm) });
+      flushSync();
+      for (const action of ["reply", "archive", "delete", "move"]) {
+        expect(isDisabled(host, "home", action), action).toBe(true);
+      }
+      expect(isDisabled(host, "vault", "save-to-vault")).toBe(true);
+      unmount(app);
+    });
+
+    it("disables them for an edit-draft composer too", () => {
+      const vm = fakeVm({ ...openThreadState(), composer: composerOf("editDraft") });
+      const host = document.createElement("div");
+      const app = mount(App, { target: host, props: appProps(vm) });
+      flushSync();
+      expect(isDisabled(host, "home", "reply")).toBe(true);
+      expect(isDisabled(host, "home", "delete")).toBe(true);
+      unmount(app);
+    });
+
+    it("keeps them enabled for an inline reply composer (the message is still on screen)", () => {
+      const vm = fakeVm({ ...openThreadState(), composer: composerOf("reply") });
+      const host = document.createElement("div");
+      const app = mount(App, { target: host, props: appProps(vm) });
+      flushSync();
+      for (const action of ["reply", "archive", "delete", "move"]) {
+        expect(isDisabled(host, "home", action), action).toBe(false);
+      }
+      expect(isDisabled(host, "vault", "save-to-vault")).toBe(false);
+      unmount(app);
+    });
+  });
+
   it("Email from note goes through the unsaved-composer guard", () => {
     const vm = fakeVm();
     const noteCommands = { composeFromNote: vi.fn(), composeWithNoteAttached: vi.fn() };

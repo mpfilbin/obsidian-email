@@ -64,7 +64,14 @@
   // Which message in the open thread is expanded — and so the target of the
   // ribbon's Reply/Archive/Delete/… . Lifted out of ReadingPane so both share it.
   let expandedId = $state<string | null>(null);
-  const targetMessageId = $derived(expandedId ?? state.openMessages.at(-1)?.summary.id ?? null);
+  const targetMessageId = $derived(
+    expandedId !== null && state.openMessages.some((m) => m.summary.id === expandedId)
+      ? expandedId
+      : (state.openMessages.at(-1)?.summary.id ?? null),
+  );
+  // Mirrors ReadingPane: a top-level composer replaces the message list, so the
+  // open thread's messages are not on screen and must not be ribbon targets.
+  const paneShowsComposer = $derived(state.composer?.mode === "new" || state.composer?.mode === "editDraft");
   let threadKey: string | null = null;
   $effect(() => {
     const firstId = state.openMessages[0]?.summary.id ?? null;
@@ -197,8 +204,8 @@
   // prompt or the delete confirmation.
   const ribbonCtx = $derived<RibbonContext>({
     hasAccount: state.activeAccountId !== null,
-    hasOpenThread: state.openThreadId !== null,
-    hasTargetMessage: targetMessageId !== null,
+    hasOpenThread: !paneShowsComposer && state.openThreadId !== null,
+    hasTargetMessage: !paneShowsComposer && targetMessageId !== null,
     mailboxKind: activeMailbox?.kind ?? null,
     otherMailboxes: state.mailboxes
       .filter((m) => m.id !== state.activeMailboxId)
@@ -247,7 +254,7 @@
     to: state.composer.to, cc: state.composer.cc, bcc: state.composer.bcc,
     subject: state.composer.subject, bodyHtml: state.composer.bodyHtml,
     attachments: state.composer.attachments,
-    sending: state.composer.sending, error: state.composer.error,
+    error: state.composer.error,
     onFieldsChange: (patch: Parameters<typeof vm.updateComposerFields>[0]) => vm.updateComposerFields(patch),
     onBodyChange: (html: string) => vm.updateComposerBody(html),
     onRemoveAttachment: (index: number) => vm.removeComposerAttachment(index),

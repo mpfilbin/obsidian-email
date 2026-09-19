@@ -72,6 +72,27 @@ describe("ViewModel", () => {
   let ctx: Awaited<ReturnType<typeof build>>;
   beforeEach(async () => { ctx = await build(); });
 
+  describe("ribbon prefs", () => {
+    const depsFor = (c: Awaited<ReturnType<typeof build>>) => ({
+      cache: c.cache, sync: c.sync, settings: c.settings, getProvider: () => c.provider, isOnline: () => true,
+      openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {},
+      promptFolderName: () => {}, promptFolderRename: vi.fn(), pickNoteAttachment: vi.fn(), showNotice: vi.fn(),
+    });
+
+    it("reads the stored ribbon prefs at construction, before init()", async () => {
+      await ctx.settings.updatePrefs({ ribbonEnabled: false, ribbonCollapsedByDefault: true });
+      const fresh = new ViewModel(depsFor(ctx));
+      expect(fresh.getState().ribbonEnabled).toBe(false);
+      expect(fresh.getState().ribbonCollapsedByDefault).toBe(true);
+    });
+
+    it("reports the defaults at construction when nothing was changed", () => {
+      const fresh = new ViewModel(depsFor(ctx));
+      expect(fresh.getState().ribbonEnabled).toBe(true);
+      expect(fresh.getState().ribbonCollapsedByDefault).toBe(false);
+    });
+  });
+
   it("init picks the first account, loads mailboxes and the first page grouped into threads", async () => {
     await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
     await ctx.cache.upsertMessages("a1", [

@@ -2,13 +2,12 @@
   import type { Address, OutgoingAttachment } from "../../../src/providers/types";
   import Composer from "../../../src/view/components/Composer.svelte";
 
-  let { initial, sending = false, error = null, onFieldsChange, onBodyChange, onRemoveAttachment = () => {} }: {
+  let { initial, error = null, onFieldsChange, onBodyChange, onRemoveAttachment = () => {} }: {
     initial: {
       mode: "reply" | "replyAll" | "forward" | "new" | "editDraft";
       to: Address[]; cc: Address[]; bcc: Address[]; subject: string; bodyHtml: string;
       attachments?: OutgoingAttachment[];
     };
-    sending?: boolean;
     error?: string | null;
     onFieldsChange: (patch: Partial<{ to: Address[]; cc: Address[]; bcc: Address[]; subject: string }>) => void;
     onBodyChange: (html: string) => void;
@@ -28,7 +27,6 @@
   subject={fields.subject}
   bodyHtml={fields.bodyHtml}
   attachments={fields.attachments ?? []}
-  {sending}
   {error}
   {onFieldsChange}
   {onBodyChange}

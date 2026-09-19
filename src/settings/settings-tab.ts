@@ -125,7 +125,7 @@ export class EmailSettingTab extends PluginSettingTab {
       );
     new Setting(containerEl)
       .setName("Show ribbon")
-      .setDesc("The tabbed action bar above the mail view. Takes effect the next time the mail view opens or refreshes.")
+      .setDesc("The tabbed action bar above the mail view. Turning this off removes the only buttons for replying, sending, saving to your vault and creating folders — use it for troubleshooting only. Takes effect the next time the mail view opens or refreshes.")
       .addToggle((t) =>
         t
           .setValue(cfg.prefs.ribbonEnabled)

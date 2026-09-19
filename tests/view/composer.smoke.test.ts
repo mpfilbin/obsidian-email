@@ -7,7 +7,7 @@ function baseProps(over: Partial<Record<string, unknown>> = {}) {
   return {
     mode: "new" as const,
     to: [], cc: [], bcc: [], subject: "", bodyHtml: "", attachments: [],
-    sending: false, error: null,
+    error: null,
     onFieldsChange: vi.fn(), onBodyChange: vi.fn(), onRemoveAttachment: vi.fn(),
     ...over,
   };
@@ -97,7 +97,7 @@ describe("Composer smoke", () => {
 
   it("shows the error message when present", () => {
     const host = document.createElement("div");
-    const app = mount(Composer, { target: host, props: baseProps({ error: "boom", sending: true }) });
+    const app = mount(Composer, { target: host, props: baseProps({ error: "boom" }) });
     flushSync();
     expect(host.textContent).toContain("boom");
     unmount(app);

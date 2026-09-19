@@ -183,6 +183,9 @@ export class ViewModel {
       }),
       deps.sync.states.on(() => this.refreshAccountStatuses()),
     );
+    // The view mounts before `init()`, and with no accounts `init()` never reaches
+    // `selectAccount` — so the ribbon prefs must already be in state at construction.
+    this.syncPrefs();
   }
 
   getState(): ViewState { return this.state; }

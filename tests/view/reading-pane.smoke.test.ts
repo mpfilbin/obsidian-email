@@ -179,7 +179,7 @@ describe("ReadingPane smoke", () => {
 
 describe("ReadingPane — composer rendering", () => {
   const composerProps = {
-    to: [], cc: [], bcc: [], subject: "", bodyHtml: "", attachments: [], sending: false, error: null,
+    to: [], cc: [], bcc: [], subject: "", bodyHtml: "", attachments: [], error: null,
     onFieldsChange: vi.fn(), onBodyChange: vi.fn(), onRemoveAttachment: vi.fn(),
   };
 
