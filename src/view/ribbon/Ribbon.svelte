@@ -30,6 +30,7 @@
       wasComposing = now;
     });
   });
+  // Defensive guard: falls back to Home if the active tab ever becomes unavailable.
   $effect(() => {
     if (!tabs.some((t) => t.id === activeTab)) activeTab = "home";
   });

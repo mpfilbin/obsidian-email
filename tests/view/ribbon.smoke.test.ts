@@ -89,23 +89,72 @@ describe("Ribbon smoke", () => {
     const app = mount(Ribbon, { target: host, props: { ctx: ctx(), defaultCollapsed: true } });
     flushSync();
     expect(q(host, ".oe-ribbon-panel")).toBeNull();
+    expect(q(host, ".oe-ribbon")!.classList.contains("collapsed")).toBe(true);
     unmount(app);
   });
 
-  it("Move opens a menu of the other folders; choosing one calls move with its id", () => {
+  it("Move opens a menu (portaled to body) of the other folders; choosing one calls move with its id", () => {
     const c = ctx();
     const host = document.createElement("div");
     const app = mount(Ribbon, { target: host, props: { ctx: c, defaultCollapsed: false } });
     flushSync();
-    expect(q(host, ".oe-ribbon-menu")).toBeNull();
+    expect(document.body.querySelector(".oe-ribbon-menu")).toBeNull();
     q(host, '[data-action="move"]')!.click();
     flushSync();
-    expect([...host.querySelectorAll(".oe-ribbon-menu-item")].map((i) => i.textContent?.trim())).toEqual(["Archive", "Project"]);
-    q(host, '.oe-ribbon-menu-item[data-option="P"]')!.click();
+    expect(host.querySelector(".oe-ribbon-menu")).toBeNull();
+    expect([...document.body.querySelectorAll(".oe-ribbon-menu-item")].map((i) => i.textContent?.trim())).toEqual(["Archive", "Project"]);
+    document.body.querySelector<HTMLElement>('.oe-ribbon-menu-item[data-option="P"]')!.click();
     flushSync();
     expect(c.actions.move).toHaveBeenCalledWith("P");
-    expect(q(host, ".oe-ribbon-menu")).toBeNull();
+    expect(document.body.querySelector(".oe-ribbon-menu")).toBeNull();
     unmount(app);
+    expect(document.querySelector(".oe-ribbon-menu")).toBeNull();
+  });
+
+  describe("Move dropdown dismissal", () => {
+    const menu = () => document.body.querySelector<HTMLElement>(".oe-ribbon-menu");
+    function openMove() {
+      const host = document.createElement("div");
+      const app = mount(RibbonHost, { target: host, props: { initial: ctx() } });
+      flushSync();
+      q(host, '[data-action="move"]')!.click();
+      flushSync();
+      expect(menu()).not.toBeNull();
+      return { host, app };
+    }
+
+    it("Escape closes the open menu", () => {
+      const { app } = openMove();
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      flushSync();
+      expect(menu()).toBeNull();
+      unmount(app);
+    });
+
+    it("a mousedown outside closes the open menu", () => {
+      const { app } = openMove();
+      document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      flushSync();
+      expect(menu()).toBeNull();
+      unmount(app);
+    });
+
+    it("a mousedown inside the portaled menu does not close it", () => {
+      const { app } = openMove();
+      menu()!.querySelector(".oe-ribbon-menu-item")!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      flushSync();
+      expect(menu()).not.toBeNull();
+      unmount(app);
+      expect(menu()).toBeNull();
+    });
+
+    it("closes when the command becomes disabled", () => {
+      const { app } = openMove();
+      (app as unknown as { set: (c: RibbonContext) => void }).set(ctx({ hasOpenThread: false }));
+      flushSync();
+      expect(menu()).toBeNull();
+      unmount(app);
+    });
   });
 
   it("shows the Message tab and switches to it when a composer opens, then restores the previous tab on close", () => {
@@ -128,7 +177,7 @@ describe("Ribbon smoke", () => {
     unmount(app);
   });
 
-  it("falls back to Home if the active tab disappears for any other reason", () => {
+  it("selects the Message tab when a composer is already open at mount, and returns to Home when it closes", () => {
     const host = document.createElement("div");
     const app = mount(RibbonHost, { target: host, props: { initial: ctx({ composerMode: "new" }) } });
     flushSync();
