@@ -15,7 +15,13 @@ tab/group/button components.
 - Tabs: **Home / Folder / Vault**, plus a **contextual Message tab** while a
   composer is open.
 - Right-click context menus (message Move; folder Rename/Delete) stay.
-- Search stays in the message-list header.
+- Search moves into the ribbon too (Home → Search): a toggle that shows or hides
+  the search field above the message list. The field takes focus, Enter submits
+  (there is no Search button), and its ✕ / Escape / clicking Search again
+  dismisses it and clears any active search so the list returns to the current
+  folder. The old "Search: … ✕" pill is removed.
+- The search bar's own Refresh button is removed; Refresh lives only on the
+  ribbon (Home → Sync).
 
 ## Architecture
 
@@ -36,6 +42,7 @@ New folder `src/view/ribbon/`:
     icon: string;          // Lucide id, rendered through the existing use:icon action
     label: string;
     enabled: (ctx: RibbonContext) => boolean;
+    pressed?: (ctx: RibbonContext) => boolean;  // toggle-style commands (Search)
     run?: (ctx: RibbonContext) => void;
     options?: (ctx: RibbonContext) => RibbonOption[];  // dropdown commands (Move)
   }
@@ -56,12 +63,12 @@ guarded handlers, and passes it to `<Ribbon>`.
 
 Facts: `openThreadId`, `targetMessageId` (the expanded message), active mailbox
 `kind`/`id`, `otherMailboxes`, `composer` mode + `sending`, `isDraftsMailbox`,
-`isTrashMailbox`, `isArchiveMailbox`, `syncing`.
+`isTrashMailbox`, `isArchiveMailbox`, `syncing`, `searchOpen`.
 
 Actions (thin wrappers over existing App.svelte logic — `requestSwitch`,
 `requestRowAction`, `requestDelete`, `requestDeleteMailbox`, `moveThread`,
 unsaved-composer prompt): `newMessage`, `reply`, `replyAll`, `forward`,
-`archive`, `delete`, `move(mailboxId)`, `refresh`, `newFolder`, `renameFolder`,
+`archive`, `delete`, `move(mailboxId)`, `refresh`, `toggleSearch`, `newFolder`, `renameFolder`,
 `deleteFolder`, `saveToVault`, `emailFromNote`, `emailWithNoteAttached`, `send`,
 `saveDraft`, `discardDraft`, `attachNote`.
 
@@ -85,6 +92,7 @@ the state or the action row.
 | Home | Respond | Reply, Reply all, Forward |
 | Home | Manage | Archive, Delete, Move (dropdown of other folders) |
 | Home | Sync | Refresh |
+| Home | Search | Search (toggle: shows/hides the search field) |
 | Folder | Folder | New folder, Rename, Delete |
 | Vault | Vault | Save email to vault, Email from note, Email with note attached |
 | Message (contextual) | Send | Send, Save draft, Discard |

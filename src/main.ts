@@ -141,28 +141,31 @@ export default class EmailPlugin extends Plugin {
 
     // "Any note from my vault": the active note if one's a Markdown file,
     // else a fuzzy-search picker over every note in the vault.
-    const resolveNote = (onResolve: (file: TFile) => void): void => {
+    const resolveNote = (onResolve: (file: TFile) => void, onCancel?: () => void): void => {
       const active = this.app.workspace.getActiveFile();
       if (active?.extension === "md") {
         onResolve(active);
         return;
       }
-      new NotePickerModal(this.app, onResolve).open();
+      new NotePickerModal(this.app, onResolve, onCancel).open();
     };
 
     const pickNoteAttachment = (): Promise<OutgoingAttachment | undefined> =>
       new Promise((resolve) => {
-        resolveNote((file) => {
-          void (async () => {
-            try {
-              const contentBytes = arrayBufferToBase64(await this.app.vault.readBinary(file));
-              resolve({ filename: file.name, mimeType: "text/markdown", contentBytes });
-            } catch (err) {
-              new Notice(`Couldn't attach "${file.name}": ${(err as Error).message}`);
-              resolve(undefined);
-            }
-          })();
-        });
+        resolveNote(
+          (file) => {
+            void (async () => {
+              try {
+                const contentBytes = arrayBufferToBase64(await this.app.vault.readBinary(file));
+                resolve({ filename: file.name, mimeType: "text/markdown", contentBytes });
+              } catch (err) {
+                new Notice(`Couldn't attach "${file.name}": ${(err as Error).message}`);
+                resolve(undefined);
+              }
+            })();
+          },
+          () => resolve(undefined),
+        );
       });
 
     const showMailboxContextMenu: MailboxContextMenuHandler = (evt, currentName, onRename, onDelete) => {

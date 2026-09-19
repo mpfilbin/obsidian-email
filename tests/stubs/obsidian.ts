@@ -155,3 +155,14 @@ export const requestUrl = async (): Promise<unknown> => ({
 export function setIcon(parent: HTMLElement, iconId: string): void {
   parent.setAttribute("data-icon", iconId);
 }
+
+/** Minimal stand-in for Obsidian's FuzzySuggestModal: `close()` runs `onClose()`
+ *  the way the real Modal does; the rest is inert. */
+export class FuzzySuggestModal<T> {
+  constructor(public app: unknown) {}
+  setPlaceholder(_placeholder: string): void {}
+  open(): void {}
+  close(): void { this.onClose(); }
+  onClose(): void {}
+  getItems(): T[] { return []; }
+}

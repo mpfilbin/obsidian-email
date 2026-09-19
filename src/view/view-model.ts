@@ -74,8 +74,7 @@ export interface ViewModelDeps {
   /** Prompts for a folder's new name, pre-filled with `currentName`. */
   promptFolderRename: (currentName: string, onSubmit: (name: string) => void) => void;
   /** Lets the user pick a vault note and resolves with it as an attachment,
-   *  or `undefined` if the note couldn't be read. May never resolve if the
-   *  picker is dismissed. */
+   *  or `undefined` if the picker is dismissed or the note couldn't be read. */
   pickNoteAttachment: () => Promise<OutgoingAttachment | undefined>;
   /** Shows a transient, auto-dismissing toast (Obsidian's own `Notice`) —
    *  used for one-off confirmations and errors instead of persistent state. */

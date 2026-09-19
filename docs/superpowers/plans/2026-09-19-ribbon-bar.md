@@ -18,7 +18,7 @@
 - `tests/` is outside `tsconfig.json`'s scope: `npx tsc -noEmit -skipLibCheck` does NOT type-check tests, so run the suite.
 - Ribbon buttons carry `data-action="<command id>"`. Existing per-row buttons in `ThreadRow` (`.oe-thread-actions`) also use `data-action="archive"|"delete"`; tests must scope selectors (`.oe-ribbon [data-action=…]` vs `.oe-thread-actions [data-action=…]`).
 - Commit messages end with `Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>`.
-- The Refresh button in `SearchBar` stays (search-adjacent); the ribbon adds its own Refresh. Decided during planning; not listed in the spec's removed UI.
+- The Refresh button in `SearchBar` stayed at planning time (search-adjacent) while the ribbon added its own. **Superseded during implementation:** it was later removed from the search bar, so Refresh lives only on the ribbon (see the spec's updated "Decisions").
 - `ribbonEnabled` / `ribbonCollapsedByDefault` are re-read by `syncPrefs()` (init, `selectAccount`, `refresh`), same staleness model as `autoLoadImages`.
 
 ---
