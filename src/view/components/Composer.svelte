@@ -4,23 +4,18 @@
   import type { Address, OutgoingAttachment } from "../../providers/types";
   import { parseRecipients } from "../parse-recipients";
 
-  let { mode, to, cc, bcc, subject, bodyHtml, attachments, sending, error, onFieldsChange, onBodyChange, onRemoveAttachment, onSend, onSaveDraft, onDiscard }: {
+  let { mode, to, cc, bcc, subject, bodyHtml, attachments, error, onFieldsChange, onBodyChange, onRemoveAttachment }: {
     mode: "reply" | "replyAll" | "forward" | "new" | "editDraft";
     to: Address[]; cc: Address[]; bcc: Address[]; subject: string; bodyHtml: string;
     attachments: OutgoingAttachment[];
-    sending: boolean; error: string | null;
+    error: string | null;
     onFieldsChange: (patch: Partial<{ to: Address[]; cc: Address[]; bcc: Address[]; subject: string }>) => void;
     onBodyChange: (html: string) => void;
     onRemoveAttachment: (index: number) => void;
-    onSend: () => void;
-    onSaveDraft: () => void;
-    onDiscard: () => void;
   } = $props();
 
   const showRecipients = $derived(mode === "forward" || mode === "new" || mode === "editDraft");
   const showCcBccSubject = $derived(mode === "new" || mode === "editDraft");
-  const showSave = $derived(mode === "new" || mode === "editDraft");
-  const sendLabel = $derived(mode === "new" || mode === "editDraft" ? "Send" : mode === "forward" ? "Forward" : "Reply");
 
   const fmtAddrs = (addrs: Address[]) => addrs.map((a) => a.email).join(", ");
   // svelte-ignore state_referenced_locally
@@ -131,12 +126,4 @@
   {/if}
 
   {#if error}<p class="oe-composer-error">{error}</p>{/if}
-
-  <div class="oe-composer-actions">
-    <button type="button" class="oe-composer-send" disabled={sending} onclick={onSend}>{sendLabel}</button>
-    {#if showSave}
-      <button type="button" class="oe-composer-save" disabled={sending} onclick={onSaveDraft}>Save draft</button>
-    {/if}
-    <button type="button" class="oe-composer-discard" disabled={sending} onclick={onDiscard}>Discard</button>
-  </div>
 </div>

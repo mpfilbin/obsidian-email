@@ -19,6 +19,13 @@ export type MailboxContextMenuHandler = (
   onDelete: () => void,
 ) => void;
 
+/** Vault-note → email flows, implemented in main.ts (they need Obsidian's
+ *  workspace/vault) and shared between the command palette and the ribbon. */
+export interface NoteCommands {
+  composeFromNote: () => void;
+  composeWithNoteAttached: () => void;
+}
+
 export class MailView extends ItemView {
   private app_?: ReturnType<typeof mount>;
 
@@ -28,6 +35,7 @@ export class MailView extends ItemView {
     private onAddAccount: () => void,
     private onThreadContextMenu: ThreadContextMenuHandler,
     private onMailboxContextMenu: MailboxContextMenuHandler,
+    private noteCommands: NoteCommands,
   ) {
     super(leaf);
   }
@@ -53,6 +61,7 @@ export class MailView extends ItemView {
         onAddAccount: this.onAddAccount,
         onThreadContextMenu: this.onThreadContextMenu,
         onMailboxContextMenu: this.onMailboxContextMenu,
+        noteCommands: this.noteCommands,
       },
     });
     await this.vm.init();

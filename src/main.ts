@@ -4,7 +4,14 @@ import type { HttpPost } from "./auth/oauth-client";
 import type { SecretStore } from "./auth/token-manager";
 import { SettingsStore } from "./settings/settings-store";
 import { PluginContext } from "./plugin-context";
-import { MailView, MAIL_VIEW_TYPE, type MailboxContextMenuHandler, type ThreadContextMenuHandler } from "./view/mail-view";
+import {
+  MailView,
+  MAIL_VIEW_TYPE,
+  type MailboxContextMenuHandler,
+  type NoteCommands,
+  type ThreadContextMenuHandler,
+} from "./view/mail-view";
+import type { OutgoingAttachment } from "./providers/types";
 import { EmailSettingTab } from "./settings/settings-tab";
 import { makeObsidianHttp } from "./providers/obsidian-http";
 import { Logger } from "./util/logger";
@@ -120,20 +127,46 @@ export default class EmailPlugin extends Plugin {
       new FolderNameModal(this.app, { heading: "New folder", submitLabel: "Create" }, onSubmit).open();
     };
 
+    const promptFolderRename = (currentName: string, onSubmit: (name: string) => void): void => {
+      new FolderNameModal(
+        this.app,
+        { heading: "Rename folder", submitLabel: "Rename", defaultName: currentName },
+        onSubmit,
+      ).open();
+    };
+
     const showNotice = (message: string): void => {
       new Notice(message);
     };
 
     // "Any note from my vault": the active note if one's a Markdown file,
     // else a fuzzy-search picker over every note in the vault.
-    const resolveNote = (onResolve: (file: TFile) => void): void => {
+    const resolveNote = (onResolve: (file: TFile) => void, onCancel?: () => void): void => {
       const active = this.app.workspace.getActiveFile();
       if (active?.extension === "md") {
         onResolve(active);
         return;
       }
-      new NotePickerModal(this.app, onResolve).open();
+      new NotePickerModal(this.app, onResolve, onCancel).open();
     };
+
+    const pickNoteAttachment = (): Promise<OutgoingAttachment | undefined> =>
+      new Promise((resolve) => {
+        resolveNote(
+          (file) => {
+            void (async () => {
+              try {
+                const contentBytes = arrayBufferToBase64(await this.app.vault.readBinary(file));
+                resolve({ filename: file.name, mimeType: "text/markdown", contentBytes });
+              } catch (err) {
+                new Notice(`Couldn't attach "${file.name}": ${(err as Error).message}`);
+                resolve(undefined);
+              }
+            })();
+          },
+          () => resolve(undefined),
+        );
+      });
 
     const showMailboxContextMenu: MailboxContextMenuHandler = (evt, currentName, onRename, onDelete) => {
       const menu = new Menu();
@@ -190,22 +223,13 @@ export default class EmailPlugin extends Plugin {
 
     this.ctx = await PluginContext.create(
       settings,
-      { http, secrets, post, openExternal, saveBlob, saveNote, promptFolderName, showNotice },
+      { http, secrets, post, openExternal, saveBlob, saveNote, promptFolderName, promptFolderRename, pickNoteAttachment, showNotice },
       logger,
     );
     const ctx = this.ctx;
 
-    this.registerView(
-      MAIL_VIEW_TYPE,
-      (leaf) => new MailView(leaf, ctx.vm, () => this.openSettings(), showThreadContextMenu, showMailboxContextMenu),
-    );
-
-    this.addRibbonIcon("mail", "Open mail", () => void this.activateView());
-    this.addCommand({ id: "open", name: "Open mail", callback: () => void this.activateView() });
-    this.addCommand({
-      id: "compose-from-note",
-      name: "Create email from note",
-      callback: () => {
+    const noteCommands: NoteCommands = {
+      composeFromNote: () => {
         resolveNote((file) => {
           void (async () => {
             try {
@@ -218,11 +242,7 @@ export default class EmailPlugin extends Plugin {
           })();
         });
       },
-    });
-    this.addCommand({
-      id: "compose-with-note-attached",
-      name: "Create email with note attached",
-      callback: () => {
+      composeWithNoteAttached: () => {
         resolveNote((file) => {
           void (async () => {
             try {
@@ -235,6 +255,28 @@ export default class EmailPlugin extends Plugin {
           })();
         });
       },
+    };
+
+    this.registerView(
+      MAIL_VIEW_TYPE,
+      (leaf) =>
+        new MailView(
+          leaf,
+          ctx.vm,
+          () => this.openSettings(),
+          showThreadContextMenu,
+          showMailboxContextMenu,
+          noteCommands,
+        ),
+    );
+
+    this.addRibbonIcon("mail", "Open mail", () => void this.activateView());
+    this.addCommand({ id: "open", name: "Open mail", callback: () => void this.activateView() });
+    this.addCommand({ id: "compose-from-note", name: "Create email from note", callback: noteCommands.composeFromNote });
+    this.addCommand({
+      id: "compose-with-note-attached",
+      name: "Create email with note attached",
+      callback: noteCommands.composeWithNoteAttached,
     });
     this.addSettingTab(new EmailSettingTab(this, ctx, settings));
 

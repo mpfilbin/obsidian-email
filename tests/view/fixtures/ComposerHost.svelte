@@ -2,20 +2,16 @@
   import type { Address, OutgoingAttachment } from "../../../src/providers/types";
   import Composer from "../../../src/view/components/Composer.svelte";
 
-  let { initial, sending = false, error = null, onFieldsChange, onBodyChange, onRemoveAttachment = () => {}, onSend, onSaveDraft, onDiscard }: {
+  let { initial, error = null, onFieldsChange, onBodyChange, onRemoveAttachment = () => {} }: {
     initial: {
       mode: "reply" | "replyAll" | "forward" | "new" | "editDraft";
       to: Address[]; cc: Address[]; bcc: Address[]; subject: string; bodyHtml: string;
       attachments?: OutgoingAttachment[];
     };
-    sending?: boolean;
     error?: string | null;
     onFieldsChange: (patch: Partial<{ to: Address[]; cc: Address[]; bcc: Address[]; subject: string }>) => void;
     onBodyChange: (html: string) => void;
     onRemoveAttachment?: (index: number) => void;
-    onSend: () => void;
-    onSaveDraft: () => void;
-    onDiscard: () => void;
   } = $props();
 
   // svelte-ignore state_referenced_locally
@@ -31,12 +27,8 @@
   subject={fields.subject}
   bodyHtml={fields.bodyHtml}
   attachments={fields.attachments ?? []}
-  {sending}
   {error}
   {onFieldsChange}
   {onBodyChange}
   {onRemoveAttachment}
-  {onSend}
-  {onSaveDraft}
-  {onDiscard}
 />

@@ -124,6 +124,22 @@ export class EmailSettingTab extends PluginSettingTab {
           .onChange((v) => this.settings.updatePrefs({ autoLoadImages: v })),
       );
     new Setting(containerEl)
+      .setName("Show ribbon")
+      .setDesc("The tabbed action bar above the mail view. Turning this off removes the only buttons for replying, sending, saving to your vault and creating folders — use it for troubleshooting only. Takes effect the next time the mail view opens or refreshes.")
+      .addToggle((t) =>
+        t
+          .setValue(cfg.prefs.ribbonEnabled)
+          .onChange((v) => this.settings.updatePrefs({ ribbonEnabled: v })),
+      );
+    new Setting(containerEl)
+      .setName("Collapse ribbon by default")
+      .setDesc("Start with only the tab strip visible. Double-click a tab to expand or collapse.")
+      .addToggle((t) =>
+        t
+          .setValue(cfg.prefs.ribbonCollapsedByDefault)
+          .onChange((v) => this.settings.updatePrefs({ ribbonCollapsedByDefault: v })),
+      );
+    new Setting(containerEl)
       .setName("Attachment save folder")
       .setDesc("Vault-relative path. Blank = ask each time.")
       .addText((t) =>

@@ -54,6 +54,9 @@ export interface ViewState {
   search: { query: string; active: boolean };
   openThreadId: string | null;
   openMessages: Array<{ summary: MessageSummary; body?: MessageBody }>;
+  /** Mirror `prefs.ribbonEnabled` / `prefs.ribbonCollapsedByDefault`. */
+  ribbonEnabled: boolean;
+  ribbonCollapsedByDefault: boolean;
   composer: ComposerState | null;
 }
 
@@ -68,6 +71,11 @@ export interface ViewModelDeps {
   saveNote: (defaultPath: string, content: string) => void;
   /** Prompts for a new folder name; calls `onSubmit` with it if confirmed. */
   promptFolderName: (onSubmit: (name: string) => void) => void;
+  /** Prompts for a folder's new name, pre-filled with `currentName`. */
+  promptFolderRename: (currentName: string, onSubmit: (name: string) => void) => void;
+  /** Lets the user pick a vault note and resolves with it as an attachment,
+   *  or `undefined` if the picker is dismissed or the note couldn't be read. */
+  pickNoteAttachment: () => Promise<OutgoingAttachment | undefined>;
   /** Shows a transient, auto-dismissing toast (Obsidian's own `Notice`) —
    *  used for one-off confirmations and errors instead of persistent state. */
   showNotice: (message: string) => void;
@@ -133,6 +141,7 @@ export class ViewModel {
     threads: [], hasMore: false, loadingList: false, autoLoadImages: false,
     search: { query: "", active: false },
     openThreadId: null, openMessages: [],
+    ribbonEnabled: true, ribbonCollapsedByDefault: false,
     composer: null,
   };
   private listeners = new Set<(s: ViewState) => void>();
@@ -173,6 +182,9 @@ export class ViewModel {
       }),
       deps.sync.states.on(() => this.refreshAccountStatuses()),
     );
+    // The view mounts before `init()`, and with no accounts `init()` never reaches
+    // `selectAccount` — so the ribbon prefs must already be in state at construction.
+    this.syncPrefs();
   }
 
   getState(): ViewState { return this.state; }
@@ -200,8 +212,14 @@ export class ViewModel {
    * been in the settings tab since we last looked.
    */
   private syncPrefs(): void {
-    const { autoLoadImages } = this.deps.settings.get().prefs;
-    if (autoLoadImages !== this.state.autoLoadImages) this.set({ autoLoadImages });
+    const { autoLoadImages, ribbonEnabled, ribbonCollapsedByDefault } = this.deps.settings.get().prefs;
+    if (
+      autoLoadImages !== this.state.autoLoadImages ||
+      ribbonEnabled !== this.state.ribbonEnabled ||
+      ribbonCollapsedByDefault !== this.state.ribbonCollapsedByDefault
+    ) {
+      this.set({ autoLoadImages, ribbonEnabled, ribbonCollapsedByDefault });
+    }
   }
 
   async init(): Promise<void> {
@@ -269,6 +287,14 @@ export class ViewModel {
   /** Prompts for a name via the host, then creates the folder. */
   requestCreateMailbox(): void {
     this.deps.promptFolderName((name) => { void this.createMailbox(name); });
+  }
+
+  /** Prompts (via the host) for a new name for `id`, pre-filled with its
+   *  current one, then renames it. */
+  requestRenameMailbox(id: string): void {
+    const box = this.state.mailboxes.find((m) => m.id === id);
+    if (!box) return;
+    this.deps.promptFolderRename(box.name, (name) => { void this.renameMailbox(id, name); });
   }
 
   private async createMailbox(name: string): Promise<void> {
@@ -475,6 +501,17 @@ export class ViewModel {
     this.set({
       composer: { ...this.state.composer, attachments: this.state.composer.attachments.filter((_, i) => i !== index) },
     });
+  }
+
+  addComposerAttachment(attachment: OutgoingAttachment): void {
+    if (!this.state.composer) return;
+    this.set({ composer: { ...this.state.composer, attachments: [...this.state.composer.attachments, attachment] } });
+  }
+
+  /** Asks the host to pick a note and attaches it to the open composer. */
+  async requestAttachNote(): Promise<void> {
+    const attachment = await this.deps.pickNoteAttachment();
+    if (attachment) this.addComposerAttachment(attachment);
   }
 
   hasUnsavedComposerContent(): boolean {

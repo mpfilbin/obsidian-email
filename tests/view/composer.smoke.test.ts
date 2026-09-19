@@ -7,15 +7,14 @@ function baseProps(over: Partial<Record<string, unknown>> = {}) {
   return {
     mode: "new" as const,
     to: [], cc: [], bcc: [], subject: "", bodyHtml: "", attachments: [],
-    sending: false, error: null,
+    error: null,
     onFieldsChange: vi.fn(), onBodyChange: vi.fn(), onRemoveAttachment: vi.fn(),
-    onSend: vi.fn(), onSaveDraft: vi.fn(), onDiscard: vi.fn(),
     ...over,
   };
 }
 
 describe("Composer smoke", () => {
-  it("mode=new shows To/Cc/Bcc/Subject fields and a Save draft button", () => {
+  it("mode=new shows To/Cc/Bcc/Subject fields", () => {
     const host = document.createElement("div");
     const app = mount(Composer, { target: host, props: baseProps() });
     flushSync();
@@ -23,28 +22,25 @@ describe("Composer smoke", () => {
     expect(host.querySelector('input[data-field="cc"]')).not.toBeNull();
     expect(host.querySelector('input[data-field="bcc"]')).not.toBeNull();
     expect(host.querySelector('input[data-field="subject"]')).not.toBeNull();
-    expect(host.querySelector(".oe-composer-save")).not.toBeNull();
     unmount(app);
   });
 
-  it("mode=reply shows no recipient/subject fields or Save draft button", () => {
+  it("mode=reply shows no recipient/subject fields", () => {
     const host = document.createElement("div");
     const app = mount(Composer, { target: host, props: baseProps({ mode: "reply" }) });
     flushSync();
     expect(host.querySelector('input[data-field="to"]')).toBeNull();
     expect(host.querySelector('input[data-field="subject"]')).toBeNull();
-    expect(host.querySelector(".oe-composer-save")).toBeNull();
     unmount(app);
   });
 
-  it("mode=forward shows only a To field, no Cc/Bcc/Subject/Save draft", () => {
+  it("mode=forward shows only a To field, no Cc/Bcc/Subject", () => {
     const host = document.createElement("div");
     const app = mount(Composer, { target: host, props: baseProps({ mode: "forward" }) });
     flushSync();
     expect(host.querySelector('input[data-field="to"]')).not.toBeNull();
     expect(host.querySelector('input[data-field="cc"]')).toBeNull();
     expect(host.querySelector('input[data-field="subject"]')).toBeNull();
-    expect(host.querySelector(".oe-composer-save")).toBeNull();
     unmount(app);
   });
 
@@ -99,26 +95,11 @@ describe("Composer smoke", () => {
     unmount(app);
   });
 
-  it("Send/Save draft/Discard buttons call their callbacks", () => {
-    const onSend = vi.fn(), onSaveDraft = vi.fn(), onDiscard = vi.fn();
+  it("shows the error message when present", () => {
     const host = document.createElement("div");
-    const app = mount(Composer, { target: host, props: baseProps({ onSend, onSaveDraft, onDiscard }) });
-    flushSync();
-    host.querySelector<HTMLButtonElement>(".oe-composer-send")!.click();
-    host.querySelector<HTMLButtonElement>(".oe-composer-save")!.click();
-    host.querySelector<HTMLButtonElement>(".oe-composer-discard")!.click();
-    expect(onSend).toHaveBeenCalledOnce();
-    expect(onSaveDraft).toHaveBeenCalledOnce();
-    expect(onDiscard).toHaveBeenCalledOnce();
-    unmount(app);
-  });
-
-  it("shows the error message when present, and disables Send while sending", () => {
-    const host = document.createElement("div");
-    const app = mount(Composer, { target: host, props: baseProps({ error: "boom", sending: true }) });
+    const app = mount(Composer, { target: host, props: baseProps({ error: "boom" }) });
     flushSync();
     expect(host.textContent).toContain("boom");
-    expect(host.querySelector<HTMLButtonElement>(".oe-composer-send")!.disabled).toBe(true);
     unmount(app);
   });
 
@@ -131,7 +112,7 @@ describe("Composer smoke", () => {
           mode: "editDraft" as const,
           to: [{ email: "a@x.com" }], cc: [], bcc: [], subject: "Draft A", bodyHtml: "",
         },
-        onFieldsChange: vi.fn(), onBodyChange: vi.fn(), onSend: vi.fn(), onSaveDraft: vi.fn(), onDiscard: vi.fn(),
+        onFieldsChange: vi.fn(), onBodyChange: vi.fn(),
       },
     });
     flushSync();
@@ -155,7 +136,7 @@ describe("Composer smoke", () => {
       target: host,
       props: {
         initial: { mode: "new" as const, to: [], cc: [], bcc: [], subject: "", bodyHtml: "<p>one</p>" },
-        onFieldsChange: vi.fn(), onBodyChange: vi.fn(), onSend: vi.fn(), onSaveDraft: vi.fn(), onDiscard: vi.fn(),
+        onFieldsChange: vi.fn(), onBodyChange: vi.fn(),
       },
     });
     flushSync();
