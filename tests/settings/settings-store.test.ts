@@ -52,4 +52,15 @@ describe("SettingsStore", () => {
     await s.updatePrefs({ pollMinutes: null });
     expect(s.pollIntervalMs()).toBeNull();
   });
+
+  it("defaults the ribbon to enabled and expanded, and persists changes", async () => {
+    const h = host();
+    const s = await SettingsStore.load(h);
+    expect(s.get().prefs.ribbonEnabled).toBe(true);
+    expect(s.get().prefs.ribbonCollapsedByDefault).toBe(false);
+    await s.updatePrefs({ ribbonEnabled: false, ribbonCollapsedByDefault: true });
+    const s2 = await SettingsStore.load(h);
+    expect(s2.get().prefs.ribbonEnabled).toBe(false);
+    expect(s2.get().prefs.ribbonCollapsedByDefault).toBe(true);
+  });
 });

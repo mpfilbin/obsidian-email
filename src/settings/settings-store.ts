@@ -7,6 +7,8 @@ export interface Prefs {
   syncWindowDays: number;
   defaultAccountId: string | null;
   debug: boolean;
+  ribbonEnabled: boolean;
+  ribbonCollapsedByDefault: boolean;
 }
 
 export interface PluginSettings {
@@ -25,6 +27,8 @@ export const DEFAULT_SETTINGS: PluginSettings = {
     syncWindowDays: 90,
     defaultAccountId: null,
     debug: false,
+    ribbonEnabled: true,
+    ribbonCollapsedByDefault: false,
   },
 };
 
