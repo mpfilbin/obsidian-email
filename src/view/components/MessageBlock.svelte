@@ -1,10 +1,8 @@
 <script lang="ts">
   import type { AttachmentMeta, MessageBody, MessageSummary } from "../../providers/types";
   import { renderMessageBody, type RenderHandle } from "../../render/message-renderer";
-  import type { ComposerFieldProps } from "../composer-props";
-  import Composer from "./Composer.svelte";
 
-  let { summary, body, expanded, autoLoadImages, renderDeps, onToggle, onDownload, composerMode, composerProps }: {
+  let { summary, body, expanded, autoLoadImages, renderDeps, onToggle, onDownload }: {
     summary: MessageSummary;
     body?: MessageBody;
     expanded: boolean;
@@ -13,8 +11,6 @@
     renderDeps: { getInlineAttachment: (cid: string) => Promise<Blob | undefined>; openExternal: (url: string) => void };
     onToggle: () => void;
     onDownload: (att: AttachmentMeta) => void;
-    composerMode: "reply" | "replyAll" | "forward" | null;
-    composerProps: ComposerFieldProps | null;
   } = $props();
 
   let bodyEl = $state<HTMLDivElement | null>(null);
@@ -75,9 +71,6 @@
           </button>
         {/each}
       </div>
-    {/if}
-    {#if composerMode && composerProps}
-      <Composer mode={composerMode} {...composerProps} />
     {/if}
   {/if}
 </article>

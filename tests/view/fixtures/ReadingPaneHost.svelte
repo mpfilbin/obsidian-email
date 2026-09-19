@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { AttachmentMeta } from "../../../src/providers/types";
+  import type { ComposerFieldProps } from "../../../src/view/composer-props";
   import type { ViewState } from "../../../src/view/view-model";
   import ReadingPane from "../../../src/view/components/ReadingPane.svelte";
 
@@ -26,10 +27,19 @@
     }
   });
   export function set(m: ViewState["openMessages"]): void { messages = m; }
+
+  // Lets a test open/replace/close an inline composer on a mounted pane, the
+  // way App does as composer state changes.
+  type InlineComposer = { mode: "reply" | "replyAll" | "forward"; id: string; props: ComposerFieldProps };
+  let composer = $state<InlineComposer | null>(null);
+  export function setComposer(c: InlineComposer | null): void { composer = c; }
 </script>
 
 <ReadingPane
   openMessages={messages} {autoLoadImages} {renderDeps} {onClose} {onDownload}
   targetMessageId={target}
+  activeComposerMessageId={composer?.id ?? null}
+  composerMode={composer?.mode ?? null}
+  composerProps={composer?.props ?? null}
   onToggleExpand={(id) => (expandedId = expandedId === id ? null : id)}
 />
