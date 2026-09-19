@@ -13,6 +13,39 @@ function baseProps(over: Partial<Record<string, unknown>> = {}) {
   };
 }
 
+describe("Composer focus on open", () => {
+  // Focus only takes effect on an element attached to the document.
+  const mountAttached = (mode: "new" | "reply" | "replyAll" | "forward" | "editDraft") => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const app = mount(Composer, { target: host, props: baseProps({ mode }) });
+    flushSync();
+    return { host, done: () => { unmount(app); host.remove(); } };
+  };
+
+  for (const mode of ["reply", "replyAll"] as const) {
+    it(`mode=${mode} focuses the message body`, () => {
+      const { host, done } = mountAttached(mode);
+      expect(document.activeElement).toBe(host.querySelector(".ql-editor"));
+      done();
+    });
+  }
+
+  it("mode=forward focuses the To field", () => {
+    const { host, done } = mountAttached("forward");
+    expect(document.activeElement).toBe(host.querySelector('input[data-field="to"]'));
+    done();
+  });
+
+  for (const mode of ["new", "editDraft"] as const) {
+    it(`mode=${mode} does not steal focus`, () => {
+      const { done } = mountAttached(mode);
+      expect(document.activeElement).toBe(document.body);
+      done();
+    });
+  }
+});
+
 describe("Composer smoke", () => {
   it("mode=new shows To/Cc/Bcc/Subject fields", () => {
     const host = document.createElement("div");

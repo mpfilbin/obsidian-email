@@ -43,7 +43,14 @@
   }
 
   let editorHost: HTMLDivElement | null = null;
+  let toInput = $state<HTMLInputElement | null>(null);
   let quill: Quill | null = null;
+
+  // An inline reply/forward opens ready to type: Reply and Reply all in the
+  // message body, Forward in the To field. New message / Edit draft keep their
+  // existing behaviour. `mode` never changes while a composer is mounted (the
+  // pane remounts a new one), so it is read untracked.
+  const isReply = (m: typeof mode) => m === "reply" || m === "replyAll";
 
   $effect(() => {
     if (!editorHost) return;
@@ -60,12 +67,17 @@
     const initialHtml = untrack(() => bodyHtml);
     if (initialHtml) q.clipboard.dangerouslyPasteHTML(initialHtml);
     quill = q;
+    if (isReply(untrack(() => mode))) q.focus();
     const onChange = () => onBodyChange(q.root.innerHTML);
     q.on("text-change", onChange);
     return () => {
       q.off("text-change", onChange);
       quill = null;
     };
+  });
+
+  $effect(() => {
+    if (untrack(() => mode) === "forward") toInput?.focus();
   });
 </script>
 
@@ -74,7 +86,7 @@
     <label class="oe-composer-field">
       <span>To</span>
       <input
-        type="text" data-field="to" value={toText}
+        type="text" data-field="to" value={toText} bind:this={toInput}
         oninput={(e) => (toText = e.currentTarget.value)}
         onchange={(e) => commitField("to", e.currentTarget.value)}
       />

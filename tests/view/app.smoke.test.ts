@@ -1011,7 +1011,8 @@ describe("App.svelte — ribbon", () => {
     reply();
     expect(vm.openReply).toHaveBeenLastCalledWith("m2", "reply"); // defaults to the last message
 
-    host.querySelectorAll<HTMLElement>(".oe-message-head")[0].click(); // expand m1
+    // Newest first: [m2, m1] — index 1 is the older message, m1.
+    host.querySelectorAll<HTMLElement>(".oe-message-head")[1].click(); // expand m1
     flushSync();
     reply();
     expect(vm.openReply).toHaveBeenLastCalledWith("m1", "reply");
@@ -1041,6 +1042,7 @@ describe("App.svelte — ribbon", () => {
     flushSync();
     const reply = () => host.querySelector<HTMLElement>('.oe-ribbon [data-action="reply"]')!.click();
 
+    // Newest first: [m2, m1, m0] — index 1 is the middle message, m1.
     host.querySelectorAll<HTMLElement>(".oe-message-head")[1].click(); // expand m1
     flushSync();
     reply();

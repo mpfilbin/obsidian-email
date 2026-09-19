@@ -25,6 +25,11 @@ const open = (): ViewState["openMessages"] => [{
   },
 }];
 
+/** The message header whose sender is `who` (the `msg` fixture names each sender
+ *  after its id) — selected by name so tests don't depend on display order. */
+const headFor = (host: HTMLElement, who: string): HTMLElement =>
+  [...host.querySelectorAll<HTMLElement>(".oe-message-head")].find((h) => h.textContent?.includes(who))!;
+
 describe("ReadingPane smoke", () => {
   it("renders the subject, sanitized body and an attachment chip", () => {
     const host = document.createElement("div");
@@ -36,6 +41,37 @@ describe("ReadingPane smoke", () => {
     expect(host.textContent).toContain("Hello");
     expect(host.querySelector(".obsidian-email-message-body b")?.textContent).toBe("text");
     expect(host.textContent).toContain("report.pdf");
+    unmount(app);
+  });
+
+  it("lists the messages newest first, with the newest expanded at the top", () => {
+    const host = document.createElement("div");
+    // `openMessages` is oldest → newest.
+    const app = mount(ReadingPane, {
+      target: host,
+      props: {
+        openMessages: [msg("aa1", "A one"), msg("aa2", "A two"), msg("aa3", "A three")],
+        autoLoadImages: false, renderDeps, onClose: () => {}, onDownload: vi.fn(),
+      },
+    });
+    flushSync();
+    const blocks = [...host.querySelectorAll(".oe-message-block")];
+    expect(blocks.map((b) => b.querySelector(".oe-message-from")!.textContent)).toEqual(["aa3", "aa2", "aa1"]);
+    expect(blocks.map((b) => b.classList.contains("is-expanded"))).toEqual([true, false, false]);
+    // The subject line still comes from the newest message.
+    expect(host.querySelector(".oe-reading-head h3")!.textContent).toBe("A three");
+    unmount(app);
+  });
+
+  it("does not mutate the openMessages array it was given", () => {
+    const host = document.createElement("div");
+    const messages = [msg("aa1", "A one"), msg("aa2", "A two")];
+    const app = mount(ReadingPane, {
+      target: host,
+      props: { openMessages: messages, autoLoadImages: false, renderDeps, onClose: () => {}, onDownload: vi.fn() },
+    });
+    flushSync();
+    expect(messages.map((m) => m.summary.id)).toEqual(["aa1", "aa2"]);
     unmount(app);
   });
 
@@ -72,7 +108,7 @@ describe("ReadingPane smoke", () => {
     });
     flushSync();
     // Manually expand a non-last message in thread A.
-    host.querySelectorAll<HTMLElement>(".oe-message-head")[1].click();
+    headFor(host, "aa2").click();
     flushSync();
     let expanded = host.querySelectorAll(".oe-message-block.is-expanded");
     expect(expanded.length).toBe(1);
@@ -98,8 +134,8 @@ describe("ReadingPane smoke", () => {
     });
     flushSync();
     // Manually expand the non-last message.
-    const heads = host.querySelectorAll<HTMLElement>(".oe-message-head");
-    heads[0].click();
+    const olderHead = headFor(host, "aa1");
+    olderHead.click();
     flushSync();
     expect(host.querySelector(".oe-message-block.is-expanded")?.textContent).toContain("aa1");
 
@@ -108,14 +144,14 @@ describe("ReadingPane smoke", () => {
       toString: () => "some selected text",
     } as Selection);
     try {
-      heads[0].click();
+      olderHead.click();
       flushSync();
       expect(host.querySelector(".oe-message-block.is-expanded")?.textContent).toContain("aa1");
 
       // A plain click (no active selection) still toggles normally — falls
       // back to the last message expanding instead.
       selectionSpy.mockReturnValue({ toString: () => "" } as Selection);
-      heads[0].click();
+      olderHead.click();
       flushSync();
       expect(host.querySelector(".oe-message-block.is-expanded")?.textContent).toContain("aa2");
     } finally {
@@ -135,7 +171,7 @@ describe("ReadingPane smoke", () => {
       },
     });
     flushSync();
-    const head = host.querySelectorAll<HTMLElement>(".oe-message-head")[0];
+    const head = headFor(host, "aa1");
 
     head.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
     flushSync();
@@ -183,17 +219,70 @@ describe("ReadingPane — composer rendering", () => {
     onFieldsChange: vi.fn(), onBodyChange: vi.fn(), onRemoveAttachment: vi.fn(),
   };
 
-  it("renders the Composer inline under the message being replied to", () => {
+  const mountPane = (over: Record<string, unknown>) => {
     const host = document.createElement("div");
     const app = mount(ReadingPane, {
       target: host,
-      props: {
-        openMessages: open(), autoLoadImages: false, renderDeps, onClose: () => {}, onDownload: vi.fn(),
-        activeComposerMessageId: "m1", composerMode: "reply", composerProps,
-      },
+      props: { openMessages: open(), autoLoadImages: false, renderDeps, onClose: () => {}, onDownload: vi.fn(), ...over },
     });
     flushSync();
-    expect(host.querySelector(".oe-composer")).not.toBeNull();
+    return { host, app };
+  };
+
+  for (const mode of ["reply", "replyAll", "forward"] as const) {
+    it(`renders the ${mode} Composer at the top of the thread, above the subject header and messages`, () => {
+      const { host, app } = mountPane({ activeComposerMessageId: "m1", composerMode: mode, composerProps });
+      const scroll = host.querySelector(".oe-reading-scroll")!;
+      expect(scroll.firstElementChild!.classList.contains("oe-reply-composer")).toBe(true);
+      expect(scroll.firstElementChild!.querySelector(".oe-composer")).not.toBeNull();
+      expect(scroll.querySelector(".oe-reply-composer")!.nextElementSibling!.classList.contains("oe-reading-head")).toBe(true);
+      unmount(app);
+    });
+  }
+
+  it("does not render the composer inside any message block", () => {
+    const { host, app } = mountPane({ activeComposerMessageId: "m1", composerMode: "reply", composerProps });
+    expect(host.querySelector(".oe-message-block .oe-composer")).toBeNull();
+    expect(host.querySelectorAll(".oe-composer")).toHaveLength(1);
+    unmount(app);
+  });
+
+  it("keeps the composer visible when the message being replied to is collapsed", () => {
+    // targetMessageId null = nothing expanded, so m1's block is collapsed.
+    const { host, app } = mountPane({ targetMessageId: null, activeComposerMessageId: "m1", composerMode: "reply", composerProps });
+    expect(host.querySelector(".oe-message-block.is-expanded")).toBeNull();
+    expect(host.querySelector(".oe-reply-composer .oe-composer")).not.toBeNull();
+    unmount(app);
+  });
+
+  it("renders no composer wrapper when no inline composer is open", () => {
+    const { host, app } = mountPane({ composerMode: null, composerProps: null });
+    expect(host.querySelector(".oe-reply-composer")).toBeNull();
+    unmount(app);
+  });
+
+  it("scrolls to the top when an inline composer opens or is replaced, but not while typing", () => {
+    const host = document.createElement("div");
+    const app = mount(ReadingPaneHost, { target: host, props: { initial: open(), renderDeps, onClose: () => {}, onDownload: vi.fn() } });
+    flushSync();
+    const ctl = app as unknown as { setComposer: (c: unknown) => void };
+    const scroll = host.querySelector<HTMLElement>(".oe-reading-scroll")!;
+    const sets: number[] = [];
+    Object.defineProperty(scroll, "scrollTop", { configurable: true, get: () => 300, set: (v: number) => { sets.push(v); } });
+
+    ctl.setComposer({ mode: "reply", id: "m1", props: composerProps });
+    flushSync();
+    expect(sets).toEqual([0]);
+
+    // Every keystroke rebuilds the props object; that must not re-scroll.
+    ctl.setComposer({ mode: "reply", id: "m1", props: { ...composerProps, bodyHtml: "<p>hi</p>" } });
+    flushSync();
+    expect(sets).toEqual([0]);
+
+    // A different composer (here: Forward) is a fresh one and scrolls again.
+    ctl.setComposer({ mode: "forward", id: "m1", props: composerProps });
+    flushSync();
+    expect(sets).toEqual([0, 0]);
     unmount(app);
   });
 
