@@ -17,6 +17,7 @@ export interface RibbonActions {
   move(destinationMailboxId: string): void;
   closePane(): void;
   refresh(): void;
+  toggleSearch(): void;
   newFolder(): void;
   renameFolder(): void;
   deleteFolder(): void;
@@ -39,6 +40,8 @@ export interface RibbonContext {
   otherMailboxes: RibbonMailboxOption[];
   readingPaneCollapsed: boolean;
   syncing: boolean;
+  /** The search field above the message list is showing. */
+  searchOpen: boolean;
   composerMode: ComposerState["mode"] | null;
   composerSending: boolean;
   actions: RibbonActions;
@@ -54,6 +57,8 @@ export interface RibbonCommand {
   icon: string;
   label: string;
   enabled: (ctx: RibbonContext) => boolean;
+  /** Toggle-style commands: whether the button renders as pressed. */
+  pressed?: (ctx: RibbonContext) => boolean;
   visible?: (ctx: RibbonContext) => boolean;
   run?: (ctx: RibbonContext) => void;
   options?: (ctx: RibbonContext) => RibbonOption[];
@@ -95,6 +100,8 @@ export const COMMANDS: RibbonCommand[] = [
     enabled: (c) => !c.readingPaneCollapsed, run: (c) => c.actions.closePane() },
   { id: "refresh", tab: "home", group: "Sync", icon: "refresh-cw", label: "Refresh",
     enabled: (c) => c.hasAccount && !c.syncing, run: (c) => c.actions.refresh() },
+  { id: "search", tab: "home", group: "Search", icon: "search", label: "Search",
+    enabled: (c) => c.hasAccount, pressed: (c) => c.searchOpen, run: (c) => c.actions.toggleSearch() },
 
   // Folder
   { id: "new-folder", tab: "folder", group: "Folder", icon: "folder-plus", label: "New folder",

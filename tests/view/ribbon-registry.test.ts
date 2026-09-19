@@ -7,7 +7,7 @@ import {
 function actions(): RibbonActions {
   const names = [
     "newMessage", "reply", "replyAll", "forward", "editDraft", "archive", "deleteMessage", "move",
-    "closePane", "refresh", "newFolder", "renameFolder", "deleteFolder", "saveToVault",
+    "closePane", "refresh", "toggleSearch", "newFolder", "renameFolder", "deleteFolder", "saveToVault",
     "emailFromNote", "emailWithNoteAttached", "send", "saveDraft", "discardDraft", "attachNote",
   ] as const;
   return Object.fromEntries(names.map((n) => [n, vi.fn()])) as unknown as RibbonActions;
@@ -16,7 +16,7 @@ function actions(): RibbonActions {
 function ctx(over: Partial<RibbonContext> = {}): RibbonContext {
   return {
     hasAccount: true, hasOpenThread: true, hasTargetMessage: true, mailboxKind: "inbox",
-    otherMailboxes: [{ id: "ARCH", name: "Archive" }], readingPaneCollapsed: false, syncing: false,
+    otherMailboxes: [{ id: "ARCH", name: "Archive" }], readingPaneCollapsed: false, syncing: false, searchOpen: false,
     composerMode: null, composerSending: false, actions: actions(), ...over,
   };
 }
@@ -30,8 +30,8 @@ describe("ribbon registry — tabs", () => {
     expect(visibleTabs(ctx({ composerMode: "new" })).map((t) => t.id)).toEqual(["home", "folder", "vault", "message"]);
   });
 
-  it("groups Home commands as New, Respond, Manage, Sync", () => {
-    expect(groupsForTab("home", ctx())).toEqual(["New", "Respond", "Manage", "Sync"]);
+  it("groups Home commands as New, Respond, Manage, Sync, Search", () => {
+    expect(groupsForTab("home", ctx())).toEqual(["New", "Respond", "Manage", "Sync", "Search"]);
   });
 
   it("every command id is unique", () => {
@@ -90,6 +90,20 @@ describe("ribbon registry — Home enabled rules", () => {
     expect(enabled("refresh", ctx())).toBe(true);
     expect(enabled("refresh", ctx({ syncing: true }))).toBe(false);
     expect(enabled("refresh", ctx({ hasAccount: false }))).toBe(false);
+  });
+
+  it("Search is a toggle: needs an account, is pressed while the field is open, and toggles on click", () => {
+    expect(enabled("search", ctx())).toBe(true);
+    expect(enabled("search", ctx({ hasAccount: false }))).toBe(false);
+    expect(cmd("search").pressed!(ctx())).toBe(false);
+    expect(cmd("search").pressed!(ctx({ searchOpen: true }))).toBe(true);
+    const c = ctx();
+    cmd("search").run!(c);
+    expect(c.actions.toggleSearch).toHaveBeenCalledOnce();
+  });
+
+  it("only Search is a toggle-style (pressed) command", () => {
+    expect(COMMANDS.filter((c) => c.pressed).map((c) => c.id)).toEqual(["search"]);
   });
 
   it("New message needs an account", () => {

@@ -94,11 +94,8 @@
 .oe-load-images { height: auto; margin: 8px 0; padding: 6px 10px; border: 1px solid var(--background-modifier-border); border-radius: 6px; cursor: pointer; background: var(--background-secondary); }
 .oe-search { display: flex; gap: 6px; padding: 8px; border-bottom: 1px solid var(--background-modifier-border); flex-wrap: wrap; }
 .oe-search input { flex: 1; }
-.oe-search-pill { height: auto; background: var(--background-modifier-hover); border: 1px solid var(--background-modifier-border); border-radius: 12px; padding: 2px 10px; font-size: 12px; color: var(--text-normal); cursor: pointer; }
-.oe-refresh { display: inline-flex; align-items: center; justify-content: center; height: auto; background: transparent; border: 1px solid var(--background-modifier-border); border-radius: 4px; padding: 4px 8px; color: var(--text-muted); cursor: pointer; }
-.oe-refresh:hover { color: var(--text-normal); }
-.oe-refresh-icon { display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; }
-.oe-refresh-icon svg { width: 18px; height: 18px; }
+.oe-search-close { height: auto; background: transparent; border: 1px solid var(--background-modifier-border); border-radius: 4px; padding: 4px 8px; color: var(--text-muted); cursor: pointer; }
+.oe-search-close:hover { color: var(--text-normal); }
 
 /* Icon inside the "Refreshing…" Notice toast (see refresh-toast.ts). */
 .oe-toast-icon { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; vertical-align: -2px; margin-right: 6px; }
@@ -242,6 +239,7 @@
 .oe-ribbon-button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; height: auto; min-width: 52px; padding: 4px 8px; box-sizing: border-box; background: transparent; border: 1px solid transparent; border-radius: 4px; color: var(--text-normal); cursor: pointer; box-shadow: none; font: inherit; }
 .oe-ribbon-button:hover:not(:disabled) { background-color: var(--background-modifier-hover); }
 .oe-ribbon-button:disabled { opacity: 0.4; cursor: default; }
+.oe-ribbon-button.active { background-color: var(--background-modifier-hover); border-color: var(--interactive-accent); }
 .oe-ribbon-icon { display: inline-flex; width: 20px; height: 20px; }
 .oe-ribbon-icon svg { width: 20px; height: 20px; }
 .oe-ribbon-label { font-size: var(--font-ui-smaller); white-space: nowrap; }

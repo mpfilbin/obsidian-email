@@ -7,7 +7,7 @@ import type { RibbonActions, RibbonContext } from "../../src/view/ribbon/registr
 function actions(): RibbonActions {
   const names = [
     "newMessage", "reply", "replyAll", "forward", "editDraft", "archive", "deleteMessage", "move",
-    "closePane", "refresh", "newFolder", "renameFolder", "deleteFolder", "saveToVault",
+    "closePane", "refresh", "toggleSearch", "newFolder", "renameFolder", "deleteFolder", "saveToVault",
     "emailFromNote", "emailWithNoteAttached", "send", "saveDraft", "discardDraft", "attachNote",
   ] as const;
   return Object.fromEntries(names.map((n) => [n, vi.fn()])) as unknown as RibbonActions;
@@ -17,7 +17,7 @@ function ctx(over: Partial<RibbonContext> = {}): RibbonContext {
   return {
     hasAccount: true, hasOpenThread: true, hasTargetMessage: true, mailboxKind: "inbox",
     otherMailboxes: [{ id: "ARCH", name: "Archive" }, { id: "P", name: "Project" }],
-    readingPaneCollapsed: false, syncing: false, composerMode: null, composerSending: false,
+    readingPaneCollapsed: false, syncing: false, searchOpen: false, composerMode: null, composerSending: false,
     actions: actions(), ...over,
   };
 }
@@ -55,6 +55,26 @@ describe("Ribbon smoke", () => {
     expect(btn.disabled).toBe(true);
     btn.click();
     expect(c.actions.reply).not.toHaveBeenCalled();
+    unmount(app);
+  });
+
+  it("Search renders as a pressed toggle that follows ctx.searchOpen and runs toggleSearch", () => {
+    const c = ctx();
+    const host = document.createElement("div");
+    const app = mount(RibbonHost, { target: host, props: { initial: c } });
+    flushSync();
+    const btn = () => q(host, '[data-action="search"]')!;
+    expect(btn().getAttribute("aria-pressed")).toBe("false");
+    expect(btn().classList.contains("active")).toBe(false);
+    btn().click();
+    expect(c.actions.toggleSearch).toHaveBeenCalledOnce();
+
+    (app as unknown as { set: (c: RibbonContext) => void }).set(ctx({ searchOpen: true }));
+    flushSync();
+    expect(btn().getAttribute("aria-pressed")).toBe("true");
+    expect(btn().classList.contains("active")).toBe(true);
+    // Non-toggle buttons never carry aria-pressed.
+    expect(q(host, '[data-action="reply"]')!.hasAttribute("aria-pressed")).toBe(false);
     unmount(app);
   });
 

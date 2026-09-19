@@ -866,6 +866,122 @@ describe("App.svelte — ribbon", () => {
     unmount(app);
   });
 
+  it("Refresh lives on the ribbon only — there is no refresh button near the search field", () => {
+    const vm = fakeVm();
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: appProps(vm) });
+    flushSync();
+    clickRibbon(host, "home", "search"); // open the search field
+    expect(host.querySelector(".oe-search")).not.toBeNull();
+    expect(host.querySelector(".oe-refresh")).toBeNull();
+    host.querySelector<HTMLElement>('.oe-ribbon [data-action="refresh"]')!.click();
+    expect(vm.refresh).toHaveBeenCalledOnce();
+    unmount(app);
+  });
+
+  describe("search field", () => {
+    // Focus only works on an element that is attached to the document.
+    const mountAttached = (vm: ViewModel) => {
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      const app = mount(App, { target: host, props: appProps(vm) });
+      flushSync();
+      return { host, done: () => { unmount(app); host.remove(); } };
+    };
+    const input = (host: HTMLElement) => host.querySelector<HTMLInputElement>('.oe-search input[type="search"]')!;
+    const searchOpen = (host: HTMLElement) => host.querySelector(".oe-search") !== null;
+
+    it("is hidden until the ribbon's Search button is clicked", () => {
+      const { host, done } = mountAttached(fakeVm());
+      expect(searchOpen(host)).toBe(false);
+      expect(host.querySelector('.oe-ribbon [data-action="search"]')!.getAttribute("aria-pressed")).toBe("false");
+      clickRibbon(host, "home", "search");
+      expect(searchOpen(host)).toBe(true);
+      expect(host.querySelector('.oe-ribbon [data-action="search"]')!.getAttribute("aria-pressed")).toBe("true");
+      done();
+    });
+
+    it("appears above the message list and takes focus", () => {
+      const { host, done } = mountAttached(fakeVm());
+      clickRibbon(host, "home", "search");
+      expect(host.querySelector(".oe-list-col")!.firstElementChild!.classList.contains("oe-search")).toBe(true);
+      expect(document.activeElement).toBe(input(host));
+      done();
+    });
+
+    it("clicking the ribbon's Search button again closes it", () => {
+      const { host, done } = mountAttached(fakeVm());
+      clickRibbon(host, "home", "search");
+      clickRibbon(host, "home", "search");
+      expect(searchOpen(host)).toBe(false);
+      expect(host.querySelector('.oe-ribbon [data-action="search"]')!.getAttribute("aria-pressed")).toBe("false");
+      done();
+    });
+
+    it("submitting runs the search with the trimmed query — Enter is the only submit, there is no Search button", () => {
+      const vm = fakeVm();
+      const { host, done } = mountAttached(vm);
+      clickRibbon(host, "home", "search");
+      expect(host.querySelector('.oe-search button[type="submit"]')).toBeNull();
+      expect(host.querySelectorAll(".oe-search button")).toHaveLength(1); // just the ✕
+      input(host).value = "  report  ";
+      input(host).dispatchEvent(new Event("input", { bubbles: true }));
+      flushSync();
+      host.querySelector(".oe-search")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      expect(vm.runSearch).toHaveBeenCalledWith("report");
+      done();
+    });
+
+    it("the ✕ button hides the field and clears an active search", () => {
+      const vm = fakeVm({ search: { query: "report", active: true } });
+      const { host, done } = mountAttached(vm);
+      clickRibbon(host, "home", "search");
+      host.querySelector<HTMLElement>(".oe-search-close")!.click();
+      flushSync();
+      expect(searchOpen(host)).toBe(false);
+      expect(vm.clearSearch).toHaveBeenCalledOnce();
+      done();
+    });
+
+    it("the ✕ button just hides the field when no search is active", () => {
+      const vm = fakeVm();
+      const { host, done } = mountAttached(vm);
+      clickRibbon(host, "home", "search");
+      host.querySelector<HTMLElement>(".oe-search-close")!.click();
+      flushSync();
+      expect(searchOpen(host)).toBe(false);
+      expect(vm.clearSearch).not.toHaveBeenCalled();
+      done();
+    });
+
+    it("toggling closed from the ribbon also clears an active search", () => {
+      const vm = fakeVm({ search: { query: "report", active: true } });
+      const { host, done } = mountAttached(vm);
+      clickRibbon(host, "home", "search");
+      clickRibbon(host, "home", "search");
+      expect(searchOpen(host)).toBe(false);
+      expect(vm.clearSearch).toHaveBeenCalledOnce();
+      done();
+    });
+
+    it("Escape in the field closes it", () => {
+      const { host, done } = mountAttached(fakeVm());
+      clickRibbon(host, "home", "search");
+      input(host).dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+      flushSync();
+      expect(searchOpen(host)).toBe(false);
+      done();
+    });
+
+    it("no longer shows the old 'Search: … ✕' pill while a search is active", () => {
+      const { host, done } = mountAttached(fakeVm({ search: { query: "report", active: true } }));
+      clickRibbon(host, "home", "search");
+      expect(host.querySelector(".oe-search-pill")).toBeNull();
+      expect(input(host).value).toBe("report");
+      done();
+    });
+  });
+
   it("renders no ribbon when the pref is off", () => {
     const host = document.createElement("div");
     const app = mount(App, { target: host, props: appProps(fakeVm({ ribbonEnabled: false })) });

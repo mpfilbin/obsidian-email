@@ -1,13 +1,9 @@
 <script lang="ts">
-  import { icon } from "../icon-action";
-
-  let { query, active, syncing, onSearch, onClear, onRefresh }: {
+  let { query, onSearch, onClose }: {
     query: string;
-    active: boolean;
-    syncing: boolean;
     onSearch: (q: string) => void;
-    onClear: () => void;
-    onRefresh: () => void;
+    /** Dismisses the field (the ✕ button and Escape). */
+    onClose: () => void;
   } = $props();
 
   // Seed the local editable value from the initial prop; the $effect below
@@ -15,19 +11,17 @@
   // svelte-ignore state_referenced_locally
   let value = $state(query);
   $effect(() => { value = query; });
+
+  // The field only exists while the user has asked for it, so it takes focus
+  // as soon as it appears.
+  let input = $state<HTMLInputElement | null>(null);
+  $effect(() => { input?.focus(); });
 </script>
 
 <form class="oe-search" onsubmit={(e) => { e.preventDefault(); if (value.trim()) onSearch(value.trim()); }}>
-  <input type="search" placeholder="Search mail…" bind:value />
-  <button type="submit">Search</button>
-  <button
-    type="button"
-    class="oe-refresh"
-    onclick={onRefresh}
-    aria-label={syncing ? "Syncing" : "Refresh"}
-    title={syncing ? "Syncing…" : "Refresh"}
-  ><span class="oe-refresh-icon" use:icon={"refresh-cw"}></span></button>
-  {#if active}
-    <button type="button" class="oe-search-pill" onclick={onClear}>Search: {query} ✕</button>
-  {/if}
+  <input
+    type="search" placeholder="Search mail…" bind:value bind:this={input}
+    onkeydown={(e) => { if (e.key === "Escape") { e.preventDefault(); onClose(); } }}
+  />
+  <button type="button" class="oe-search-close" aria-label="Close search" title="Close search" onclick={onClose}>✕</button>
 </form>

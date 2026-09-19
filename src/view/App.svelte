@@ -197,6 +197,16 @@
     });
   }
 
+  // Whether the search field is showing above the message list — view-only
+  // chrome, toggled from the ribbon's Search button. Dismissing it also ends
+  // an active search so the list returns to the current folder instead of
+  // being stuck on results with no visible way to clear them.
+  let searchOpen = $state(false);
+  function closeSearch(): void {
+    searchOpen = false;
+    if (state.search.active) void vm.clearSearch();
+  }
+
   // Everything the ribbon needs: the enablement inputs it derives its button
   // states from, and the actions themselves — each routed through the very
   // same guards (`requestSwitch`/`requestRowAction`/`requestDelete`) the old
@@ -212,6 +222,7 @@
       .map((m) => ({ id: m.id, name: m.name })),
     readingPaneCollapsed,
     syncing: activeSyncing,
+    searchOpen,
     composerMode: state.composer?.mode ?? null,
     composerSending: state.composer?.sending ?? false,
     actions: {
@@ -233,6 +244,7 @@
       move: (destinationId) => { if (state.openThreadId) moveThread(state.openThreadId, destinationId); },
       closePane: () => requestSwitch(() => { vm.closeThread(); setReadingPaneCollapsed(true); }),
       refresh: () => { void vm.refresh(); },
+      toggleSearch: () => { if (searchOpen) closeSearch(); else searchOpen = true; },
       newFolder: () => vm.requestCreateMailbox(),
       renameFolder: () => { if (state.activeMailboxId) vm.requestRenameMailbox(state.activeMailboxId); },
       deleteFolder: () => {
@@ -336,14 +348,13 @@
   </section>
   <Resizer label="Resize mailbox list" onDrag={resizeMailboxes} />
   <section class="oe-list-col">
-    <SearchBar
-      query={state.search.query}
-      active={state.search.active}
-      syncing={activeSyncing}
-      onSearch={(q) => vm.runSearch(q)}
-      onClear={() => vm.clearSearch()}
-      onRefresh={() => vm.refresh()}
-    />
+    {#if searchOpen}
+      <SearchBar
+        query={state.search.query}
+        onSearch={(q) => vm.runSearch(q)}
+        onClose={closeSearch}
+      />
+    {/if}
     <MessageList
       threads={state.threads}
       openThreadId={state.openThreadId}
