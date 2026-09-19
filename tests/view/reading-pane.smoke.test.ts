@@ -177,11 +177,10 @@ describe("ReadingPane smoke", () => {
   });
 });
 
-describe("ReadingPane — reply/forward/edit actions", () => {
+describe("ReadingPane — composer rendering", () => {
   const composerProps = {
     to: [], cc: [], bcc: [], subject: "", bodyHtml: "", attachments: [], sending: false, error: null,
     onFieldsChange: vi.fn(), onBodyChange: vi.fn(), onRemoveAttachment: vi.fn(),
-    onSend: vi.fn(), onSaveDraft: vi.fn(), onDiscard: vi.fn(),
   };
 
   it("renders the Composer inline under the message being replied to", () => {

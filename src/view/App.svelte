@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { ViewModel, ViewState } from "./view-model";
-  import { icon } from "./icon-action";
+  import Ribbon from "./ribbon/Ribbon.svelte";
+  import type { RibbonContext } from "./ribbon/registry";
+  import type { NoteCommands } from "./mail-view";
   import AccountSwitcher from "./components/AccountSwitcher.svelte";
   import MailboxList from "./components/MailboxList.svelte";
   import MessageList from "./components/MessageList.svelte";
@@ -11,7 +13,7 @@
   import { showSyncingToast } from "./refresh-toast";
   import type { Mailbox } from "../providers/types";
 
-  let { vm, onAddAccount, onThreadContextMenu, onMailboxContextMenu }: {
+  let { vm, onAddAccount, onThreadContextMenu, onMailboxContextMenu, noteCommands }: {
     vm: ViewModel;
     onAddAccount: () => void;
     /** Shows the host's native context menu (built in main.ts, since it
@@ -26,6 +28,8 @@
       onRename: (newName: string) => void,
       onDelete: () => void,
     ) => void;
+    /** Vault-note → email flows, owned by main.ts and shared with the command palette. */
+    noteCommands: NoteCommands;
   } = $props();
 
   // `vm` is a stable prop for the life of the view; reading it here to seed
@@ -55,6 +59,21 @@
   const isTrashMailbox = $derived(
     state.mailboxes.find((m) => m.id === state.activeMailboxId)?.kind === "trash",
   );
+  const activeMailbox = $derived(state.mailboxes.find((m) => m.id === state.activeMailboxId) ?? null);
+
+  // Which message in the open thread is expanded — and so the target of the
+  // ribbon's Reply/Archive/Delete/… . Lifted out of ReadingPane so both share it.
+  let expandedId = $state<string | null>(null);
+  const targetMessageId = $derived(expandedId ?? state.openMessages.at(-1)?.summary.id ?? null);
+  let threadKey: string | null = null;
+  $effect(() => {
+    const firstId = state.openMessages[0]?.summary.id ?? null;
+    if (firstId !== threadKey) {
+      threadKey = firstId;
+      expandedId = null;
+    }
+  });
+  const toggleExpand = (id: string): void => { expandedId = expandedId === id ? null : id; };
 
   let pendingSwitch = $state<(() => void) | null>(null);
 
@@ -171,6 +190,59 @@
     });
   }
 
+  // Everything the ribbon needs: the enablement inputs it derives its button
+  // states from, and the actions themselves — each routed through the very
+  // same guards (`requestSwitch`/`requestRowAction`/`requestDelete`) the old
+  // scattered buttons used, so the ribbon can't bypass the unsaved-composer
+  // prompt or the delete confirmation.
+  const ribbonCtx = $derived<RibbonContext>({
+    hasAccount: state.activeAccountId !== null,
+    hasOpenThread: state.openThreadId !== null,
+    hasTargetMessage: targetMessageId !== null,
+    mailboxKind: activeMailbox?.kind ?? null,
+    otherMailboxes: state.mailboxes
+      .filter((m) => m.id !== state.activeMailboxId)
+      .map((m) => ({ id: m.id, name: m.name })),
+    readingPaneCollapsed,
+    syncing: activeSyncing,
+    composerMode: state.composer?.mode ?? null,
+    composerSending: state.composer?.sending ?? false,
+    actions: {
+      newMessage: () => requestSwitch(() => vm.openNewMessage()),
+      reply: () => { const id = targetMessageId; if (id) requestSwitch(() => vm.openReply(id, "reply")); },
+      replyAll: () => { const id = targetMessageId; if (id) requestSwitch(() => vm.openReply(id, "replyAll")); },
+      forward: () => { const id = targetMessageId; if (id) requestSwitch(() => vm.openForward(id)); },
+      editDraft: () => { const id = targetMessageId; if (id) requestSwitch(() => vm.openDraftForEdit(id)); },
+      archive: () => {
+        const id = targetMessageId;
+        if (!id) return;
+        requestRowAction(() => { const closes = closesOpenMessage(id); vm.archiveMessage(id); if (closes) setReadingPaneCollapsed(true); });
+      },
+      deleteMessage: () => {
+        const id = targetMessageId;
+        if (!id) return;
+        requestRowAction(() => requestDelete("message", () => { const closes = closesOpenMessage(id); vm.deleteMessage(id); if (closes) setReadingPaneCollapsed(true); }));
+      },
+      move: (destinationId) => { if (state.openThreadId) moveThread(state.openThreadId, destinationId); },
+      closePane: () => requestSwitch(() => { vm.closeThread(); setReadingPaneCollapsed(true); }),
+      refresh: () => { void vm.refresh(); },
+      newFolder: () => vm.requestCreateMailbox(),
+      renameFolder: () => { if (state.activeMailboxId) vm.requestRenameMailbox(state.activeMailboxId); },
+      deleteFolder: () => {
+        const id = state.activeMailboxId;
+        if (!id) return;
+        requestRowAction(() => requestDeleteMailbox(() => { void vm.deleteMailbox(id); }));
+      },
+      saveToVault: () => { if (targetMessageId) void vm.saveMessageToVault(targetMessageId); },
+      emailFromNote: () => requestSwitch(() => noteCommands.composeFromNote()),
+      emailWithNoteAttached: () => requestSwitch(() => noteCommands.composeWithNoteAttached()),
+      send: () => { void vm.send(); },
+      saveDraft: () => { void vm.saveDraft(); },
+      discardDraft: () => { void vm.discardDraft(); },
+      attachNote: () => { void vm.requestAttachNote(); },
+    },
+  });
+
   const composerFieldProps = $derived(state.composer ? {
     to: state.composer.to, cc: state.composer.cc, bcc: state.composer.bcc,
     subject: state.composer.subject, bodyHtml: state.composer.bodyHtml,
@@ -179,9 +251,6 @@
     onFieldsChange: (patch: Parameters<typeof vm.updateComposerFields>[0]) => vm.updateComposerFields(patch),
     onBodyChange: (html: string) => vm.updateComposerBody(html),
     onRemoveAttachment: (index: number) => vm.removeComposerAttachment(index),
-    onSend: () => vm.send(),
-    onSaveDraft: () => vm.saveDraft(),
-    onDiscard: () => vm.discardDraft(),
   } : null);
 
   // Column widths and the reading-pane collapse are view-only chrome (not
@@ -229,7 +298,11 @@
   );
 </script>
 
-<div class="obsidian-email-view oe-grid" style={gridStyle}>
+<div class="obsidian-email-view oe-shell">
+{#if state.ribbonEnabled}
+  <Ribbon ctx={ribbonCtx} defaultCollapsed={state.ribbonCollapsedByDefault} />
+{/if}
+<div class="oe-grid" style={gridStyle}>
   <AccountSwitcher
     accounts={state.accounts}
     activeId={state.activeAccountId}
@@ -237,9 +310,6 @@
     {onAddAccount}
   />
   <section class="oe-mailbox-col">
-    <button type="button" class="oe-new-message-full" onclick={() => requestSwitch(() => vm.openNewMessage())}>
-      <span class="oe-action-icon" use:icon={"pencil"}></span>New message
-    </button>
     <MailboxList
       mailboxes={state.mailboxes}
       activeId={state.activeMailboxId}
@@ -256,9 +326,6 @@
         );
       }}
     />
-    <button type="button" class="oe-new-folder" onclick={() => vm.requestCreateMailbox()}>
-      <span class="oe-action-icon" use:icon={"folder-plus"}></span>New folder
-    </button>
   </section>
   <Resizer label="Resize mailbox list" onDrag={resizeMailboxes} />
   <section class="oe-list-col">
@@ -296,20 +363,12 @@
     autoLoadImages={state.autoLoadImages}
     renderDeps={vm.renderDeps()}
     onClose={() => requestSwitch(() => vm.closeThread())}
-    onCollapse={() => requestSwitch(() => { vm.closeThread(); setReadingPaneCollapsed(true); })}
     onDownload={(id, att) => vm.downloadAttachmentToDisk(id, att)}
-    {isDraftsMailbox}
-    {isArchiveMailbox}
-    {isTrashMailbox}
+    {targetMessageId}
+    onToggleExpand={toggleExpand}
     activeComposerMessageId={state.composer?.targetMessageId ?? null}
     composerMode={state.composer?.mode ?? null}
     composerProps={composerFieldProps}
-    onOpenReply={(id, mode) => requestSwitch(() => vm.openReply(id, mode))}
-    onOpenForward={(id) => requestSwitch(() => vm.openForward(id))}
-    onEditDraft={(id) => requestSwitch(() => vm.openDraftForEdit(id))}
-    onArchiveMessage={(id) => requestRowAction(() => { const closes = closesOpenMessage(id); vm.archiveMessage(id); if (closes) setReadingPaneCollapsed(true); })}
-    onDeleteMessage={(id) => requestRowAction(() => requestDelete("message", () => { const closes = closesOpenMessage(id); vm.deleteMessage(id); if (closes) setReadingPaneCollapsed(true); }))}
-    onSaveToVault={(id) => vm.saveMessageToVault(id)}
   />
   {#if pendingSwitch}
     <div class="oe-composer-prompt">
@@ -327,4 +386,5 @@
       <button type="button" class="oe-delete-cancel" onclick={cancelDelete}>Cancel</button>
     </div>
   {/if}
+</div>
 </div>

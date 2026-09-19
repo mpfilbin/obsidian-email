@@ -12,7 +12,4 @@ export interface ComposerFieldProps {
   onFieldsChange: (patch: Partial<{ to: Address[]; cc: Address[]; bcc: Address[]; subject: string }>) => void;
   onBodyChange: (html: string) => void;
   onRemoveAttachment: (index: number) => void;
-  onSend: () => void;
-  onSaveDraft: () => void;
-  onDiscard: () => void;
 }

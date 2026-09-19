@@ -37,6 +37,7 @@ function fakeVm(state: Partial<ViewState> = {}): ViewModel {
     search: { query: "", active: false },
     openThreadId: null, openMessages: [],
     composer: null,
+    ribbonEnabled: true, ribbonCollapsedByDefault: false,
     ...state,
   };
   // A minimal reactive store so the default (un-overridden) `openNewMessage`
@@ -68,6 +69,8 @@ function fakeVm(state: Partial<ViewState> = {}): ViewModel {
     send: vi.fn(), saveDraft: vi.fn(), discardDraft: vi.fn(), closeComposer: vi.fn(),
     deleteMessage: vi.fn(), archiveMessage: vi.fn(), deleteThread: vi.fn(), archiveThread: vi.fn(),
     moveThread: vi.fn(), requestCreateMailbox: vi.fn(), renameMailbox: vi.fn(), deleteMailbox: vi.fn(),
+    requestRenameMailbox: vi.fn(), requestAttachNote: vi.fn(), saveMessageToVault: vi.fn(),
+    removeComposerAttachment: vi.fn(),
     // Test-only escape hatch, so an overridden method can push state the way
     // the real ViewModel would (e.g. a saveDraft that sets composer.error).
     __setState: set,
@@ -78,10 +81,31 @@ function fakeVm(state: Partial<ViewState> = {}): ViewModel {
 const setStateOf = (vm: ViewModel) =>
   (vm as unknown as { __setState: (patch: Partial<ViewState>) => void }).__setState;
 
+/** Every App mount needs the same four host callbacks; `over` swaps in the
+ *  spies a given test actually asserts on. */
+const appProps = (vm: ViewModel, over: object = {}) => ({
+  vm,
+  onAddAccount: () => {},
+  onThreadContextMenu: () => {},
+  onMailboxContextMenu: () => {},
+  noteCommands: { composeFromNote: vi.fn(), composeWithNoteAttached: vi.fn() },
+  ...over,
+});
+
+/** Clicks a ribbon command, selecting its tab first: an open composer pulls the
+ *  ribbon to the contextual Message tab, so Home/Folder/Vault buttons are only
+ *  in the DOM once their own tab is selected again. */
+function clickRibbon(host: HTMLElement, tab: "home" | "folder" | "vault" | "message", action: string): void {
+  host.querySelector<HTMLElement>(`.oe-ribbon-tab[data-tab="${tab}"]`)!.click();
+  flushSync();
+  host.querySelector<HTMLElement>(`.oe-ribbon [data-action="${action}"]`)!.click();
+  flushSync();
+}
+
 describe("App.svelte smoke", () => {
   it("renders account, mailbox and thread rows", () => {
     const host = document.createElement("div");
-    const app = mount(App, { target: host, props: { vm: fakeVm(), onAddAccount: () => {} } });
+    const app = mount(App, { target: host, props: appProps(fakeVm()) });
     expect(host.textContent).toContain("Inbox");
     expect(host.textContent).toContain("Hello");
     expect(host.textContent).toContain("Jane");
@@ -93,7 +117,7 @@ describe("App.svelte smoke", () => {
     const noticeSpy = vi.spyOn(obsidian, "Notice").mockImplementation(() => ({ hide }) as never);
     const vm = fakeVm({ accounts: [{ id: "a1", email: "a1@x.com", provider: "ms-graph", status: "syncing" }] });
     const host = document.createElement("div");
-    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    const app = mount(App, { target: host, props: appProps(vm) });
     flushSync();
     expect(noticeSpy).toHaveBeenCalledTimes(1);
     expect(noticeSpy.mock.calls[0][1]).toBe(0); // duration 0: stays until explicitly hidden
@@ -108,7 +132,7 @@ describe("App.svelte smoke", () => {
 
   it("shows no toast when idle", () => {
     const noticeSpy = vi.spyOn(obsidian, "Notice").mockImplementation(() => ({ hide: vi.fn() }) as never);
-    const app = mount(App, { target: document.createElement("div"), props: { vm: fakeVm(), onAddAccount: () => {} } });
+    const app = mount(App, { target: document.createElement("div"), props: appProps(fakeVm()) });
     flushSync();
     expect(noticeSpy).not.toHaveBeenCalled();
     unmount(app);
@@ -117,13 +141,13 @@ describe("App.svelte smoke", () => {
 
   it("renders two resizers and a reading pane by default", () => {
     const host = document.createElement("div");
-    const app = mount(App, { target: host, props: { vm: fakeVm(), onAddAccount: () => {} } });
+    const app = mount(App, { target: host, props: appProps(fakeVm()) });
     expect(host.querySelectorAll('[role="separator"]')).toHaveLength(2);
     expect(host.querySelector(".oe-reading-pane")).not.toBeNull();
     unmount(app);
   });
 
-  it("collapses the reading pane via its floating close button, re-expanding to the last width when a message is opened", () => {
+  it("collapses the reading pane via the ribbon's Close pane button, re-expanding to the last width when a message is opened", () => {
     const host = document.createElement("div");
     const vm = fakeVm({
       openThreadId: "t1",
@@ -133,15 +157,14 @@ describe("App.svelte smoke", () => {
         unread: true, hasAttachments: false, flagged: false,
       } }],
     });
-    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    const app = mount(App, { target: host, props: appProps(vm) });
     flushSync();
     const gridEl = () => host.querySelector<HTMLElement>(".oe-grid")!;
 
     // Expanded: the message-list column sits at its stored width (340px default).
     expect(gridEl().getAttribute("style")).toContain("340px");
 
-    host.querySelector<HTMLElement>('[data-action="collapse"]')!.click();
-    flushSync();
+    clickRibbon(host, "home", "close-pane");
     // Collapsed: message-list column is flexible (calc), reading-pane column is 0.
     expect(gridEl().getAttribute("style")).not.toContain("340px");
     expect(gridEl().getAttribute("style")).toMatch(/0px 0px;/);
@@ -156,22 +179,21 @@ describe("App.svelte smoke", () => {
 
   it("clicking New message opens the new-message composer", () => {
     const host = document.createElement("div");
-    const app = mount(App, { target: host, props: { vm: fakeVm(), onAddAccount: () => {} } });
+    const app = mount(App, { target: host, props: appProps(fakeVm()) });
     flushSync();
-    host.querySelector<HTMLElement>(".oe-new-message-full")!.click();
-    flushSync();
+    clickRibbon(host, "home", "new-message");
     expect(host.querySelector(".oe-composer")).not.toBeNull();
     unmount(app);
   });
 
-  it("clicking New folder calls vm.requestCreateMailbox", () => {
+  it("clicking the ribbon's New folder calls vm.requestCreateMailbox", () => {
     const requestCreateMailbox = vi.fn();
     const vm = fakeVm();
     Object.assign(vm, { requestCreateMailbox });
     const host = document.createElement("div");
-    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    const app = mount(App, { target: host, props: appProps(vm) });
     flushSync();
-    host.querySelector<HTMLElement>(".oe-new-folder")!.click();
+    clickRibbon(host, "folder", "new-folder");
     expect(requestCreateMailbox).toHaveBeenCalledOnce();
     unmount(app);
   });
@@ -179,7 +201,7 @@ describe("App.svelte smoke", () => {
   it("widens the mailbox column when its resizer is dragged", () => {
     localStorage.clear();
     const host = document.createElement("div");
-    const app = mount(App, { target: host, props: { vm: fakeVm(), onAddAccount: () => {} } });
+    const app = mount(App, { target: host, props: appProps(fakeVm()) });
     const grid = host.querySelector<HTMLElement>(".oe-grid")!;
     const resizer = host.querySelectorAll('[role="separator"]')[0] as HTMLElement;
     const widthBefore = grid.style.gridTemplateColumns;
@@ -201,9 +223,9 @@ describe("App.svelte — composer wiring", () => {
     const vm = fakeVm();
     (vm as unknown as { openNewMessage: typeof openNewMessage }).openNewMessage = openNewMessage;
     const host = document.createElement("div");
-    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    const app = mount(App, { target: host, props: appProps(vm) });
     flushSync();
-    host.querySelector<HTMLElement>(".oe-new-message-full")!.click();
+    clickRibbon(host, "home", "new-message");
     expect(openNewMessage).toHaveBeenCalledOnce();
     unmount(app);
   });
@@ -216,10 +238,9 @@ describe("App.svelte — composer wiring", () => {
     (vm as unknown as { openNewMessage: typeof openNewMessage; hasUnsavedComposerContent: () => boolean }).openNewMessage = openNewMessage;
     (vm as unknown as { hasUnsavedComposerContent: () => boolean }).hasUnsavedComposerContent = () => true;
     const host = document.createElement("div");
-    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    const app = mount(App, { target: host, props: appProps(vm) });
     flushSync();
-    host.querySelector<HTMLElement>(".oe-new-message-full")!.click();
-    flushSync();
+    clickRibbon(host, "home", "new-message");
     expect(openNewMessage).not.toHaveBeenCalled();
     expect(host.querySelector(".oe-composer-prompt")).not.toBeNull();
     unmount(app);
@@ -233,10 +254,9 @@ describe("App.svelte — composer wiring", () => {
     } });
     Object.assign(vm, { discardDraft, openNewMessage, hasUnsavedComposerContent: () => true });
     const host = document.createElement("div");
-    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    const app = mount(App, { target: host, props: appProps(vm) });
     flushSync();
-    host.querySelector<HTMLElement>(".oe-new-message-full")!.click();
-    flushSync();
+    clickRibbon(host, "home", "new-message");
     host.querySelector<HTMLElement>(".oe-composer-prompt-discard")!.click();
     // Two microtask ticks to drain the async handler's `await vm.discardDraft()`
     // continuation — matching the existing pattern in
@@ -261,10 +281,9 @@ describe("App.svelte — composer wiring", () => {
     });
     Object.assign(vm, { saveDraft, openNewMessage, hasUnsavedComposerContent: () => true });
     const host = document.createElement("div");
-    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    const app = mount(App, { target: host, props: appProps(vm) });
     flushSync();
-    host.querySelector<HTMLElement>(".oe-new-message-full")!.click();
-    flushSync();
+    clickRibbon(host, "home", "new-message");
     host.querySelector<HTMLElement>(".oe-composer-prompt-save")!.click();
     await Promise.resolve();
     await Promise.resolve();
@@ -284,10 +303,9 @@ describe("App.svelte — composer wiring", () => {
     const saveDraft = vi.fn().mockResolvedValue(undefined);
     Object.assign(vm, { saveDraft, openNewMessage, hasUnsavedComposerContent: () => true });
     const host = document.createElement("div");
-    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    const app = mount(App, { target: host, props: appProps(vm) });
     flushSync();
-    host.querySelector<HTMLElement>(".oe-new-message-full")!.click();
-    flushSync();
+    clickRibbon(host, "home", "new-message");
     host.querySelector<HTMLElement>(".oe-composer-prompt-save")!.click();
     await Promise.resolve();
     await Promise.resolve();
@@ -304,10 +322,9 @@ describe("App.svelte — composer wiring", () => {
     } });
     Object.assign(vm, { openNewMessage, hasUnsavedComposerContent: () => true });
     const host = document.createElement("div");
-    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    const app = mount(App, { target: host, props: appProps(vm) });
     flushSync();
-    host.querySelector<HTMLElement>(".oe-new-message-full")!.click();
-    flushSync();
+    clickRibbon(host, "home", "new-message");
     host.querySelector<HTMLElement>(".oe-composer-prompt-cancel")!.click();
     flushSync();
     expect(openNewMessage).not.toHaveBeenCalled();
@@ -322,7 +339,7 @@ describe("App.svelte — composer wiring", () => {
     } });
     Object.assign(vm, { openThread });
     const host = document.createElement("div");
-    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    const app = mount(App, { target: host, props: appProps(vm) });
     flushSync();
     host.querySelector<HTMLElement>(".oe-thread-row")!.click();
     flushSync();
@@ -341,7 +358,7 @@ describe("App.svelte — composer wiring", () => {
     });
     Object.assign(vm, { selectMailbox });
     const host = document.createElement("div");
-    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    const app = mount(App, { target: host, props: appProps(vm) });
     flushSync();
     host.querySelectorAll<HTMLElement>(".oe-mailbox")[1].click();
     flushSync();
@@ -359,7 +376,7 @@ describe("App.svelte — composer wiring", () => {
     });
     Object.assign(vm, { selectMailbox, openThread, hasUnsavedComposerContent: () => true });
     const host = document.createElement("div");
-    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    const app = mount(App, { target: host, props: appProps(vm) });
     flushSync();
     host.querySelectorAll<HTMLElement>(".oe-mailbox")[1].click();
     flushSync();
@@ -375,10 +392,10 @@ describe("App.svelte — composer wiring", () => {
     unmount(app);
   });
 
-  it("passes isDraftsMailbox=true to ReadingPane when the active mailbox kind is drafts", () => {
+  it("offers Edit and disables Reply in the ribbon when the active mailbox kind is drafts", () => {
     // fakeVm's base fixture has an "m1" message but leaves openMessages empty
-    // by default (no thread auto-opened); open it explicitly here so a
-    // MessageBlock actually renders for the isDraftsMailbox assertion below.
+    // by default (no thread auto-opened); open it explicitly here so the ribbon
+    // has a target message for the assertions below.
     const vm = fakeVm({
       mailboxes: [{ id: "DRAFTS", name: "Drafts", kind: "drafts" }],
       activeMailboxId: "DRAFTS",
@@ -390,10 +407,11 @@ describe("App.svelte — composer wiring", () => {
       } }],
     });
     const host = document.createElement("div");
-    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    const app = mount(App, { target: host, props: appProps(vm) });
     flushSync();
-    expect(host.querySelector('[data-action="edit-draft"]')).not.toBeNull();
-    expect(host.querySelector('[data-action="reply"]')).toBeNull();
+    // Edit is Drafts-only (absent elsewhere); Reply stays visible but disabled.
+    expect(host.querySelector('.oe-ribbon [data-action="edit-draft"]')).not.toBeNull();
+    expect(host.querySelector<HTMLButtonElement>('.oe-ribbon [data-action="reply"]')!.disabled).toBe(true);
     unmount(app);
   });
 });
@@ -406,7 +424,7 @@ describe("App.svelte — delete/archive wiring", () => {
     });
     Object.assign(vm, { moveThread });
     const host = document.createElement("div");
-    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {}, onThreadContextMenu: vi.fn() } });
+    const app = mount(App, { target: host, props: appProps(vm, { onThreadContextMenu: vi.fn() }) });
     flushSync();
     const projRow = [...host.querySelectorAll<HTMLElement>(".oe-mailbox")].find((el) => el.textContent?.includes("Project X"))!;
     const event = new Event("drop", { bubbles: true, cancelable: true });
@@ -425,7 +443,7 @@ describe("App.svelte — delete/archive wiring", () => {
     Object.assign(vm, { moveThread });
     const onThreadContextMenu = vi.fn();
     const host = document.createElement("div");
-    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {}, onThreadContextMenu } });
+    const app = mount(App, { target: host, props: appProps(vm, { onThreadContextMenu }) });
     flushSync();
     host.querySelector<HTMLElement>(".oe-thread-row")!.dispatchEvent(
       new MouseEvent("contextmenu", { bubbles: true, cancelable: true }),
@@ -449,7 +467,7 @@ describe("App.svelte — delete/archive wiring", () => {
     const host = document.createElement("div");
     const app = mount(App, {
       target: host,
-      props: { vm, onAddAccount: () => {}, onThreadContextMenu: vi.fn(), onMailboxContextMenu },
+      props: appProps(vm, { onMailboxContextMenu }),
     });
     flushSync();
     const projRow = [...host.querySelectorAll<HTMLElement>(".oe-mailbox")].find((el) => el.textContent?.includes("Project X"))!;
@@ -473,7 +491,7 @@ describe("App.svelte — delete/archive wiring", () => {
     const host = document.createElement("div");
     const app = mount(App, {
       target: host,
-      props: { vm, onAddAccount: () => {}, onThreadContextMenu: vi.fn(), onMailboxContextMenu },
+      props: appProps(vm, { onMailboxContextMenu }),
     });
     flushSync();
     const projRow = [...host.querySelectorAll<HTMLElement>(".oe-mailbox")].find((el) => el.textContent?.includes("Project X"))!;
@@ -500,7 +518,7 @@ describe("App.svelte — delete/archive wiring", () => {
     const host = document.createElement("div");
     const app = mount(App, {
       target: host,
-      props: { vm, onAddAccount: () => {}, onThreadContextMenu: vi.fn(), onMailboxContextMenu },
+      props: appProps(vm, { onMailboxContextMenu }),
     });
     flushSync();
     const projRow = [...host.querySelectorAll<HTMLElement>(".oe-mailbox")].find((el) => el.textContent?.includes("Project X"))!;
@@ -521,9 +539,9 @@ describe("App.svelte — delete/archive wiring", () => {
     const vm = fakeVm();
     Object.assign(vm, { archiveThread });
     const host = document.createElement("div");
-    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    const app = mount(App, { target: host, props: appProps(vm) });
     flushSync();
-    host.querySelector<HTMLElement>('[data-action="archive"]')!.click();
+    host.querySelector<HTMLElement>('.oe-thread-actions [data-action="archive"]')!.click();
     expect(archiveThread).toHaveBeenCalledWith("t1");
     unmount(app);
   });
@@ -533,25 +551,25 @@ describe("App.svelte — delete/archive wiring", () => {
     const vm = fakeVm();
     Object.assign(vm, { deleteThread });
     const host = document.createElement("div");
-    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    const app = mount(App, { target: host, props: appProps(vm) });
     flushSync();
-    host.querySelector<HTMLElement>('[data-action="delete"]')!.click();
+    host.querySelector<HTMLElement>('.oe-thread-actions [data-action="delete"]')!.click();
     expect(deleteThread).toHaveBeenCalledWith("t1");
     expect(host.querySelector(".oe-delete-confirm")).toBeNull();
     unmount(app);
   });
 
-  it("deleting the currently open thread collapses the reading pane, same as the close button", () => {
+  it("deleting the currently open thread collapses the reading pane, same as the ribbon's Close pane", () => {
     const deleteThread = vi.fn();
     const vm = fakeVm({ openThreadId: "t1" });
     Object.assign(vm, { deleteThread });
     const host = document.createElement("div");
-    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    const app = mount(App, { target: host, props: appProps(vm) });
     flushSync();
     const gridStyle = () => host.querySelector<HTMLElement>(".oe-grid")!.getAttribute("style");
     expect(gridStyle()).toContain("340px");
 
-    host.querySelector<HTMLElement>('[data-action="delete"]')!.click();
+    host.querySelector<HTMLElement>('.oe-thread-actions [data-action="delete"]')!.click();
     expect(deleteThread).toHaveBeenCalledWith("t1");
     flushSync();
     expect(gridStyle()).not.toContain("340px");
@@ -564,11 +582,11 @@ describe("App.svelte — delete/archive wiring", () => {
     const vm = fakeVm({ openThreadId: "other" });
     Object.assign(vm, { deleteThread });
     const host = document.createElement("div");
-    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    const app = mount(App, { target: host, props: appProps(vm) });
     flushSync();
     const gridStyle = () => host.querySelector<HTMLElement>(".oe-grid")!.getAttribute("style");
 
-    host.querySelector<HTMLElement>('[data-action="delete"]')!.click();
+    host.querySelector<HTMLElement>('.oe-thread-actions [data-action="delete"]')!.click();
     expect(deleteThread).toHaveBeenCalledWith("t1");
     flushSync();
     expect(gridStyle()).toContain("340px");
@@ -588,11 +606,11 @@ describe("App.svelte — delete/archive wiring", () => {
     });
     Object.assign(vm, { deleteMessage });
     const host = document.createElement("div");
-    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    const app = mount(App, { target: host, props: appProps(vm) });
     flushSync();
     const gridStyle = () => host.querySelector<HTMLElement>(".oe-grid")!.getAttribute("style");
 
-    host.querySelector<HTMLElement>('.oe-reading-actions [data-action="delete"]')!.click();
+    host.querySelector<HTMLElement>('.oe-ribbon [data-action="delete"]')!.click();
     expect(deleteMessage).toHaveBeenCalledWith("m1");
     flushSync();
     expect(gridStyle()).not.toContain("340px");
@@ -605,9 +623,9 @@ describe("App.svelte — delete/archive wiring", () => {
     const vm = fakeVm({ mailboxes: [{ id: "TRASH", name: "Deleted Items", kind: "trash" }], activeMailboxId: "TRASH" });
     Object.assign(vm, { deleteThread });
     const host = document.createElement("div");
-    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    const app = mount(App, { target: host, props: appProps(vm) });
     flushSync();
-    host.querySelector<HTMLElement>('[data-action="delete"]')!.click();
+    host.querySelector<HTMLElement>('.oe-thread-actions [data-action="delete"]')!.click();
     flushSync();
     expect(deleteThread).not.toHaveBeenCalled();
     expect(host.querySelector(".oe-delete-confirm")).not.toBeNull();
@@ -622,9 +640,9 @@ describe("App.svelte — delete/archive wiring", () => {
     const vm = fakeVm({ mailboxes: [{ id: "TRASH", name: "Deleted Items", kind: "trash" }], activeMailboxId: "TRASH" });
     Object.assign(vm, { deleteThread });
     const host = document.createElement("div");
-    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    const app = mount(App, { target: host, props: appProps(vm) });
     flushSync();
-    host.querySelector<HTMLElement>('[data-action="delete"]')!.click();
+    host.querySelector<HTMLElement>('.oe-thread-actions [data-action="delete"]')!.click();
     flushSync();
     host.querySelector<HTMLElement>(".oe-delete-cancel")!.click();
     flushSync();
@@ -642,7 +660,7 @@ describe("App.svelte — delete/archive wiring", () => {
     });
     Object.assign(vm, { deleteThread, hasUnsavedComposerContent: () => true });
     const host = document.createElement("div");
-    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    const app = mount(App, { target: host, props: appProps(vm) });
     flushSync();
     // Trigger the switch prompt first, the same way
     // "navigating away with unsaved composer content prompts instead of
@@ -653,7 +671,7 @@ describe("App.svelte — delete/archive wiring", () => {
     expect(host.querySelector(".oe-composer-prompt")).not.toBeNull();
 
     // Now click Delete on the Trash row underneath — it should be ignored, not queued.
-    host.querySelector<HTMLElement>('[data-action="delete"]')!.click();
+    host.querySelector<HTMLElement>('.oe-thread-actions [data-action="delete"]')!.click();
     flushSync();
 
     // Resolve the switch prompt.
@@ -676,11 +694,11 @@ describe("App.svelte — delete/archive wiring", () => {
     const vm = fakeVm({ mailboxes: [{ id: "TRASH", name: "Deleted Items", kind: "trash" }], activeMailboxId: "TRASH" });
     Object.assign(vm, { deleteThread });
     const host = document.createElement("div");
-    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    const app = mount(App, { target: host, props: appProps(vm) });
     flushSync();
 
     // Trigger the delete-confirm banner first.
-    host.querySelector<HTMLElement>('[data-action="delete"]')!.click();
+    host.querySelector<HTMLElement>('.oe-thread-actions [data-action="delete"]')!.click();
     flushSync();
     expect(host.querySelector(".oe-delete-confirm")).not.toBeNull();
 
@@ -707,10 +725,10 @@ describe("App.svelte — delete/archive wiring", () => {
     });
     Object.assign(vm, { archiveThread, discardDraft, hasUnsavedComposerContent: () => true });
     const host = document.createElement("div");
-    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    const app = mount(App, { target: host, props: appProps(vm) });
     flushSync();
 
-    host.querySelectorAll<HTMLElement>('[data-action="archive"]')[1].click();
+    host.querySelectorAll<HTMLElement>('.oe-thread-actions [data-action="archive"]')[1].click();
     flushSync();
     expect(archiveThread).not.toHaveBeenCalled();
     expect(host.querySelector(".oe-composer-prompt")).not.toBeNull();
@@ -736,10 +754,10 @@ describe("App.svelte — delete/archive wiring", () => {
     });
     Object.assign(vm, { deleteThread, discardDraft, hasUnsavedComposerContent: () => true });
     const host = document.createElement("div");
-    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    const app = mount(App, { target: host, props: appProps(vm) });
     flushSync();
 
-    host.querySelectorAll<HTMLElement>('[data-action="delete"]')[1].click();
+    host.querySelectorAll<HTMLElement>('.oe-thread-actions [data-action="delete"]')[1].click();
     flushSync();
     expect(deleteThread).not.toHaveBeenCalled();
     expect(host.querySelector(".oe-composer-prompt")).not.toBeNull();
@@ -767,13 +785,12 @@ describe("App.svelte — delete/archive wiring", () => {
     });
     Object.assign(vm, { archiveMessage, discardDraft, hasUnsavedComposerContent: () => true });
     const host = document.createElement("div");
-    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    const app = mount(App, { target: host, props: appProps(vm) });
     flushSync();
 
-    // The reading pane's own Archive button (the list's row buttons come first).
-    const archiveButtons = host.querySelectorAll<HTMLElement>('[data-action="archive"]');
-    archiveButtons[archiveButtons.length - 1].click();
-    flushSync();
+    // The ribbon's Archive, which targets the expanded message — not a row.
+    // The open composer parks the ribbon on the Message tab, so select Home first.
+    clickRibbon(host, "home", "archive");
     expect(archiveMessage).not.toHaveBeenCalled();
     expect(host.querySelector(".oe-composer-prompt")).not.toBeNull();
 
@@ -793,9 +810,9 @@ describe("App.svelte — delete/archive wiring", () => {
     const vm = fakeVm({ search: { query: "report", active: true } });
     Object.assign(vm, { deleteThread });
     const host = document.createElement("div");
-    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    const app = mount(App, { target: host, props: appProps(vm) });
     flushSync();
-    host.querySelector<HTMLElement>('[data-action="delete"]')!.click();
+    host.querySelector<HTMLElement>('.oe-thread-actions [data-action="delete"]')!.click();
     flushSync();
     expect(deleteThread).not.toHaveBeenCalled();
     expect(host.querySelector(".oe-delete-confirm")).not.toBeNull();
@@ -818,10 +835,9 @@ describe("App.svelte — delete/archive wiring", () => {
     });
     Object.assign(vm, { deleteMessage });
     const host = document.createElement("div");
-    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    const app = mount(App, { target: host, props: appProps(vm) });
     flushSync();
-    const deleteButtons = host.querySelectorAll<HTMLElement>('[data-action="delete"]');
-    deleteButtons[deleteButtons.length - 1].click();
+    host.querySelector<HTMLElement>('.oe-ribbon [data-action="delete"]')!.click();
     flushSync();
     expect(deleteMessage).not.toHaveBeenCalled();
     expect(host.querySelector(".oe-delete-confirm")).not.toBeNull();
@@ -831,11 +847,106 @@ describe("App.svelte — delete/archive wiring", () => {
   it("passes isArchiveMailbox/isTrashMailbox derived from the active mailbox's kind down to MessageList", () => {
     const vm = fakeVm({ mailboxes: [{ id: "ARCHIVE", name: "Archive", kind: "archive" }], activeMailboxId: "ARCHIVE" });
     const host = document.createElement("div");
-    const app = mount(App, { target: host, props: { vm, onAddAccount: () => {} } });
+    const app = mount(App, { target: host, props: appProps(vm) });
     flushSync();
     // Archive mailbox: the thread row's own Archive button should be hidden.
-    expect(host.querySelector('[data-action="archive"]')).toBeNull();
-    expect(host.querySelector('[data-action="delete"]')).not.toBeNull();
+    expect(host.querySelector('.oe-thread-actions [data-action="archive"]')).toBeNull();
+    expect(host.querySelector('.oe-thread-actions [data-action="delete"]')).not.toBeNull();
+    unmount(app);
+  });
+});
+
+describe("App.svelte — ribbon", () => {
+  it("renders the ribbon above the grid when enabled", () => {
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: appProps(fakeVm()) });
+    flushSync();
+    expect(host.querySelector(".oe-shell > .oe-ribbon")).not.toBeNull();
+    expect(host.querySelector(".oe-shell > .oe-grid")).not.toBeNull();
+    unmount(app);
+  });
+
+  it("renders no ribbon when the pref is off", () => {
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: appProps(fakeVm({ ribbonEnabled: false })) });
+    flushSync();
+    expect(host.querySelector(".oe-ribbon")).toBeNull();
+    unmount(app);
+  });
+
+  it("Reply targets the expanded message and opens a reply composer", () => {
+    const vm = fakeVm({ openThreadId: "t1", openMessages: [{ summary: threadView("t1", "m1", "Hello").messages[0], body: undefined }] });
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: appProps(vm) });
+    flushSync();
+    host.querySelector<HTMLElement>('.oe-ribbon [data-action="reply"]')!.click();
+    expect(vm.openReply).toHaveBeenCalledWith("m1", "reply");
+    unmount(app);
+  });
+
+  it("the ribbon's target message follows the expanded message and resets when the thread changes", () => {
+    const messageFor = (threadId: string, id: string) => ({ summary: threadView(threadId, id, `S ${id}`).messages[0], body: undefined });
+    const vm = fakeVm({ openThreadId: "t1", openMessages: [messageFor("t1", "m1"), messageFor("t1", "m2")] });
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: appProps(vm) });
+    flushSync();
+    const reply = () => host.querySelector<HTMLElement>('.oe-ribbon [data-action="reply"]')!.click();
+
+    reply();
+    expect(vm.openReply).toHaveBeenLastCalledWith("m2", "reply"); // defaults to the last message
+
+    host.querySelectorAll<HTMLElement>(".oe-message-head")[0].click(); // expand m1
+    flushSync();
+    reply();
+    expect(vm.openReply).toHaveBeenLastCalledWith("m1", "reply");
+
+    setStateOf(vm)({ openThreadId: "t2", openMessages: [messageFor("t2", "n1"), messageFor("t2", "n2")] });
+    flushSync();
+    reply();
+    expect(vm.openReply).toHaveBeenLastCalledWith("n2", "reply"); // manual expansion reset
+    unmount(app);
+  });
+
+  it("Email from note goes through the unsaved-composer guard", () => {
+    const vm = fakeVm();
+    const noteCommands = { composeFromNote: vi.fn(), composeWithNoteAttached: vi.fn() };
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: appProps(vm, { noteCommands }) });
+    flushSync();
+    clickRibbon(host, "vault", "email-from-note");
+    expect(noteCommands.composeFromNote).toHaveBeenCalledOnce();
+    unmount(app);
+  });
+
+  it("Send/Save draft/Discard live on the contextual Message tab and call the view model", () => {
+    const vm = fakeVm();
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: appProps(vm) });
+    flushSync();
+    setStateOf(vm)({ composer: { mode: "new", to: [], cc: [], bcc: [], subject: "", bodyHtml: "", attachments: [], sending: false, error: null, savedSnapshot: null } });
+    flushSync();
+    expect(host.querySelector('.oe-ribbon-tab[data-tab="message"]')!.classList.contains("active")).toBe(true);
+    host.querySelector<HTMLElement>('.oe-ribbon [data-action="send"]')!.click();
+    host.querySelector<HTMLElement>('.oe-ribbon [data-action="save-draft"]')!.click();
+    host.querySelector<HTMLElement>('.oe-ribbon [data-action="discard-draft"]')!.click();
+    expect(vm.send).toHaveBeenCalledOnce();
+    expect(vm.saveDraft).toHaveBeenCalledOnce();
+    expect(vm.discardDraft).toHaveBeenCalledOnce();
+    unmount(app);
+  });
+
+  it("Rename/Delete folder are enabled for a custom active folder and route to the view model", () => {
+    const vm = fakeVm({
+      mailboxes: [{ id: "INBOX", name: "Inbox", kind: "inbox" }, { id: "P", name: "Project", kind: "custom" }],
+      activeMailboxId: "P",
+    });
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: appProps(vm) });
+    flushSync();
+    clickRibbon(host, "folder", "rename-folder");
+    expect(vm.requestRenameMailbox).toHaveBeenCalledWith("P");
+    clickRibbon(host, "folder", "delete-folder");
+    expect(host.querySelector(".oe-delete-confirm")).not.toBeNull();
     unmount(app);
   });
 });
