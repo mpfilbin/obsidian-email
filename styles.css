@@ -227,6 +227,16 @@
 .oe-composer .ql-snow .ql-tooltip.ql-editing a.ql-remove { display: none; }
 .oe-composer .ql-snow .ql-tooltip.ql-editing a.ql-action::after { border-right: 0; content: "Save"; padding-right: 0; }
 
+/* Recipient autocomplete */
+.oe-recipient { position: relative; flex: 1; display: flex; }
+.oe-recipient input { flex: 1; }
+.oe-suggest { position: absolute; top: 100%; left: 0; right: 0; z-index: 20; margin: 2px 0 0; padding: 4px; list-style: none; max-height: 220px; overflow-y: auto; background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 6px; box-shadow: var(--shadow-s); }
+.oe-suggest-item { display: flex; gap: 8px; align-items: baseline; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 13px; color: var(--text-normal); }
+.oe-suggest-item.is-active, .oe-suggest-item:hover { background: var(--background-modifier-hover); }
+.oe-suggest-email { color: var(--text-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The dropdown lives inside .oe-composer-field, whose label-span rule (fixed 44px) must not size these. */
+.oe-composer-field .oe-suggest-item span { width: auto; flex-shrink: 1; }
+
 /* --- Ribbon --- */
 .oe-shell { display: flex; flex-direction: column; height: 100%; }
 .oe-ribbon { flex: 0 0 auto; border-bottom: 1px solid var(--background-modifier-border); background-color: var(--background-secondary); font-size: var(--font-ui-small); user-select: none; }
