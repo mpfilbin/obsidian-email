@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { FakeProvider } from "../../src/providers/fake-provider";
 import { runMailProviderContract } from "../../src/providers/provider-contract";
+import { runContactsProviderContract } from "../../src/providers/contacts-contract";
 import type { OutgoingMessage } from "../../src/providers/types";
 
 runMailProviderContract("FakeProvider", async () => {
@@ -25,6 +26,8 @@ runMailProviderContract("FakeProvider", async () => {
   };
   return { provider, seedInbox };
 });
+
+runContactsProviderContract("FakeProvider", async () => new FakeProvider());
 
 const msg = (over: Partial<OutgoingMessage> = {}): OutgoingMessage => ({
   to: [{ email: "a@x.com" }], cc: [], bcc: [], subject: "Hi", bodyHtml: "<p>hi</p>", ...over,
@@ -160,5 +163,20 @@ describe("FakeProvider — delete/archive", () => {
     await p.archiveMessage("m1");
     const result = await p.syncSince(cursor);
     expect(result.upserts.map((m) => m.mailboxIds)).toEqual([["ARCHIVE"]]);
+  });
+});
+
+describe("FakeProvider contacts hooks", () => {
+  it("seedContacts pre-populates listContacts", async () => {
+    const p = new FakeProvider();
+    p.seedContacts([{ id: "S1", displayName: "Seed", emails: [], businessPhones: [], homePhones: [] }]);
+    expect((await p.listContacts()).map((c) => c.id)).toEqual(["S1"]);
+  });
+
+  it("contactsError makes every contacts call reject", async () => {
+    const p = new FakeProvider();
+    p.contactsError = new Error("nope");
+    await expect(p.listContacts()).rejects.toThrow("nope");
+    await expect(p.createContact({ displayName: "x", emails: [], businessPhones: [], homePhones: [] })).rejects.toThrow("nope");
   });
 });

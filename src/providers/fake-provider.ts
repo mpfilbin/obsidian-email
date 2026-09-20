@@ -1,5 +1,6 @@
 import type {
   MailProvider, Mailbox, MessageBody, MessageSummary, Page, SyncCursor, SyncResult, OutgoingMessage, Address,
+  Contact, ContactDraft, ContactPatch, ContactsProvider,
 } from "./types";
 
 type SentLogEntry =
@@ -14,7 +15,7 @@ interface Seed {
   bodies?: Record<string, MessageBody>;
 }
 
-export class FakeProvider implements MailProvider {
+export class FakeProvider implements MailProvider, ContactsProvider {
   readonly kind = "ms-graph" as const;
   pageSize = 2;
 
@@ -28,6 +29,10 @@ export class FakeProvider implements MailProvider {
   readonly sentLog: SentLogEntry[] = [];
   readonly drafts = new Map<string, OutgoingMessage>();
   private draftSeq = 0;
+  private contacts = new Map<string, Contact>();
+  private contactSeq = 0;
+  /** When set, every contacts method rejects with it (simulates a 403, a network failure, …). */
+  contactsError?: Error;
 
   constructor(seed: Seed = {}) {
     this.mailboxes = seed.mailboxes ?? [];
@@ -178,5 +183,40 @@ export class FakeProvider implements MailProvider {
     const m = this.messages.get(id);
     if (!m) throw new Error(`no such message: ${id}`);
     this.addMessage({ ...m, mailboxIds: [destinationMailboxId] });
+  }
+
+  seedContacts(list: Contact[]): void {
+    for (const c of list) this.contacts.set(c.id, c);
+  }
+
+  private guardContacts(): void {
+    if (this.contactsError) throw this.contactsError;
+  }
+
+  async listContacts(): Promise<Contact[]> {
+    this.guardContacts();
+    return [...this.contacts.values()];
+  }
+
+  async createContact(draft: ContactDraft): Promise<Contact> {
+    this.guardContacts();
+    const contact: Contact = { ...structuredClone(draft), id: `FAKE-CONTACT-${++this.contactSeq}` };
+    this.contacts.set(contact.id, contact);
+    return contact;
+  }
+
+  async updateContact(id: string, patch: ContactPatch): Promise<Contact> {
+    this.guardContacts();
+    const existing = this.contacts.get(id);
+    if (!existing) throw new Error(`no such contact: ${id}`);
+    const defined = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
+    const updated: Contact = { ...existing, ...defined };
+    this.contacts.set(id, updated);
+    return updated;
+  }
+
+  async deleteContact(id: string): Promise<void> {
+    this.guardContacts();
+    this.contacts.delete(id);
   }
 }
