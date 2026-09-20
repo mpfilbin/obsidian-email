@@ -278,9 +278,26 @@ export default class EmailPlugin extends Plugin {
       name: "Create email with note attached",
       callback: noteCommands.composeWithNoteAttached,
     });
+    this.addCommand({
+      id: "open-contacts",
+      name: "Open contacts",
+      callback: () => {
+        void (async () => {
+          // The palette bypasses App's unsaved-content prompt, and entering
+          // Contacts drops the composer — so refuse rather than lose a draft.
+          if (ctx.vm.hasUnsavedComposerContent()) {
+            new Notice("Finish or discard your unsent message before opening contacts.");
+            return;
+          }
+          await this.activateView();
+          ctx.vm.setMode("contacts");
+        })();
+      },
+    });
     this.addSettingTab(new EmailSettingTab(this, ctx, settings));
 
     ctx.sync.start(settings.pollIntervalMs());
+    ctx.startContacts();
   }
 
   onunload(): void {
