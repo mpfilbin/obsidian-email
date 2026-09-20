@@ -35,6 +35,9 @@ export interface ContextHostDeps {
   /** Shows a transient, auto-dismissing toast. */
   showNotice: (message: string) => void;
   now?: () => number;
+  /** Test-only seam: how long each IndexedDB open may take before the plugin
+   *  gives up and degrades. Defaults to `CACHE_OPEN_TIMEOUT_MS`. */
+  cacheOpenTimeoutMs?: number;
   /** Test-only seam: lets a spec inject a fake OAuth loopback server. */
   makeLoopback?: (host: "127.0.0.1" | "localhost") => LoopbackLike;
 }
@@ -73,7 +76,7 @@ const DEGRADED_CURSORS = {
 const CONTACT_POLL_MS = 15 * 60_000;
 
 /** How long to wait for each IndexedDB open before giving up and degrading.
- *  An upgrade blocked by an older connection never settles on its own. */
+ *  An open blocked by an older connection never settles on its own. */
 const CACHE_OPEN_TIMEOUT_MS = 8000;
 
 export class PluginContext {
@@ -104,19 +107,19 @@ export class PluginContext {
     logger: Logger,
   ): Promise<PluginContext> {
     const now = host.now ?? (() => Date.now());
+    const openTimeoutMs = host.cacheOpenTimeoutMs ?? CACHE_OPEN_TIMEOUT_MS;
 
     let cache: MailCache = DEGRADED_CACHE;
     let cursors: CursorStore = DEGRADED_CURSORS;
     let contactStore: ContactStore = new MemoryContactStore();
     let degraded = false;
     try {
-      // A blocked upgrade (an older plugin instance still holding v1 in this
+      // A blocked open (an older plugin instance holding the database in this
       // renderer) makes `openDB` hang rather than throw, which would leave
       // `create` pending forever — no view, no commands, no error. The timeout
       // turns that into the ordinary degraded path.
-      cache = await openWithTimeout(() => MailCache.open(), CACHE_OPEN_TIMEOUT_MS);
-      cursors = await openWithTimeout(() => CursorStore.open(), CACHE_OPEN_TIMEOUT_MS);
-      contactStore = await openWithTimeout(() => ContactCache.open(), CACHE_OPEN_TIMEOUT_MS);
+      cache = await openWithTimeout(() => MailCache.open(), openTimeoutMs);
+      cursors = await openWithTimeout(() => CursorStore.open(), openTimeoutMs);
     } catch (err) {
       degraded = true;
       logger.error("local cache unavailable; running in degraded mode", (err as Error).message);
@@ -124,7 +127,6 @@ export class PluginContext {
       // would itself block the retry after a restart.
       cache.close();
       cursors.close();
-      contactStore.close();
       new Notice(
         err instanceof CacheOpenTimeout
           ? "Email: the local cache is being upgraded but is blocked by an older session. Restart Obsidian to finish the upgrade; running without persistence until then."
@@ -132,7 +134,13 @@ export class PluginContext {
       );
       cache = DEGRADED_CACHE;
       cursors = DEGRADED_CURSORS;
-      contactStore = new MemoryContactStore();
+    }
+    // Contacts live in their own database, so a problem there must not degrade
+    // mail (and vice versa): fall back to an in-memory store, quietly.
+    try {
+      contactStore = await openWithTimeout(() => ContactCache.open(), openTimeoutMs);
+    } catch (err) {
+      logger.warn("contacts cache unavailable; keeping contacts in memory for this session", (err as Error).message);
     }
 
     // One shared provider registry backs both the sync engine and the view model.
@@ -284,6 +292,22 @@ export class PluginContext {
     await this.cache.clearAccount(id);
     await this.contactStore.clear(id);
     this.rebuildProviders();
+  }
+
+  /**
+   * Settings "Clear local cache": empties the mail cache and the contact
+   * cache, then re-pulls contacts (the throttle would otherwise leave the
+   * address book empty for up to 15 minutes). Mail re-syncs on its own from
+   * the cleared cursors, as before.
+   */
+  async clearLocalCache(): Promise<void> {
+    const accountIds = this.settings.get().accounts.map((a) => a.id);
+    // Before clearing, like removeAccountFlow: a sync already past
+    // `listContacts()` would otherwise write straight back into the store.
+    for (const id of accountIds) this.contactSync.forget(id);
+    await this.cache.clearAll();
+    await this.contactStore.clearAll();
+    for (const id of accountIds) void this.contactSync.syncAccount(id, { force: true });
   }
 
   applyPollInterval(): void {

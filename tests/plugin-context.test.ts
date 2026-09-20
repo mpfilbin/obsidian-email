@@ -5,6 +5,7 @@ import { SettingsStore } from "../src/settings/settings-store";
 import { Logger } from "../src/util/logger";
 import { MailCache } from "../src/cache/mail-cache";
 import { CursorStore } from "../src/cache/cursor-store";
+import { ContactCache, MemoryContactStore } from "../src/cache/contact-cache";
 
 // plugin-context.ts imports `Notice` from obsidian (Ruling F); the `obsidian`
 // module is aliased to tests/stubs/obsidian.ts in vitest.config.ts.
@@ -211,23 +212,82 @@ describe("PluginContext", () => {
     expect(contacts).toHaveBeenCalledOnce();
   });
 
-  it("a blocked cache upgrade degrades instead of hanging, with its own notice", async () => {
-    // openWithTimeout turns idb's never-settling `blocked` open into a
-    // CacheOpenTimeout, which the degraded path reports differently.
-    const cacheOpen = vi.spyOn(MailCache, "open").mockReturnValueOnce(new Promise(() => {}));
+  it("a hung mail cache open degrades within the timeout, with its own notice", async () => {
+    // openWithTimeout turns a never-settling open into a CacheOpenTimeout,
+    // which the degraded path reports differently from a plain failure.
+    const cacheOpen = vi.spyOn(MailCache, "open").mockReturnValue(new Promise(() => {}));
     const notice = vi.spyOn(obsidian, "Notice").mockImplementation((() => ({})) as never);
+    try {
+      const settings = await SettingsStore.load({ loadData: async () => null, saveData: async () => {} });
+      const ctx = await PluginContext.create(settings, { ...hostDeps(), cacheOpenTimeoutMs: 20 }, logger);
 
+      expect(ctx.degraded).toBe(true);
+      expect(notice).toHaveBeenCalledOnce();
+      expect(notice.mock.calls[0][0]).toContain("blocked by an older session");
+      ctx.dispose();
+    } finally {
+      notice.mockRestore();
+      cacheOpen.mockRestore();
+    }
+  });
+
+  describe("contacts database failure degrades only contacts", () => {
+    const cases: Array<[string, () => Promise<never>]> = [
+      ["hangs", () => new Promise(() => {})],
+      ["fails", () => Promise.reject(new Error("contacts idb broke"))],
+    ];
+    for (const [label, open] of cases) {
+      it(`when the contacts open ${label}, mail stays persistent and contacts fall back to memory`, async () => {
+        const contactOpen = vi.spyOn(ContactCache, "open").mockImplementation(open);
+        const notice = vi.spyOn(obsidian, "Notice").mockImplementation((() => ({})) as never);
+        const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+        try {
+          const settings = await SettingsStore.load({ loadData: async () => null, saveData: async () => {} });
+          const ctx = await PluginContext.create(settings, { ...hostDeps(), cacheOpenTimeoutMs: 20 }, logger);
+
+          expect(ctx.degraded).toBe(false);
+          expect(ctx.cache).toBeInstanceOf(MailCache);
+          expect(ctx.cursors).toBeInstanceOf(CursorStore);
+          expect(ctx.contactStore).toBeInstanceOf(MemoryContactStore);
+          expect(notice).not.toHaveBeenCalled();
+          expect(warn).toHaveBeenCalledOnce();
+          expect(warn.mock.calls[0][0]).toContain("contacts");
+
+          // Contacts still work, in memory, for the session.
+          await ctx.contactStore.put("a1", { id: "1", displayName: "A", emails: [], businessPhones: [], homePhones: [] });
+          expect((await ctx.contactStore.list("a1")).map((c) => c.id)).toEqual(["1"]);
+          ctx.dispose();
+        } finally {
+          warn.mockRestore();
+          notice.mockRestore();
+          contactOpen.mockRestore();
+        }
+      });
+    }
+  });
+
+  it("clearLocalCache clears mail and contacts, then re-syncs contacts for every account", async () => {
     const settings = await SettingsStore.load({ loadData: async () => null, saveData: async () => {} });
+    await settings.addAccount({ id: "a1", email: "a1@g.com", provider: "ms-graph", clientId: "c", addedAt: 0 });
+    await settings.addAccount({ id: "a2", email: "a2@g.com", provider: "ms-graph", clientId: "c", addedAt: 0 });
     const ctx = await PluginContext.create(settings, hostDeps(), logger);
+    const person = { id: "1", displayName: "A", emails: [], businessPhones: [], homePhones: [] };
+    await ctx.contactStore.put("a1", person);
+    await ctx.contactStore.put("a2", person);
+    const mailClear = vi.spyOn(ctx.cache, "clearAll");
+    const forget = vi.spyOn(ctx.contactSync, "forget");
+    const resync = vi.spyOn(ctx.contactSync, "syncAccount").mockResolvedValue();
 
-    expect(ctx.degraded).toBe(true);
-    expect(notice).toHaveBeenCalledOnce();
-    expect(notice.mock.calls[0][0]).toContain("blocked by an older session");
+    await ctx.clearLocalCache();
 
+    expect(mailClear).toHaveBeenCalledOnce();
+    expect(await ctx.contactStore.list("a1")).toEqual([]);
+    expect(await ctx.contactStore.list("a2")).toEqual([]);
+    expect(forget.mock.calls.map((c) => c[0]).sort()).toEqual(["a1", "a2"]);
+    expect(resync).toHaveBeenCalledWith("a1", { force: true });
+    expect(resync).toHaveBeenCalledWith("a2", { force: true });
     ctx.dispose();
-    notice.mockRestore();
-    cacheOpen.mockRestore();
-  }, 20_000);
+  });
 
   it("startContacts twice leaves a single interval running", async () => {
     const settings = await SettingsStore.load({ loadData: async () => null, saveData: async () => {} });

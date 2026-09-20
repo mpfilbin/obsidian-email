@@ -24,9 +24,9 @@ export async function handleConnect(
   }
 }
 
-/** DOM-free core of the "Clear local cache" button. */
-export async function handleClearCache(ctx: Pick<PluginContext, "cache">): Promise<void> {
-  await ctx.cache.clearAll();
+/** DOM-free core of the "Clear local cache" button (mail and contacts). */
+export async function handleClearCache(ctx: Pick<PluginContext, "clearLocalCache">): Promise<void> {
+  await ctx.clearLocalCache();
 }
 
 const POLL_OPTIONS: Array<[string, string]> = [
@@ -162,7 +162,7 @@ export class EmailSettingTab extends PluginSettingTab {
     containerEl.createEl("h2", { text: "Danger zone" });
     new Setting(containerEl)
       .setName("Clear local cache")
-      .setDesc("Removes cached mail. Accounts and tokens are kept; mail re-syncs.")
+      .setDesc("Removes cached mail and contacts. Accounts and tokens are kept; both re-sync.")
       .addButton((b) =>
         b
           .setWarning()
