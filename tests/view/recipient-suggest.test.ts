@@ -29,11 +29,12 @@ describe("token helpers", () => {
 
 describe("rankSuggestions", () => {
   const contacts = [
-    mk("1", "Alice Baker", ["alice@corp.io"]),
-    mk("2", "Bob Alison", ["bob@corp.io", "bob.home@x.com"]),
-    mk("3", "Carol", ["carol@alpha.org"], { givenName: "Carol", surname: "Alvarez" }),
-    mk("4", "No Email", []),
+    // Deliberately NOT in ranked order, so the tests exercise the sort.
     mk("5", "Dale Walters", ["dale@corp.io"]),
+    mk("3", "Carol", ["carol@alpha.org"], { givenName: "Carol", surname: "Alvarez" }),
+    mk("2", "Bob Alison", ["bob@corp.io", "bob.home@x.com"]),
+    mk("1", "Alice Baker", ["alice@corp.io"]),
+    mk("4", "No Email", []),
   ];
 
   it("returns nothing for an empty query", () => {
@@ -60,7 +61,7 @@ describe("rankSuggestions", () => {
 
   it("skips excluded addresses (case-insensitive) and honours the limit", () => {
     expect(rankSuggestions(contacts, "bob", ["BOB@corp.io"]).map((s) => s.email)).toEqual(["bob.home@x.com"]);
-    expect(rankSuggestions(contacts, "a", [], 2)).toHaveLength(2);
+    expect(rankSuggestions(contacts, "al", [], 2).map((s) => s.email)).toEqual(["alice@corp.io", "bob@corp.io"]);
   });
 
   it("skips contacts with no email", () => {
