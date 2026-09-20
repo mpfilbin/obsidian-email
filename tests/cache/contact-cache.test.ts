@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { ContactCache, MemoryContactStore, type ContactStore } from "../../src/cache/contact-cache";
 import { MailCache } from "../../src/cache/mail-cache";
+import { CONTACT_DB_NAME, CONTACT_DB_VERSION } from "../../src/cache/contact-schema";
+import { DB_NAME, DB_VERSION } from "../../src/cache/schema";
 import type { Contact } from "../../src/providers/types";
 
 const contact = (id: string, displayName = id): Contact =>
@@ -51,6 +53,15 @@ for (const [name, make] of impls) {
       expect((await s.list("a2")).map((c) => c.id)).toEqual(["9"]);
     });
 
+    it("clearAll empties every account", async () => {
+      const s = await make();
+      await s.put("a1", contact("1"));
+      await s.put("a2", contact("2"));
+      await s.clearAll();
+      expect(await s.list("a1")).toEqual([]);
+      expect(await s.list("a2")).toEqual([]);
+    });
+
     it("clear removes only that account's contacts", async () => {
       const s = await make();
       await s.put("a1", contact("1"));
@@ -62,17 +73,26 @@ for (const [name, make] of impls) {
   });
 }
 
-describe("MailCache clears contacts too", () => {
-  it("clearAccount and clearAll empty the contacts store", async () => {
-    const name = freshName();
-    const mail = await MailCache.open(name);
-    const contacts = await ContactCache.open(name);
+describe("ContactCache database", () => {
+  it("is independent of the mail database: default names differ and mail clears leave contacts alone", async () => {
+    const mail = await MailCache.open();
+    const contacts = await ContactCache.open();
     await contacts.put("a1", contact("1"));
-    await contacts.put("a2", contact("2"));
     await mail.clearAccount("a1");
-    expect(await contacts.list("a1")).toEqual([]);
-    expect((await contacts.list("a2")).map((c) => c.id)).toEqual(["2"]);
     await mail.clearAll();
-    expect(await contacts.list("a2")).toEqual([]);
+    expect((await contacts.list("a1")).map((c) => c.id)).toEqual(["1"]);
+
+    const dbs = (await indexedDB.databases()).map((d) => [d.name, d.version]);
+    expect(dbs).toContainEqual([DB_NAME, DB_VERSION]);
+    expect(dbs).toContainEqual([CONTACT_DB_NAME, CONTACT_DB_VERSION]);
+    await contacts.clearAll();
+    mail.close();
+    contacts.close();
+  });
+
+  it("uses its own default database name, distinct from the mail one", () => {
+    expect(CONTACT_DB_NAME).toBe("obsidian-email-contacts");
+    expect(CONTACT_DB_NAME).not.toBe(DB_NAME);
+    expect(CONTACT_DB_VERSION).toBe(1);
   });
 });

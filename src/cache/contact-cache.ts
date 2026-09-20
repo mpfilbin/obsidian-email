@@ -1,6 +1,6 @@
 import type { IDBPDatabase } from "idb";
 import type { Contact } from "../providers/types";
-import { openMailDb, type MailDb } from "./schema";
+import { openContactDb, type ContactDb } from "./contact-schema";
 import { sortContacts } from "../view/contact-draft";
 
 const key = (accountId: string, id: string) => `${accountId}/${id}`;
@@ -13,15 +13,17 @@ export interface ContactStore {
   /** Upserts every contact in `contacts` and deletes any cached one not in it. */
   replace(accountId: string, contacts: Contact[]): Promise<void>;
   clear(accountId: string): Promise<void>;
+  /** Removes every account's contacts. */
+  clearAll(): Promise<void>;
   /** Releases any underlying connection; the in-memory store is a no-op. */
   close(): void;
 }
 
 export class ContactCache implements ContactStore {
-  private constructor(private db: IDBPDatabase<MailDb>) {}
+  private constructor(private db: IDBPDatabase<ContactDb>) {}
 
   static async open(name?: string): Promise<ContactCache> {
-    return new ContactCache(await openMailDb(name));
+    return new ContactCache(await openContactDb(name));
   }
 
   async list(accountId: string): Promise<Contact[]> {
@@ -55,6 +57,10 @@ export class ContactCache implements ContactStore {
     await tx.done;
   }
 
+  async clearAll(): Promise<void> {
+    await this.db.clear("contacts");
+  }
+
   /** Releases the IndexedDB connection (see MailCache.close). */
   close(): void {
     this.db.close();
@@ -86,6 +92,9 @@ export class MemoryContactStore implements ContactStore {
   }
   async clear(accountId: string): Promise<void> {
     this.byAccount.delete(accountId);
+  }
+  async clearAll(): Promise<void> {
+    this.byAccount.clear();
   }
   close(): void {
     // Nothing to release.
