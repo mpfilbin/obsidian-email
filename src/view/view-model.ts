@@ -2,6 +2,8 @@ import type { Address, AttachmentMeta, Mailbox, MailProvider, MessageBody, Messa
 import { AuthError } from "../providers/types";
 import type { MailCache } from "../cache/mail-cache";
 import type { SyncEngine, SyncStatus } from "../sync/sync-engine";
+import type { ContactStore } from "../cache/contact-cache";
+import type { ContactSync } from "../sync/contact-sync";
 import type { SettingsStore } from "../settings/settings-store";
 import { sanitizeEmailHtml } from "../render/html-sanitizer";
 import { defaultNoteFilename, emailToNote } from "../render/email-to-note";
@@ -63,6 +65,10 @@ export interface ViewState {
 export interface ViewModelDeps {
   cache: MailCache;
   sync: SyncEngine;
+  contactStore: ContactStore;
+  contactSync: ContactSync;
+  /** Re-runs OAuth so an account gains the Contacts scope (Task 8 consumer). */
+  grantContactsAccess: (accountId: string) => Promise<void>;
   settings: SettingsStore;
   getProvider: (id: string) => MailProvider | undefined;
   isOnline: () => boolean;

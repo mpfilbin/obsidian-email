@@ -7,6 +7,7 @@ import { SettingsStore } from "../../src/settings/settings-store";
 import { FakeProvider } from "../../src/providers/fake-provider";
 import { Logger } from "../../src/util/logger";
 import { AuthError } from "../../src/providers/types";
+import { contactDeps } from "../helpers/contact-deps";
 import type { MessageSummary } from "../../src/providers/types";
 
 const logger = new Logger("t", { debug: () => false });
@@ -35,12 +36,14 @@ async function build() {
   const showNotice = vi.fn();
   const promptFolderRename = vi.fn();
   const pickNoteAttachment = vi.fn();
+  const contacts = contactDeps(() => provider);
   const vm = new ViewModel({
+    ...contacts,
     cache, sync, settings, getProvider: () => provider, isOnline: () => true,
     openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {},
     promptFolderName: () => {}, promptFolderRename, pickNoteAttachment, showNotice,
   });
-  return { cache, provider, sync, settings, vm, showNotice, promptFolderRename, pickNoteAttachment };
+  return { cache, provider, sync, settings, vm, showNotice, promptFolderRename, pickNoteAttachment, contacts };
 }
 
 /**
@@ -74,6 +77,7 @@ describe("ViewModel", () => {
 
   describe("ribbon prefs", () => {
     const depsFor = (c: Awaited<ReturnType<typeof build>>) => ({
+      ...contactDeps(() => c.provider),
       cache: c.cache, sync: c.sync, settings: c.settings, getProvider: () => c.provider, isOnline: () => true,
       openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {},
       promptFolderName: () => {}, promptFolderRename: vi.fn(), pickNoteAttachment: vi.fn(), showNotice: vi.fn(),
@@ -143,6 +147,7 @@ describe("ViewModel", () => {
   it("runSearch offline sets a notice and does not clear the list", async () => {
     const showNotice = vi.fn();
     const offlineVm = new ViewModel({
+      ...contactDeps(() => ctx.provider),
       cache: ctx.cache, sync: ctx.sync, settings: (ctx as never as { settings: SettingsStore }).settings ?? await SettingsStore.load({ loadData: async () => ({ accounts: [{ id: "a1", email: "e", provider: "ms-graph", clientId: "c", addedAt: 0 }] }), saveData: async () => {} }),
       getProvider: () => ctx.provider, isOnline: () => false,
       openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {},
@@ -835,6 +840,7 @@ describe("ViewModel — saveMessageToVault", () => {
     const saveNote = vi.fn();
     const ctx = await build();
     const vm = new ViewModel({
+      ...contactDeps(() => ctx.provider),
       cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
       isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote,
       promptFolderName: () => {}, promptFolderRename: () => {}, pickNoteAttachment: async () => undefined, showNotice: vi.fn(),
@@ -867,6 +873,7 @@ describe("ViewModel — saveMessageToVault", () => {
     const showNotice = vi.fn();
     const ctx = await build();
     const vm = new ViewModel({
+      ...contactDeps(() => ctx.provider),
       cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
       isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote,
       promptFolderName: () => {}, promptFolderRename: () => {}, pickNoteAttachment: async () => undefined, showNotice,
@@ -887,6 +894,7 @@ describe("ViewModel — saveMessageToVault", () => {
     const saveNote = vi.fn();
     const ctx = await build();
     const vm = new ViewModel({
+      ...contactDeps(() => ctx.provider),
       cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
       isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote,
       promptFolderName: () => {}, promptFolderRename: () => {}, pickNoteAttachment: async () => undefined, showNotice: vi.fn(),
@@ -957,6 +965,7 @@ describe("ViewModel — requestCreateMailbox", () => {
     const ctx = await build();
     let submit: ((name: string) => void) | undefined;
     const vm = new ViewModel({
+      ...contactDeps(() => ctx.provider),
       cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
       isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {},
       promptFolderName: (onSubmit) => { submit = onSubmit; }, promptFolderRename: () => {}, pickNoteAttachment: async () => undefined, showNotice: vi.fn(),
@@ -982,6 +991,7 @@ describe("ViewModel — requestCreateMailbox", () => {
     let submit: ((name: string) => void) | undefined;
     const showNotice = vi.fn();
     const vm = new ViewModel({
+      ...contactDeps(() => ctx.provider),
       cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
       isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {},
       promptFolderName: (onSubmit) => { submit = onSubmit; }, promptFolderRename: () => {}, pickNoteAttachment: async () => undefined, showNotice,

@@ -188,4 +188,24 @@ describe("PluginContext", () => {
     expect(spy).toHaveBeenCalledWith(settings.pollIntervalMs());
     ctx.dispose();
   });
+
+  it("exposes contact sync and store, and startContacts syncs every account", async () => {
+    const settings = await SettingsStore.load({ loadData: async () => null, saveData: async () => {} });
+    await settings.addAccount({ id: "a1", email: "a1@g.com", provider: "ms-graph", clientId: "c", addedAt: 0 });
+    const ctx = await PluginContext.create(settings, hostDeps(), logger);
+    const spy = vi.spyOn(ctx.contactSync, "syncAll");
+    ctx.startContacts();
+    expect(spy).toHaveBeenCalledOnce();
+    ctx.dispose();
+  });
+
+  it("removing an account clears its cached contacts", async () => {
+    const settings = await SettingsStore.load({ loadData: async () => null, saveData: async () => {} });
+    await settings.addAccount({ id: "acct-rm", email: "r@g.com", provider: "ms-graph", clientId: "c", addedAt: 0 });
+    const ctx = await PluginContext.create(settings, hostDeps(), logger);
+    await ctx.contactStore.put("acct-rm", { id: "1", displayName: "A", emails: [], businessPhones: [], homePhones: [] });
+    await ctx.removeAccountFlow("acct-rm");
+    expect(await ctx.contactStore.list("acct-rm")).toEqual([]);
+    ctx.dispose();
+  });
 });

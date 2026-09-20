@@ -8,7 +8,9 @@ import type { Logger } from "./util/logger";
 import type { SettingsStore } from "./settings/settings-store";
 import { CursorStore } from "./cache/cursor-store";
 import { MailCache } from "./cache/mail-cache";
+import { ContactCache, MemoryContactStore, type ContactStore } from "./cache/contact-cache";
 import { SyncEngine } from "./sync/sync-engine";
+import { ContactSync } from "./sync/contact-sync";
 import { ViewModel } from "./view/view-model";
 import { TokenManager } from "./auth/token-manager";
 import { createProvider } from "./providers/provider-factory";
@@ -65,8 +67,11 @@ const DEGRADED_CURSORS = {
   async delete() {},
 } satisfies Partial<CursorStore> as unknown as CursorStore;
 
+const CONTACT_POLL_MS = 15 * 60_000;
+
 export class PluginContext {
   private now: () => number;
+  private contactTimer?: ReturnType<typeof setInterval>;
 
   private constructor(
     private settings: SettingsStore,
@@ -79,6 +84,8 @@ export class PluginContext {
     private tokens: Map<string, TokenManager>,
     now: () => number,
     readonly degraded: boolean,
+    readonly contactSync: ContactSync,
+    readonly contactStore: ContactStore,
   ) {
     this.now = now;
   }
@@ -92,10 +99,12 @@ export class PluginContext {
 
     let cache: MailCache = DEGRADED_CACHE;
     let cursors: CursorStore = DEGRADED_CURSORS;
+    let contactStore: ContactStore = new MemoryContactStore();
     let degraded = false;
     try {
       cache = await MailCache.open();
       cursors = await CursorStore.open();
+      contactStore = await ContactCache.open();
     } catch (err) {
       degraded = true;
       logger.error("local cache unavailable; running in degraded mode", (err as Error).message);
@@ -104,6 +113,7 @@ export class PluginContext {
       );
       cache = DEGRADED_CACHE;
       cursors = DEGRADED_CURSORS;
+      contactStore = new MemoryContactStore();
     }
 
     // One shared provider registry backs both the sync engine and the view model.
@@ -119,9 +129,27 @@ export class PluginContext {
       listAccountIds: () => settings.get().accounts.map((a) => a.id),
     });
 
+    const contactSync = new ContactSync({
+      store: contactStore,
+      logger,
+      now,
+      getProvider: (id) => providers.get(id),
+      listAccountIds: () => settings.get().accounts.map((a) => a.id),
+    });
+    // The view-model needs the context (to re-run OAuth) but is built first.
+    const ctxRef: { current?: PluginContext } = {};
+
     const vm = new ViewModel({
       cache,
       sync,
+      contactStore,
+      contactSync,
+      grantContactsAccess: async (accountId) => {
+        // reauthAccount requests the full scope list (now incl. Contacts) and
+        // force-syncs contacts on success.
+        const result = await ctxRef.current!.reauthAccount(accountId);
+        host.showNotice(result.message);
+      },
       settings,
       getProvider: (id) => providers.get(id),
       isOnline: () => (typeof navigator === "undefined" ? true : navigator.onLine),
@@ -135,10 +163,17 @@ export class PluginContext {
     });
 
     const ctx = new PluginContext(
-      settings, host, logger, cache, sync, vm, providers, tokens, now, degraded,
+      settings, host, logger, cache, sync, vm, providers, tokens, now, degraded, contactSync, contactStore,
     );
+    ctxRef.current = ctx;
     ctx.rebuildProviders();
     return ctx;
+  }
+
+  /** Syncs contacts now, then on a slow timer (each sync is also throttled). */
+  startContacts(): void {
+    void this.contactSync.syncAll();
+    this.contactTimer = setInterval(() => void this.contactSync.syncAll(), CONTACT_POLL_MS);
   }
 
   providerFor(id: string): MailProvider | undefined {
@@ -192,6 +227,7 @@ export class PluginContext {
     await this.settings.addAccount(account);
     this.rebuildProviders();
     void this.sync.syncAccount(account.id);
+    void this.contactSync.syncAccount(account.id, { force: true });
     return account;
   }
 
@@ -211,6 +247,7 @@ export class PluginContext {
       await this.settings.addAccount(refreshed);
       this.rebuildProviders();
       void this.sync.syncAccount(accountId);
+      void this.contactSync.syncAccount(accountId, { force: true });
       return { ok: true, message: `Re-authenticated ${refreshed.email}.` };
     } catch (err) {
       return { ok: false, message: `Could not re-authenticate: ${(err as Error).message}` };
@@ -221,6 +258,7 @@ export class PluginContext {
     await this.tokens.get(id)?.clear();
     await this.settings.removeAccount(id);
     await this.cache.clearAccount(id);
+    await this.contactStore.clear(id);
     this.rebuildProviders();
   }
 
@@ -230,6 +268,7 @@ export class PluginContext {
 
   dispose(): void {
     this.sync.stop();
+    if (this.contactTimer) clearInterval(this.contactTimer);
     this.vm.dispose();
   }
 }
