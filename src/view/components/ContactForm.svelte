@@ -17,16 +17,23 @@
   // Emails and phone lists are comma-separated text mirrors, committed on
   // change (blur / Enter) — committing per keystroke would re-normalize the
   // text under the cursor, exactly as the composer's recipient fields avoid.
+  // The view-model replaces the whole `edit` object on every patch, so each
+  // mirror re-syncs from a memoized $derived string: the effect re-runs only
+  // when the committed value actually changes, never on an unrelated edit
+  // replacement (which would silently discard rejected text).
+  const committedEmails = $derived(fmtAddrs(edit.draft.emails));
+  const committedBusiness = $derived(edit.draft.businessPhones.join(", "));
+  const committedHome = $derived(edit.draft.homePhones.join(", "));
   // svelte-ignore state_referenced_locally
-  let emailsText = $state(fmtAddrs(edit.draft.emails));
-  $effect(() => { emailsText = fmtAddrs(edit.draft.emails); });
+  let emailsText = $state(committedEmails);
   // svelte-ignore state_referenced_locally
-  let businessText = $state(edit.draft.businessPhones.join(", "));
-  $effect(() => { businessText = edit.draft.businessPhones.join(", "); });
+  let businessText = $state(committedBusiness);
   // svelte-ignore state_referenced_locally
-  let homeText = $state(edit.draft.homePhones.join(", "));
-  $effect(() => { homeText = edit.draft.homePhones.join(", "); });
+  let homeText = $state(committedHome);
   let emailWarning = $state<string | null>(null);
+  $effect(() => { emailsText = committedEmails; emailWarning = null; });
+  $effect(() => { businessText = committedBusiness; });
+  $effect(() => { homeText = committedHome; });
 
   function commitEmails(raw: string): void {
     const parsed = parseRecipients(raw);
@@ -35,6 +42,7 @@
       return;
     }
     emailWarning = null;
+    emailsText = fmtAddrs(parsed);
     onChange({ emails: parsed });
   }
 </script>

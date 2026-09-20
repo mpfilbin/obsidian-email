@@ -27,7 +27,7 @@
     <dl class="oe-contact-fields">
       <dt>Email</dt>
       <dd>
-        {#each contact.emails as e (e.email)}
+        {#each contact.emails as e, i (i + e.email)}
           <button type="button" class="oe-contact-email" onclick={() => onEmail(e.email)}>{e.email}</button>
         {/each}
       </dd>
@@ -35,7 +35,7 @@
   {/if}
   {#if phones.length}
     <dl class="oe-contact-fields">
-      {#each phones as p (p.label + p.value)}
+      {#each phones as p, i (i + p.label + p.value)}
         <dt>{p.label}</dt><dd>{p.value}</dd>
       {/each}
     </dl>

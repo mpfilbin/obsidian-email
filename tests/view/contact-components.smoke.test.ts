@@ -5,6 +5,7 @@ import ContactList from "../../src/view/components/ContactList.svelte";
 import ContactDetail from "../../src/view/components/ContactDetail.svelte";
 import ContactForm from "../../src/view/components/ContactForm.svelte";
 import ContactPane from "../../src/view/components/ContactPane.svelte";
+import ContactFormHost from "./fixtures/ContactFormHost.svelte";
 import { draftFromContact, emptyDraft } from "../../src/view/contact-draft";
 import type { Contact } from "../../src/providers/types";
 import type { ContactEditState } from "../../src/view/view-model";
@@ -104,6 +105,14 @@ describe("ContactDetail", () => {
     done();
   });
 
+  it("renders duplicate emails and phones without key collisions", () => {
+    const dup: Contact = { ...bob, emails: [{ email: "d@x.com" }, { email: "d@x.com" }], businessPhones: ["1", "1"] };
+    const { host, done } = mountIn(ContactDetail, { contact: dup, onEmail: vi.fn(), onEdit: vi.fn(), onDelete: vi.fn() });
+    expect(host.querySelectorAll(".oe-contact-email")).toHaveLength(2);
+    expect(host.querySelectorAll(".oe-contact-fields dd")).toHaveLength(3);
+    done();
+  });
+
   it("omits empty sections", () => {
     const { host, done } = mountIn(ContactDetail, { contact: bob, onEmail: vi.fn(), onEdit: vi.fn(), onDelete: vi.fn() });
     expect(host.querySelectorAll(".oe-contact-email")).toHaveLength(0);
@@ -191,6 +200,63 @@ describe("ContactForm", () => {
     const b = mountIn(ContactForm, props({ edit: editState({ saving: true }) }));
     expect(q<HTMLButtonElement>(b.host, ".oe-contact-save")!.disabled).toBe(true);
     b.done();
+  });
+
+  describe("mirror sync across edit replacement", () => {
+    const mountHost = (onChange = vi.fn()) => {
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      const app = mount(ContactFormHost, { target: host, props: { initial: editState(), onChange } }) as unknown as { set(e: ContactEditState): void };
+      flushSync();
+      return { host, app, onChange, done: () => { unmount(app as never); host.remove(); } };
+    };
+    // Same draft contents, brand-new objects: what the view-model does per patch.
+    const replaced = (over: Partial<ContactEditState> = {}) => editState({ draft: { ...draftFromContact(ada) }, ...over });
+
+    it("a rejected email keeps its text and warning when edit is replaced with the same emails", () => {
+      const { host, app, onChange, done } = mountHost();
+      change(field(host, "emails"), "foo", "input"); // typing, then blur
+      change(field(host, "emails"), "foo", "change");
+      expect(host.textContent).toMatch(/missing an "@"/i);
+      expect(field(host, "emails").value).toBe("foo");
+      app.set(replaced()); flushSync();
+      app.set(replaced({ saving: true })); flushSync();
+      expect(field(host, "emails").value).toBe("foo");
+      expect(host.textContent).toMatch(/missing an "@"/i);
+      expect(onChange).not.toHaveBeenCalled();
+      done();
+    });
+
+    it("input events on emails / work / home do not commit", () => {
+      const onChange = vi.fn();
+      const { host, done } = mountHost(onChange);
+      change(field(host, "emails"), "a@x.com", "input");
+      change(field(host, "businessPhones"), "9", "input");
+      change(field(host, "homePhones"), "8", "input");
+      expect(onChange).not.toHaveBeenCalled();
+      done();
+    });
+
+    it("a valid commit clears the warning", () => {
+      const { host, done } = mountHost();
+      change(field(host, "emails"), "foo", "change");
+      expect(host.textContent).toMatch(/missing an "@"/i);
+      change(field(host, "emails"), "a@x.com", "change");
+      expect(host.textContent).not.toMatch(/missing an "@"/i);
+      done();
+    });
+
+    it("re-seeds the mirrors (and clears the warning) when the committed values change from outside", () => {
+      const { host, app, done } = mountHost();
+      change(field(host, "emails"), "foo", "change");
+      const other = draftFromContact({ ...ada, emails: [{ email: "z@x.com" }], businessPhones: ["7"], homePhones: ["6", "5"] });
+      app.set(editState({ draft: other })); flushSync();
+      expect(field(host, "emails").value).toBe("z@x.com");
+      expect(field(host, "businessPhones").value).toBe("7");
+      expect(field(host, "homePhones").value).toBe("6, 5");
+      expect(host.textContent).not.toMatch(/missing an "@"/i);
+      done();
+    });
   });
 
   it("a new contact form titles itself accordingly", () => {
