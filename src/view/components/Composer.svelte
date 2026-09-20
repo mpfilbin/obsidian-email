@@ -48,8 +48,11 @@
 
   // An inline reply/forward opens ready to type: Reply and Reply all in the
   // message body, Forward in the To field. New message / Edit draft keep their
-  // existing behaviour. `mode` never changes while a composer is mounted (the
-  // pane remounts a new one), so it is read untracked.
+  // existing behaviour (no auto-focus). ReadingPane remounts an inline composer
+  // for each new reply/forward, so for those `mode` is fixed for the instance's
+  // life; a new ↔ edit-draft switch does reuse one instance, but neither
+  // auto-focuses. `mode` is read untracked so that switch can never rebuild the
+  // editor or re-run the focus.
   const isReply = (m: typeof mode) => m === "reply" || m === "replyAll";
 
   $effect(() => {
