@@ -57,5 +57,16 @@ export function rankSuggestions(
     }
   }
   hits.sort((x, y) => x.score - y.score || x.sortName.localeCompare(y.sortName));
-  return hits.slice(0, limit).map((h) => h.s);
+  // One row per address (the UI keys its dropdown by email): the list is
+  // sorted best-first, so the first row seen for an address is its best.
+  const seen = new Set<string>();
+  const out: RecipientSuggestion[] = [];
+  for (const h of hits) {
+    const key = h.s.email.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(h.s);
+    if (out.length === limit) break;
+  }
+  return out;
 }

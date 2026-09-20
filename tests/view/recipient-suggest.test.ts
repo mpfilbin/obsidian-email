@@ -64,6 +64,16 @@ describe("rankSuggestions", () => {
     expect(rankSuggestions(contacts, "al", [], 2).map((s) => s.email)).toEqual(["alice@corp.io", "bob@corp.io"]);
   });
 
+  it("dedupes by address case-insensitively, keeping the best-scored row", () => {
+    const dupes = [
+      mk("D1", "Joann Lee", ["shared@x.com"]),          // substring match only (score 1)
+      mk("D2", "Ann Shared", ["SHARED@x.com", "shared@x.com"]), // prefix match (score 0), listed twice
+      mk("D3", "Bob", ["bob@x.com"]),
+    ];
+    expect(rankSuggestions(dupes, "ann")).toEqual([{ name: "Ann Shared", email: "SHARED@x.com" }]);
+    expect(rankSuggestions(dupes, "x.com").map((s) => s.email.toLowerCase())).toEqual(["shared@x.com", "bob@x.com"]);
+  });
+
   it("skips contacts with no email", () => {
     expect(rankSuggestions(contacts, "no email")).toEqual([]);
   });

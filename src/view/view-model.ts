@@ -488,10 +488,12 @@ export class ViewModel {
       savedSnapshot: null,
     };
     // A "new" composer can be saved as a draft, so it starts from a snapshot
-    // of its own fields — but always the BLANK ones, even when pre-filled
-    // (from a note): closing without saving should warn about losing that
-    // content exactly as it would for anything typed by hand.
-    const blank: ComposerSnapshot = { to: [], cc: [], bcc: [], subject: "", bodyHtml: "", attachments: [] };
+    // of its own fields — but the BLANK ones for subject/body/attachments even
+    // when pre-filled (from a note): closing without saving should warn about
+    // losing that content exactly as it would for anything typed by hand. The
+    // one exception is `to`: a message addressed from a contact ("Email") has
+    // recipients the user never typed, so they aren't unsaved content.
+    const blank: ComposerSnapshot = { to: initial?.to ?? [], cc: [], bcc: [], subject: "", bodyHtml: "", attachments: [] };
     this.set({ mode: "mail", composer: composer.mode === "new" ? { ...composer, savedSnapshot: blank } : composer });
   }
 
@@ -789,7 +791,7 @@ export class ViewModel {
       savedSnapshot: null,
     };
     // The loaded draft is itself the "last saved" state to compare against.
-    this.set({ composer: { ...composer, savedSnapshot: snapshotOf(composer) } });
+    this.set({ mode: "mail", composer: { ...composer, savedSnapshot: snapshotOf(composer) } });
   }
 
   renderDeps(): { getInlineAttachment: (cid: string) => Promise<Blob | undefined>; openExternal: (url: string) => void } {

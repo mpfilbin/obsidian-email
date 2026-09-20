@@ -405,6 +405,15 @@ describe("ViewModel", () => {
       expect(vm.getState().composer).toMatchObject({ mode: "new", to: [{ name: "Ada Lovelace", email: "ada@x.com" }] });
     });
 
+    it("a contact-addressed composer isn't unsaved until the user changes something", async () => {
+      const vm = await start();
+      vm.setMode("contacts");
+      vm.emailContact("C1");
+      expect(vm.hasUnsavedComposerContent()).toBe(false);
+      vm.updateComposerBody("<p>hello</p>");
+      expect(vm.hasUnsavedComposerContent()).toBe(true);
+    });
+
     it("emailContact uses a specific address when given, and toasts if the contact has none", async () => {
       const vm = await start();
       await ctx.contacts.contactStore.put("a1", { ...ada, id: "C3", displayName: "Nomail", emails: [] });
@@ -581,6 +590,15 @@ describe("ViewModel — composer", () => {
     // Quill re-emits its own serialization of the loaded body on mount.
     ctx.vm.updateComposerBody("<p>draft body</p>");
     expect(ctx.vm.hasUnsavedComposerContent()).toBe(false);
+  });
+
+  it("openDraftForEdit leaves contacts mode", async () => {
+    const ctx = await build();
+    const id = await openDraftInReadingPane(ctx);
+    ctx.vm.setMode("contacts");
+    await ctx.vm.openDraftForEdit(id);
+    expect(ctx.vm.getState().mode).toBe("mail");
+    expect(ctx.vm.getState().composer?.mode).toBe("editDraft");
   });
 
   it("hasUnsavedComposerContent is true when only the subject of an open draft changed", async () => {
