@@ -213,7 +213,7 @@ export class MailCache {
   }
 
   async clearAccount(accountId: string): Promise<void> {
-    for (const storeName of ["messages", "bodies", "mailboxes"] as const) {
+    for (const storeName of ["messages", "bodies", "mailboxes", "contacts"] as const) {
       const tx = this.db.transaction(storeName, "readwrite");
       const keys = await tx.store.index("by-account").getAllKeys(accountId);
       await Promise.all(keys.map((k) => tx.store.delete(k)));
@@ -223,7 +223,7 @@ export class MailCache {
   }
 
   async clearAll(): Promise<void> {
-    for (const storeName of ["messages", "bodies", "mailboxes", "cursors", "meta"] as const) {
+    for (const storeName of ["messages", "bodies", "mailboxes", "cursors", "meta", "contacts"] as const) {
       await this.db.clear(storeName);
     }
   }
