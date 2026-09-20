@@ -129,7 +129,7 @@ export class PluginContext {
       cursors.close();
       new Notice(
         err instanceof CacheOpenTimeout
-          ? "Email: the local cache is being upgraded but is blocked by an older session. Restart Obsidian to finish the upgrade; running without persistence until then."
+          ? "Email: the local cache is busy or blocked by an older session. Restart Obsidian to reconnect it; running without persistence until then."
           : "Email: local cache is unavailable. Running without offline support or persistence.",
       );
       cache = DEGRADED_CACHE;
