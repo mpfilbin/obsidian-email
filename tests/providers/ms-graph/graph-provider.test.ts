@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { GraphProvider } from "../../../src/providers/ms-graph/graph-provider";
 import { runMailProviderContract } from "../../../src/providers/provider-contract";
 import type { HttpClient, HttpResponse } from "../../../src/providers/http";
+import { AuthError, ContactsConsentRequired } from "../../../src/providers/types";
 
 const fx = (p: string) => JSON.parse(readFileSync(`tests/fixtures/graph/${p}`, "utf8"));
 const resp = (json: unknown, status = 200, headers: Record<string, string> = {}): HttpResponse =>
@@ -350,4 +351,65 @@ runMailProviderContract("GraphProvider", async () => {
   };
   const provider = new GraphProvider({ http, getAccessToken: async () => "at", syncFolderIds: ["AAAInbox"] });
   return { provider, seedInbox };
+});
+
+describe("GraphProvider contacts", () => {
+  const make = (req: ReturnType<typeof vi.fn>) =>
+    new GraphProvider({ http: { request: req }, getAccessToken: async () => "at" });
+
+  it("listContacts pages through @odata.nextLink and maps each contact", async () => {
+    const req = vi.fn()
+      .mockResolvedValueOnce(resp({ value: [{ id: "C1", displayName: "Ada" }], "@odata.nextLink": "https://graph.microsoft.com/v1.0/me/contacts?$skiptoken=P2" }))
+      .mockResolvedValueOnce(resp({ value: [{ id: "C2", displayName: "Bob" }] }));
+    const contacts = await make(req).listContacts();
+    expect(contacts.map((c) => c.id)).toEqual(["C1", "C2"]);
+    expect(req.mock.calls[0][0].url).toContain("/me/contacts?$select=");
+    expect(req.mock.calls[1][0].url).toBe("https://graph.microsoft.com/v1.0/me/contacts?$skiptoken=P2");
+  });
+
+  it("a 403 on a contacts call becomes ContactsConsentRequired, not AuthError", async () => {
+    const req = vi.fn(async () => resp({ error: { code: "ErrorAccessDenied" } }, 403));
+    await expect(make(req).listContacts()).rejects.toBeInstanceOf(ContactsConsentRequired);
+  });
+
+  it("a 401 on a contacts call is still an AuthError", async () => {
+    const req = vi.fn(async () => resp({}, 401));
+    await expect(make(req).listContacts()).rejects.toBeInstanceOf(AuthError);
+  });
+
+  it("a 403 on a MAIL call is still an AuthError", async () => {
+    const req = vi.fn(async () => resp({}, 403));
+    await expect(make(req).listMailboxes()).rejects.toBeInstanceOf(AuthError);
+  });
+
+  it("createContact POSTs /me/contacts with the mapped body and returns the created contact", async () => {
+    const req = vi.fn(async () => resp({ id: "C9", displayName: "Ada", emailAddresses: [{ address: "ada@x.com", name: "ada@x.com" }] }, 201));
+    const created = await make(req).createContact({
+      displayName: "Ada", emails: [{ email: "ada@x.com" }], businessPhones: [], homePhones: [],
+    });
+    expect(req.mock.calls[0][0].url).toBe("https://graph.microsoft.com/v1.0/me/contacts");
+    expect(req.mock.calls[0][0].method).toBe("POST");
+    expect(JSON.parse(req.mock.calls[0][0].body)).toMatchObject({
+      displayName: "Ada", emailAddresses: [{ address: "ada@x.com", name: "ada@x.com" }],
+    });
+    expect(created).toMatchObject({ id: "C9", emails: [{ email: "ada@x.com" }] });
+  });
+
+  it("updateContact PATCHes only the patched fields", async () => {
+    const req = vi.fn(async () => resp({ id: "C1", displayName: "Ada", jobTitle: "CTO" }));
+    const updated = await make(req).updateContact("C1", { jobTitle: "CTO" });
+    expect(req.mock.calls[0][0].url).toBe("https://graph.microsoft.com/v1.0/me/contacts/C1");
+    expect(req.mock.calls[0][0].method).toBe("PATCH");
+    expect(JSON.parse(req.mock.calls[0][0].body)).toEqual({ jobTitle: "CTO" });
+    expect(updated.jobTitle).toBe("CTO");
+  });
+
+  it("deleteContact DELETEs, and treats 404 as success", async () => {
+    const req = vi.fn(async () => resp({}, 204));
+    await make(req).deleteContact("C1");
+    expect(req.mock.calls[0][0].method).toBe("DELETE");
+    expect(req.mock.calls[0][0].url).toBe("https://graph.microsoft.com/v1.0/me/contacts/C1");
+    const gone = vi.fn(async () => resp({ error: { code: "ErrorItemNotFound", message: "gone" } }, 404));
+    await expect(make(gone).deleteContact("C1")).resolves.toBeUndefined();
+  });
 });

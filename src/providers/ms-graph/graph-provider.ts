@@ -1,8 +1,8 @@
-import { AuthError, CursorExpiredError, ProviderError } from "../types";
-import type { Address, MailProvider, Mailbox, MessageBody, MessageSummary, MessageSummaryPatch, OutgoingMessage, Page, SyncCursor, SyncResult } from "../types";
+import { AuthError, ContactsConsentRequired, CursorExpiredError, ProviderError } from "../types";
+import type { Address, Contact, ContactDraft, ContactPatch, ContactsProvider, MailProvider, Mailbox, MessageBody, MessageSummary, MessageSummaryPatch, OutgoingMessage, Page, SyncCursor, SyncResult } from "../types";
 import type { HttpClient, HttpResponse } from "../http";
 import { withRetry, parseRetryAfter, type RetryableResult } from "../../util/backoff";
-import { mapGraphBody, mapGraphFolders, mapGraphSummary, mapGraphSummaryPatch, toGraphRecipients, type GraphMessage } from "./graph-mappers";
+import { CONTACT_SELECT, mapGraphBody, mapGraphContact, mapGraphFolders, mapGraphSummary, mapGraphSummaryPatch, toGraphContact, toGraphRecipients, type GraphContact, type GraphMessage } from "./graph-mappers";
 
 export interface GraphProviderDeps {
   http: HttpClient;
@@ -15,6 +15,7 @@ const DEFAULT_BASE = "https://graph.microsoft.com/v1.0";
 const SUMMARY_SELECT =
   "id,conversationId,subject,bodyPreview,from,toRecipients,ccRecipients,bccRecipients,receivedDateTime,isRead,hasAttachments,flag";
 const TOP = 25;
+const CONTACT_PAGE = 100;
 
 /** Pull `error.code` out of a Graph error body, e.g. "resyncRequired". */
 function graphErrorCode(json: unknown): string | undefined {
@@ -30,7 +31,7 @@ function graphErrorMessage(json: unknown): string | undefined {
   return typeof message === "string" ? message : undefined;
 }
 
-export class GraphProvider implements MailProvider {
+export class GraphProvider implements MailProvider, ContactsProvider {
   readonly kind = "ms-graph" as const;
   private base: string;
 
@@ -38,7 +39,7 @@ export class GraphProvider implements MailProvider {
     this.base = deps.baseUrl ?? DEFAULT_BASE;
   }
 
-  private async request<T>(url: string, method: string, body?: unknown): Promise<T> {
+  private async request<T>(url: string, method: string, body?: unknown, opts?: { contacts?: boolean }): Promise<T> {
     const token = await this.deps.getAccessToken();
     const full = url.startsWith("http") ? url : `${this.base}${url}`;
     return withRetry<T>(async (): Promise<RetryableResult<T>> => {
@@ -52,6 +53,9 @@ export class GraphProvider implements MailProvider {
         body: body !== undefined ? JSON.stringify(body) : undefined,
       });
       if (res.status === 401 || res.status === 403) {
+        // A contacts 403 means "token lacks Contacts.ReadWrite", not "sign in
+        // again" — keep it from flagging the whole mail account.
+        if (opts?.contacts && res.status === 403) throw new ContactsConsentRequired();
         throw new AuthError(`Graph ${res.status}`);
       }
       if (res.status === 429 || res.status >= 500) {
@@ -210,6 +214,39 @@ export class GraphProvider implements MailProvider {
 
   async moveMessage(id: string, destinationMailboxId: string): Promise<void> {
     await this.request<void>(`/me/messages/${id}/move`, "POST", { destinationId: destinationMailboxId });
+  }
+
+  async listContacts(): Promise<Contact[]> {
+    const out: Contact[] = [];
+    let url: string | undefined = `/me/contacts?$select=${CONTACT_SELECT}&$top=${CONTACT_PAGE}`;
+    // Bounded so a misbehaving nextLink can't loop forever.
+    for (let i = 0; url && i < 500; i++) {
+      const data: { value?: GraphContact[]; "@odata.nextLink"?: string } =
+        await this.request(url, "GET", undefined, { contacts: true });
+      out.push(...(data.value ?? []).map(mapGraphContact));
+      url = data["@odata.nextLink"];
+    }
+    return out;
+  }
+
+  async createContact(draft: ContactDraft): Promise<Contact> {
+    const created = await this.request<GraphContact>("/me/contacts", "POST", toGraphContact(draft), { contacts: true });
+    return mapGraphContact(created);
+  }
+
+  async updateContact(id: string, patch: ContactPatch): Promise<Contact> {
+    const updated = await this.request<GraphContact>(`/me/contacts/${id}`, "PATCH", toGraphContact(patch), { contacts: true });
+    return mapGraphContact(updated);
+  }
+
+  async deleteContact(id: string): Promise<void> {
+    try {
+      await this.request<void>(`/me/contacts/${id}`, "DELETE", undefined, { contacts: true });
+    } catch (err) {
+      // Already deleted elsewhere — the caller's goal is met.
+      if (err instanceof ProviderError && err.status === 404) return;
+      throw err;
+    }
   }
 
   private async syncFolders(): Promise<string[]> {
