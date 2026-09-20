@@ -13,6 +13,8 @@ export interface ContactStore {
   /** Upserts every contact in `contacts` and deletes any cached one not in it. */
   replace(accountId: string, contacts: Contact[]): Promise<void>;
   clear(accountId: string): Promise<void>;
+  /** Releases any underlying connection; the in-memory store is a no-op. */
+  close(): void;
 }
 
 export class ContactCache implements ContactStore {
@@ -52,6 +54,11 @@ export class ContactCache implements ContactStore {
     await Promise.all(keys.map((k) => tx.store.delete(k)));
     await tx.done;
   }
+
+  /** Releases the IndexedDB connection (see MailCache.close). */
+  close(): void {
+    this.db.close();
+  }
 }
 
 /** Degraded-mode stand-in (IndexedDB unavailable): contacts still load from
@@ -79,5 +86,8 @@ export class MemoryContactStore implements ContactStore {
   }
   async clear(accountId: string): Promise<void> {
     this.byAccount.delete(accountId);
+  }
+  close(): void {
+    // Nothing to release.
   }
 }

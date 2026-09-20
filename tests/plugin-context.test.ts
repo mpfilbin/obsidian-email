@@ -199,6 +199,36 @@ describe("PluginContext", () => {
     ctx.dispose();
   });
 
+  it("dispose closes the cache, cursor and contact connections", async () => {
+    const settings = await SettingsStore.load({ loadData: async () => null, saveData: async () => {} });
+    const ctx = await PluginContext.create(settings, hostDeps(), logger);
+    const cache = vi.spyOn(ctx.cache, "close");
+    const cursors = vi.spyOn(ctx.cursors, "close");
+    const contacts = vi.spyOn(ctx.contactStore, "close");
+    ctx.dispose();
+    expect(cache).toHaveBeenCalledOnce();
+    expect(cursors).toHaveBeenCalledOnce();
+    expect(contacts).toHaveBeenCalledOnce();
+  });
+
+  it("a blocked cache upgrade degrades instead of hanging, with its own notice", async () => {
+    // openWithTimeout turns idb's never-settling `blocked` open into a
+    // CacheOpenTimeout, which the degraded path reports differently.
+    const cacheOpen = vi.spyOn(MailCache, "open").mockReturnValueOnce(new Promise(() => {}));
+    const notice = vi.spyOn(obsidian, "Notice").mockImplementation((() => ({})) as never);
+
+    const settings = await SettingsStore.load({ loadData: async () => null, saveData: async () => {} });
+    const ctx = await PluginContext.create(settings, hostDeps(), logger);
+
+    expect(ctx.degraded).toBe(true);
+    expect(notice).toHaveBeenCalledOnce();
+    expect(notice.mock.calls[0][0]).toContain("blocked by an older session");
+
+    ctx.dispose();
+    notice.mockRestore();
+    cacheOpen.mockRestore();
+  }, 20_000);
+
   it("removing an account clears its cached contacts", async () => {
     const settings = await SettingsStore.load({ loadData: async () => null, saveData: async () => {} });
     await settings.addAccount({ id: "acct-rm", email: "r@g.com", provider: "ms-graph", clientId: "c", addedAt: 0 });

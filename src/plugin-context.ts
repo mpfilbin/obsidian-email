@@ -9,6 +9,7 @@ import type { SettingsStore } from "./settings/settings-store";
 import { CursorStore } from "./cache/cursor-store";
 import { MailCache } from "./cache/mail-cache";
 import { ContactCache, MemoryContactStore, type ContactStore } from "./cache/contact-cache";
+import { CacheOpenTimeout, openWithTimeout } from "./cache/open-with-timeout";
 import { SyncEngine } from "./sync/sync-engine";
 import { ContactSync } from "./sync/contact-sync";
 import { ViewModel } from "./view/view-model";
@@ -59,15 +60,21 @@ const DEGRADED_CACHE = {
   async pruneAccount() {},
   async clearAccount() {},
   async clearAll() {},
+  close() {},
 } satisfies Partial<MailCache> as unknown as MailCache;
 
 const DEGRADED_CURSORS = {
   async get() { return undefined; },
   async set() {},
   async delete() {},
+  close() {},
 } satisfies Partial<CursorStore> as unknown as CursorStore;
 
 const CONTACT_POLL_MS = 15 * 60_000;
+
+/** How long to wait for each IndexedDB open before giving up and degrading.
+ *  An upgrade blocked by an older connection never settles on its own. */
+const CACHE_OPEN_TIMEOUT_MS = 8000;
 
 export class PluginContext {
   private now: () => number;
@@ -78,6 +85,7 @@ export class PluginContext {
     private host: ContextHostDeps,
     private logger: Logger,
     readonly cache: MailCache,
+    readonly cursors: CursorStore,
     readonly sync: SyncEngine,
     readonly vm: ViewModel,
     private providers: Map<string, MailProvider>,
@@ -102,14 +110,25 @@ export class PluginContext {
     let contactStore: ContactStore = new MemoryContactStore();
     let degraded = false;
     try {
-      cache = await MailCache.open();
-      cursors = await CursorStore.open();
-      contactStore = await ContactCache.open();
+      // A blocked upgrade (an older plugin instance still holding v1 in this
+      // renderer) makes `openDB` hang rather than throw, which would leave
+      // `create` pending forever — no view, no commands, no error. The timeout
+      // turns that into the ordinary degraded path.
+      cache = await openWithTimeout(() => MailCache.open(), CACHE_OPEN_TIMEOUT_MS);
+      cursors = await openWithTimeout(() => CursorStore.open(), CACHE_OPEN_TIMEOUT_MS);
+      contactStore = await openWithTimeout(() => ContactCache.open(), CACHE_OPEN_TIMEOUT_MS);
     } catch (err) {
       degraded = true;
       logger.error("local cache unavailable; running in degraded mode", (err as Error).message);
+      // Release anything that did open before the failure — a live handle
+      // would itself block the retry after a restart.
+      cache.close();
+      cursors.close();
+      contactStore.close();
       new Notice(
-        "Email: local cache is unavailable. Running without offline support or persistence.",
+        err instanceof CacheOpenTimeout
+          ? "Email: the local cache is being upgraded but is blocked by an older session. Restart Obsidian to finish the upgrade; running without persistence until then."
+          : "Email: local cache is unavailable. Running without offline support or persistence.",
       );
       cache = DEGRADED_CACHE;
       cursors = DEGRADED_CURSORS;
@@ -163,7 +182,7 @@ export class PluginContext {
     });
 
     const ctx = new PluginContext(
-      settings, host, logger, cache, sync, vm, providers, tokens, now, degraded, contactSync, contactStore,
+      settings, host, logger, cache, cursors, sync, vm, providers, tokens, now, degraded, contactSync, contactStore,
     );
     ctxRef.current = ctx;
     ctx.rebuildProviders();
@@ -270,5 +289,10 @@ export class PluginContext {
     this.sync.stop();
     if (this.contactTimer) clearInterval(this.contactTimer);
     this.vm.dispose();
+    // Leaving these open would block the next version's upgrade when the
+    // plugin is disabled/enabled in place (same renderer, no GC in between).
+    this.cache.close();
+    this.cursors.close();
+    this.contactStore.close();
   }
 }

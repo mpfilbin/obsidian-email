@@ -21,4 +21,9 @@ export class CursorStore {
   async delete(accountId: string): Promise<void> {
     await this.db.delete("cursors", accountId);
   }
+
+  /** Releases the IndexedDB connection (see MailCache.close). */
+  close(): void {
+    this.db.close();
+  }
 }
