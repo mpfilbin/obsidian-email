@@ -36,7 +36,7 @@ function fakeVm(state: Partial<ViewState> = {}): ViewModel {
     hasMore: false, loadingList: false, autoLoadImages: false,
     search: { query: "", active: false },
     openThreadId: null, openMessages: [],
-    composer: null,
+    composer: null, mode: "mail",
     ribbonEnabled: true, ribbonCollapsedByDefault: false,
     ...state,
   };

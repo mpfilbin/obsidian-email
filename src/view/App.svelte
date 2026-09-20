@@ -225,6 +225,13 @@
     searchOpen,
     composerMode: state.composer?.mode ?? null,
     composerSending: state.composer?.sending ?? false,
+    // Placeholders until the Contacts UI is wired into App.
+    mode: state.mode,
+    hasSelectedContact: false,
+    selectedContactHasEmail: false,
+    contactEditing: false,
+    contactsBlocked: false,
+    contactsSyncing: false,
     actions: {
       newMessage: () => requestSwitch(() => vm.openNewMessage()),
       reply: () => { const id = targetMessageId; if (id) requestSwitch(() => vm.openReply(id, "reply")); },
@@ -259,6 +266,12 @@
       saveDraft: () => { void vm.saveDraft(); },
       discardDraft: () => { void vm.discardDraft(); },
       attachNote: () => { void vm.requestAttachNote(); },
+      toggleContacts: () => {},
+      newContact: () => {},
+      editContact: () => {},
+      deleteContact: () => {},
+      emailContact: () => {},
+      refreshContacts: () => {},
     },
   });
 

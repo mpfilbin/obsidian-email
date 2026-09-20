@@ -10,24 +10,29 @@
   // svelte-ignore state_referenced_locally
   let collapsed = $state(defaultCollapsed);
   const tabs = $derived(visibleTabs(ctx));
-  const composing = $derived(ctx.composerMode !== null);
+  // A contextual tab — Message while composing, Contacts in contacts mode —
+  // takes over while its context lasts (remembering where the user was);
+  // ending the context restores the previous tab. Anything else that removes
+  // the active tab falls back to Home (the guard effect below).
+  const contextual = $derived<TabId | null>(
+    ctx.composerMode !== null ? "message" : ctx.mode === "contacts" ? "contacts" : null,
+  );
 
-  // A composer opening jumps to the contextual Message tab (remembering where
-  // the user was); closing restores it. Anything else that removes the active
-  // tab falls back to Home.
-  let tabBeforeCompose: TabId | null = null;
-  let wasComposing = false;
+  let tabBeforeContext: TabId | null = null;
+  let previousContext: TabId | null = null;
   $effect(() => {
-    const now = composing;
+    const now = contextual;
     untrack(() => {
-      if (now && !wasComposing) {
-        tabBeforeCompose = activeTab === "message" ? tabBeforeCompose : activeTab;
-        activeTab = "message";
-      } else if (!now && wasComposing) {
-        activeTab = tabBeforeCompose ?? "home";
-        tabBeforeCompose = null;
+      if (now && !previousContext) {
+        tabBeforeContext = activeTab;
+        activeTab = now;
+      } else if (now && now !== previousContext) {
+        activeTab = now; // one context handing over to another (contacts → message)
+      } else if (!now && previousContext) {
+        activeTab = tabBeforeContext ?? "home";
+        tabBeforeContext = null;
       }
-      wasComposing = now;
+      previousContext = now;
     });
   });
   // Defensive guard: falls back to Home if the active tab ever becomes unavailable.

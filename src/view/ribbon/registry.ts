@@ -2,7 +2,7 @@ import type { MailboxKind } from "../../providers/types";
 import type { ComposerState } from "../view-model";
 import { ACTION_ICON } from "../action-icons";
 
-export type TabId = "home" | "folder" | "vault" | "message";
+export type TabId = "home" | "folder" | "vault" | "message" | "contacts";
 
 export interface RibbonMailboxOption { id: string; name: string }
 
@@ -28,6 +28,12 @@ export interface RibbonActions {
   saveDraft(): void;
   discardDraft(): void;
   attachNote(): void;
+  toggleContacts(): void;
+  newContact(): void;
+  editContact(): void;
+  deleteContact(): void;
+  emailContact(): void;
+  refreshContacts(): void;
 }
 
 export interface RibbonContext {
@@ -44,6 +50,15 @@ export interface RibbonContext {
   searchOpen: boolean;
   composerMode: ComposerState["mode"] | null;
   composerSending: boolean;
+  /** Which set of panes the view is showing. */
+  mode: "mail" | "contacts";
+  hasSelectedContact: boolean;
+  selectedContactHasEmail: boolean;
+  /** A New/Edit contact form is open. */
+  contactEditing: boolean;
+  /** No Contacts grant (or a bad token): writes would fail. */
+  contactsBlocked: boolean;
+  contactsSyncing: boolean;
   actions: RibbonActions;
 }
 
@@ -69,6 +84,7 @@ export const TABS: { id: TabId; label: string }[] = [
   { id: "folder", label: "Folder" },
   { id: "vault", label: "Vault" },
   { id: "message", label: "Message" },
+  { id: "contacts", label: "Contacts" },
 ];
 
 const kindIs = (c: RibbonContext, ...kinds: MailboxKind[]) => c.mailboxKind !== null && kinds.includes(c.mailboxKind);
@@ -77,7 +93,7 @@ const canArchive = (c: RibbonContext) => c.hasTargetMessage && !kindIs(c, "archi
 const composing = (c: RibbonContext) => c.composerMode !== null;
 const canAct = (c: RibbonContext) => composing(c) && !c.composerSending;
 
-export const COMMANDS: RibbonCommand[] = [
+const BASE_COMMANDS: RibbonCommand[] = [
   // Home
   { id: "new-message", tab: "home", group: "New", icon: "pencil", label: "New message",
     enabled: (c) => c.hasAccount, run: (c) => c.actions.newMessage() },
@@ -102,6 +118,8 @@ export const COMMANDS: RibbonCommand[] = [
     enabled: (c) => c.hasAccount && !c.syncing, run: (c) => c.actions.refresh() },
   { id: "search", tab: "home", group: "Search", icon: "search", label: "Search",
     enabled: (c) => c.hasAccount, pressed: (c) => c.searchOpen, run: (c) => c.actions.toggleSearch() },
+  { id: "contacts", tab: "home", group: "View", icon: "contact", label: "Contacts",
+    enabled: (c) => c.hasAccount, pressed: (c) => c.mode === "contacts", run: (c) => c.actions.toggleContacts() },
 
   // Folder
   { id: "new-folder", tab: "folder", group: "Folder", icon: "folder-plus", label: "New folder",
@@ -129,10 +147,39 @@ export const COMMANDS: RibbonCommand[] = [
     enabled: canAct, run: (c) => c.actions.discardDraft() },
   { id: "attach-note", tab: "message", group: "Insert", icon: "paperclip", label: "Attach note",
     enabled: (c) => canAct(c) && c.composerMode === "new", run: (c) => c.actions.attachNote() },
+
+  // Contacts (contextual)
+  { id: "show-mail", tab: "contacts", group: "View", icon: "mail", label: "Mail",
+    enabled: (c) => c.mode === "contacts", run: (c) => c.actions.toggleContacts() },
+  { id: "new-contact", tab: "contacts", group: "Contact", icon: "user-plus", label: "New contact",
+    enabled: (c) => c.hasAccount && c.mode === "contacts" && !c.contactsBlocked, run: (c) => c.actions.newContact() },
+  { id: "edit-contact", tab: "contacts", group: "Contact", icon: "pencil", label: "Edit",
+    enabled: (c) => c.hasSelectedContact && !c.contactEditing, run: (c) => c.actions.editContact() },
+  { id: "delete-contact", tab: "contacts", group: "Contact", icon: ACTION_ICON.delete, label: "Delete",
+    enabled: (c) => c.hasSelectedContact && !c.contactEditing, run: (c) => c.actions.deleteContact() },
+  { id: "email-contact", tab: "contacts", group: "Contact", icon: "mail", label: "Email",
+    enabled: (c) => c.hasSelectedContact && c.selectedContactHasEmail, run: (c) => c.actions.emailContact() },
+  { id: "refresh-contacts", tab: "contacts", group: "Sync", icon: "refresh-cw", label: "Refresh",
+    enabled: (c) => c.hasAccount && !c.contactsSyncing, run: (c) => c.actions.refreshContacts() },
 ];
 
+// Mail-only commands go dead in Contacts mode (their targets — the open
+// thread, the active folder, the message search — aren't on screen). Wrapping
+// here keeps each command's own enablement rule untouched. New message and the
+// Vault "email from note" commands stay live: composing switches back to mail.
+const MAIL_ONLY = new Set([
+  "reply", "reply-all", "forward", "edit-draft", "archive", "delete", "move", "close-pane",
+  "refresh", "search", "new-folder", "rename-folder", "delete-folder", "save-to-vault",
+]);
+
+export const COMMANDS: RibbonCommand[] = BASE_COMMANDS.map((c) =>
+  MAIL_ONLY.has(c.id) ? { ...c, enabled: (ctx: RibbonContext) => ctx.mode === "mail" && c.enabled(ctx) } : c,
+);
+
 export function visibleTabs(ctx: RibbonContext): { id: TabId; label: string }[] {
-  return TABS.filter((t) => t.id !== "message" || ctx.composerMode !== null);
+  return TABS.filter((t) =>
+    t.id === "message" ? ctx.composerMode !== null : t.id === "contacts" ? ctx.mode === "contacts" : true,
+  );
 }
 
 export function commandsForTab(tab: TabId, ctx: RibbonContext): RibbonCommand[] {
