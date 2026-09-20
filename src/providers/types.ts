@@ -145,6 +145,49 @@ export interface MailProvider {
   moveMessage(id: string, destinationMailboxId: string): Promise<void>;
 }
 
+/** A contact in the user's address book. Only the fields the plugin edits are
+ *  modelled; Graph fields not listed here are never sent, so saving a contact
+ *  can't clobber them. */
+export interface Contact {
+  id: string;
+  displayName: string;
+  givenName?: string;
+  surname?: string;
+  emails: Address[];
+  mobilePhone?: string;
+  businessPhones: string[];
+  homePhones: string[];
+  companyName?: string;
+  jobTitle?: string;
+  notes?: string;
+}
+export type ContactDraft = Omit<Contact, "id">;
+/** For an update: only the keys present are sent. `""` clears a string field. */
+export type ContactPatch = Partial<ContactDraft>;
+
+export interface ContactsProvider {
+  /** Every contact in the default Contacts folder (pages internally). */
+  listContacts(): Promise<Contact[]>;
+  createContact(draft: ContactDraft): Promise<Contact>;
+  updateContact(id: string, patch: ContactPatch): Promise<Contact>;
+  /** Resolves (rather than throws) if the contact is already gone. */
+  deleteContact(id: string): Promise<void>;
+}
+
+export function supportsContacts<T extends object>(p: T | undefined | null): p is T & ContactsProvider {
+  return !!p && typeof (p as Partial<ContactsProvider>).listContacts === "function";
+}
+
+/** Thrown by contacts calls when the account's token lacks `Contacts.ReadWrite`
+ *  (Graph answers 403). Distinct from `AuthError` so it never flags the mail
+ *  account as needing re-authentication. */
+export class ContactsConsentRequired extends Error {
+  constructor(message = "Contacts access has not been granted for this account.") {
+    super(message);
+    this.name = "ContactsConsentRequired";
+  }
+}
+
 /** Thrown when the account must re-authenticate (refresh failed / revoked). */
 export class AuthError extends Error {
   constructor(message: string, readonly cause?: unknown) {

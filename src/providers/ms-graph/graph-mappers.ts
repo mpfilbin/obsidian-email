@@ -1,4 +1,4 @@
-import type { Address, AttachmentMeta, Mailbox, MailboxKind, MessageBody, MessageSummary, MessageSummaryPatch } from "../types";
+import type { Address, AttachmentMeta, Contact, ContactPatch, Mailbox, MailboxKind, MessageBody, MessageSummary, MessageSummaryPatch } from "../types";
 
 interface GraphRecipient { emailAddress?: { name?: string; address?: string }; }
 export interface GraphMessage {
@@ -111,4 +111,61 @@ export function toGraphRecipients(addresses: Address[]): Array<{ emailAddress: {
   return addresses.map((a) =>
     a.name ? { emailAddress: { address: a.email, name: a.name } } : { emailAddress: { address: a.email } },
   );
+}
+
+export interface GraphContact {
+  id: string;
+  displayName?: string | null;
+  givenName?: string | null;
+  surname?: string | null;
+  emailAddresses?: Array<{ name?: string | null; address?: string | null }>;
+  mobilePhone?: string | null;
+  businessPhones?: string[];
+  homePhones?: string[];
+  companyName?: string | null;
+  jobTitle?: string | null;
+  personalNotes?: string | null;
+}
+
+export const CONTACT_SELECT =
+  "id,displayName,givenName,surname,emailAddresses,mobilePhone,businessPhones,homePhones,companyName,jobTitle,personalNotes";
+
+export function mapGraphContact(c: GraphContact): Contact {
+  // Graph fills a blank recipient name with the address itself; drop that echo.
+  const emails = (c.emailAddresses ?? [])
+    .filter((e) => e.address)
+    .map((e): Address => (e.name && e.name !== e.address ? { name: e.name, email: e.address! } : { email: e.address! }));
+  const contact: Contact = {
+    id: c.id,
+    displayName:
+      c.displayName || [c.givenName, c.surname].filter(Boolean).join(" ") || emails[0]?.email || "(no name)",
+    emails,
+    businessPhones: c.businessPhones ?? [],
+    homePhones: c.homePhones ?? [],
+  };
+  if (c.givenName) contact.givenName = c.givenName;
+  if (c.surname) contact.surname = c.surname;
+  if (c.mobilePhone) contact.mobilePhone = c.mobilePhone;
+  if (c.companyName) contact.companyName = c.companyName;
+  if (c.jobTitle) contact.jobTitle = c.jobTitle;
+  if (c.personalNotes) contact.notes = c.personalNotes;
+  return contact;
+}
+
+/** Builds a create/PATCH body containing only the keys present in `p`. */
+export function toGraphContact(p: ContactPatch): Record<string, unknown> {
+  const body: Record<string, unknown> = {};
+  if (p.displayName !== undefined) body.displayName = p.displayName;
+  if (p.givenName !== undefined) body.givenName = p.givenName;
+  if (p.surname !== undefined) body.surname = p.surname;
+  if (p.emails !== undefined) {
+    body.emailAddresses = p.emails.map((e) => ({ address: e.email, name: e.name ?? e.email }));
+  }
+  if (p.mobilePhone !== undefined) body.mobilePhone = p.mobilePhone;
+  if (p.businessPhones !== undefined) body.businessPhones = p.businessPhones;
+  if (p.homePhones !== undefined) body.homePhones = p.homePhones;
+  if (p.companyName !== undefined) body.companyName = p.companyName;
+  if (p.jobTitle !== undefined) body.jobTitle = p.jobTitle;
+  if (p.notes !== undefined) body.personalNotes = p.notes;
+  return body;
 }
