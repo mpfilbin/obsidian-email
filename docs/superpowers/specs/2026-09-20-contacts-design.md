@@ -87,17 +87,37 @@ function supportsContacts(p: MailProvider): p is MailProvider & ContactsProvider
 
 ### Cache
 
-- `DB_VERSION` 1 → 2. `openMailDb`'s `upgrade` currently creates every store
-  unconditionally; it must be guarded by `oldVersion` so an existing v1 DB
-  gains only the new `contacts` store.
+- **Contacts live in their own database**, `obsidian-email-contacts`
+  (`CONTACT_DB_NAME`, `CONTACT_DB_VERSION` 1, `src/cache/contact-schema.ts`),
+  not in the mail database. The mail database `obsidian-email` stays at v1 and
+  gains nothing. Reason: the shipped 0.4.1 opens the mail DB at v1 and never
+  closes those connections, so during an in-place update the old plugin
+  instance is still alive in the same renderer; a v1 → v2 bump for the new
+  store would block on its open connections and never complete until Obsidian
+  restarted. A separate database has no older instance holding it, so it can
+  never block.
+- `openMailDb` opens the mail DB **without a requested version**: an existing
+  v1 DB opens as-is (no upgrade, nothing to block), and a v2 DB left by an
+  earlier development build opens too (requesting v1 would throw
+  `VersionError`; its orphan `contacts` store is harmless). Any future
+  mail-schema change must introduce an explicit version deliberately, taking
+  old-instance blocking into account. Both openers keep a `blocking` handler
+  that closes their own connection when another connection wants to upgrade.
 - `contacts` store: `keyPath: "key"` = `${accountId}/${id}`, `by-account`
-  index. `StoredContact = Contact & { key; accountId }`.
-- `ContactCache` (new, `src/cache/contact-cache.ts`): `list(accountId)`,
-  `put(accountId, contact)`, `remove(accountId, id)`,
-  `replace(accountId, contacts)` (upsert all, delete missing), `clear(accountId)`.
-- `MailCache.clearAccount` / `clearAll` also clear contacts (or `ContactCache`
-  is called alongside them in `PluginContext`). Degraded mode gets a no-op
-  `DEGRADED_CONTACT_CACHE`; contacts then load provider → memory per session.
+  index. `StoredContact = Contact & { key; accountId }` (in `contact-schema.ts`).
+- `ContactCache` (`src/cache/contact-cache.ts`, opens the contacts DB):
+  `list(accountId)`, `put(accountId, contact)`, `remove(accountId, id)`,
+  `replace(accountId, contacts)` (upsert all, delete missing),
+  `clear(accountId)`, `clearAll()`.
+- `MailCache` no longer touches contacts. Account removal calls
+  `ContactCache.clear(id)`; settings' "Clear local cache" goes through
+  `PluginContext.clearLocalCache()`, which clears mail *and* contacts
+  (`clearAll()`) and force-re-syncs contacts.
+- The contacts DB is opened in its own `try/catch` in `PluginContext.create`
+  (with the same open timeout). On failure contacts fall back to
+  `MemoryContactStore` (provider → memory per session) with a logged warning,
+  **without** degrading mail; mail's own failure/timeout still degrades mail
+  only.
 
 ### Sync (`src/sync/contact-sync.ts`)
 
@@ -192,7 +212,7 @@ Methods: `setMode`, `selectContact`, `searchContacts`, `newContact`,
 | 401 | `AuthError` → existing needs-reauth |
 | Network / 5xx | existing `withRetry`; on failure cache untouched, state `error`, toast only if user-triggered |
 | Create/update/delete failure | toast; form stays open with input |
-| IndexedDB unavailable | degraded shim; contacts in memory per session |
+| IndexedDB unavailable | mail: degraded shim; contacts (own DB, own fallback): in memory per session |
 | Account removed | contacts cleared with the account |
 
 ## Testing (vitest + jsdom, existing conventions)
@@ -202,7 +222,11 @@ Methods: `setMode`, `selectContact`, `searchContacts`, `newContact`,
   403 still → `AuthError`.
 - Provider contract suite for `ContactsProvider` against `FakeProvider`.
 - `ContactCache`: `replace` removes remotely-deleted contacts; per-account
-  isolation. **DB v1 → v2 migration test with a pre-existing v1 database.**
+  isolation; `clearAll`; independent of the mail DB. **Mail-DB regression
+  test: opening `openMailDb` resolves promptly, still at v1, while an old
+  instance holds a v1 connection; a dev-built v2 DB also opens.**
+- `PluginContext`: a hung/failed contacts open degrades only contacts; a hung
+  mail open degrades mail with the timeout notice.
 - `ContactSync`: reconcile, throttle/force, `needs-consent`, error leaves cache.
 - View-model: mode switch, select, create/update/delete (server-first, failure
   keeps form), dirty guard, `suggestRecipients`.
@@ -229,3 +253,15 @@ chips.
 ## Release
 
 New feature → minor bump, **0.5.0**.
+
+## Revision (2026-09-20)
+
+The original design added a `contacts` store to the mail database
+(`obsidian-email` v1 → v2). Testing the built plugin showed that an in-place
+update from 0.4.1 hangs on that upgrade: 0.4.1 never closes its v1
+connections, so the still-alive old plugin instance blocks the new code's v2
+open until Obsidian restarts (the open-timeout/degraded guard worked, but the
+experience was poor). Revised: contacts moved to a separate
+`obsidian-email-contacts` database, the mail DB is reverted to v1 and opened
+without a forced version, and the contacts open is isolated so it can never
+degrade mail. See "Cache" above.
