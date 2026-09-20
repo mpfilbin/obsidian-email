@@ -1,9 +1,11 @@
-import type { Address, AttachmentMeta, Mailbox, MailProvider, MessageBody, MessageSummary, OutgoingAttachment, OutgoingMessage, ProviderKind } from "../providers/types";
-import { AuthError } from "../providers/types";
+import type { Address, AttachmentMeta, Contact, ContactDraft, Mailbox, MailProvider, MessageBody, MessageSummary, OutgoingAttachment, OutgoingMessage, ProviderKind } from "../providers/types";
+import { AuthError, ContactsConsentRequired, supportsContacts } from "../providers/types";
 import type { MailCache } from "../cache/mail-cache";
 import type { SyncEngine, SyncStatus } from "../sync/sync-engine";
 import type { ContactStore } from "../cache/contact-cache";
-import type { ContactSync } from "../sync/contact-sync";
+import type { ContactSync, ContactsStatus } from "../sync/contact-sync";
+import { draftFromContact, emptyDraft, finalizeDraft, patchBetween, sameDraft, sortContacts, validateDraft } from "./contact-draft";
+import { rankSuggestions, type RecipientSuggestion } from "./recipient-suggest";
 import type { SettingsStore } from "../settings/settings-store";
 import { sanitizeEmailHtml } from "../render/html-sanitizer";
 import { defaultNoteFilename, emailToNote } from "../render/email-to-note";
@@ -43,6 +45,16 @@ export interface ComposerState {
   savedSnapshot: ComposerSnapshot | null;
 }
 
+/** An open New/Edit contact form. `saved` is the baseline `hasUnsavedContactEdit` compares against. */
+export interface ContactEditState {
+  mode: "new" | "edit";
+  contactId?: string;
+  draft: ContactDraft;
+  saved: ContactDraft;
+  error: string | null;
+  saving: boolean;
+}
+
 export interface ViewState {
   accounts: Array<{ id: string; email: string; provider: ProviderKind; status: SyncStatus }>;
   activeAccountId: string | null;
@@ -60,6 +72,14 @@ export interface ViewState {
   ribbonEnabled: boolean;
   ribbonCollapsedByDefault: boolean;
   composer: ComposerState | null;
+  /** Which set of panes the view shows. */
+  mode: "mail" | "contacts";
+  /** The active account's cached contacts, sorted by display name. */
+  contacts: Contact[];
+  contactsStatus: ContactsStatus;
+  contactSearch: string;
+  selectedContactId: string | null;
+  contactEdit: ContactEditState | null;
 }
 
 export interface ViewModelDeps {
@@ -148,7 +168,8 @@ export class ViewModel {
     search: { query: "", active: false },
     openThreadId: null, openMessages: [],
     ribbonEnabled: true, ribbonCollapsedByDefault: false,
-    composer: null,
+    composer: null, mode: "mail", contacts: [], contactsStatus: "idle", contactSearch: "",
+    selectedContactId: null, contactEdit: null,
   };
   private listeners = new Set<(s: ViewState) => void>();
   private unsubSync: Array<() => void> = [];
@@ -187,6 +208,12 @@ export class ViewModel {
         if (!this.state.search.active) void this.reloadList();
       }),
       deps.sync.states.on(() => this.refreshAccountStatuses()),
+      deps.contactSync.changes.on((e) => {
+        if (e.accountId === this.state.activeAccountId) void this.loadContacts(e.accountId);
+      }),
+      deps.contactSync.states.on((s) => {
+        if (s.accountId === this.state.activeAccountId) this.set({ contactsStatus: s.status });
+      }),
     );
     // The view mounts before `init()`, and with no accounts `init()` never reaches
     // `selectAccount` — so the ribbon prefs must already be in state at construction.
@@ -253,7 +280,9 @@ export class ViewModel {
       openThreadId: null, openMessages: [],
       // Navigation always drops the composer (see `closeThread`).
       composer: null,
+      selectedContactId: null, contactEdit: null, contactSearch: "",
     });
+    await this.loadContacts(id);
     if (inbox) await this.selectMailbox(inbox.id);
   }
 
@@ -443,7 +472,7 @@ export class ViewModel {
 
   private openComposer(
     state: Omit<ComposerState, "to" | "cc" | "bcc" | "subject" | "bodyHtml" | "attachments" | "sending" | "error" | "savedSnapshot">,
-    initial?: { subject?: string; bodyHtml?: string; attachments?: OutgoingAttachment[] },
+    initial?: { subject?: string; bodyHtml?: string; attachments?: OutgoingAttachment[]; to?: Address[] },
   ): void {
     const composer: ComposerState = {
       // Explicit undefined defaults (rather than omitting the keys) so
@@ -451,7 +480,7 @@ export class ViewModel {
       // present on the composer object, even when not applicable to `mode`.
       targetMessageId: undefined, draftId: undefined,
       ...state,
-      to: [], cc: [], bcc: [],
+      to: initial?.to ?? [], cc: [], bcc: [],
       subject: initial?.subject ?? "",
       bodyHtml: initial?.bodyHtml ?? "",
       attachments: initial?.attachments ?? [],
@@ -463,7 +492,7 @@ export class ViewModel {
     // (from a note): closing without saving should warn about losing that
     // content exactly as it would for anything typed by hand.
     const blank: ComposerSnapshot = { to: [], cc: [], bcc: [], subject: "", bodyHtml: "", attachments: [] };
-    this.set({ composer: composer.mode === "new" ? { ...composer, savedSnapshot: blank } : composer });
+    this.set({ mode: "mail", composer: composer.mode === "new" ? { ...composer, savedSnapshot: blank } : composer });
   }
 
   openReply(messageId: string, mode: "reply" | "replyAll"): void {
@@ -538,6 +567,9 @@ export class ViewModel {
   }
 
   private errorMessage(err: unknown): string {
+    if (err instanceof ContactsConsentRequired) {
+      return "Contacts access hasn't been granted — use “Grant contacts access” in the Contacts view.";
+    }
     if (err instanceof AuthError) {
       return "Reauthentication required — go to Settings → Email and click Re-authenticate.";
     }
@@ -826,6 +858,154 @@ export class ViewModel {
   async clearSearch(): Promise<void> {
     this.set({ search: { query: "", active: false } });
     await this.reloadList();
+  }
+
+  private async loadContacts(accountId: string): Promise<void> {
+    const contacts = await this.deps.contactStore.list(accountId);
+    if (accountId !== this.state.activeAccountId) return; // stale by the time this resolved
+    this.set({ contacts, contactsStatus: this.deps.contactSync.getState(accountId).status });
+  }
+
+  /** Switches between the mail and contacts panes. Entering Contacts drops the
+   *  composer (like every other navigation — App guards unsaved content) and
+   *  refreshes the address book. */
+  setMode(mode: "mail" | "contacts"): void {
+    if (mode === this.state.mode) return;
+    if (mode === "contacts") {
+      this.set({ mode, composer: null, contactEdit: null });
+      const acct = this.state.activeAccountId;
+      if (acct) void this.deps.contactSync.syncAccount(acct, { force: true });
+    } else {
+      this.set({ mode, contactEdit: null });
+    }
+  }
+
+  searchContacts(query: string): void {
+    this.set({ contactSearch: query });
+  }
+
+  selectContact(id: string): void {
+    this.set({ selectedContactId: id, contactEdit: null });
+  }
+
+  newContact(): void {
+    const blank = emptyDraft();
+    this.set({ selectedContactId: null, contactEdit: { mode: "new", draft: blank, saved: blank, error: null, saving: false } });
+  }
+
+  editContact(id: string): void {
+    const contact = this.state.contacts.find((c) => c.id === id);
+    if (!contact) return;
+    const draft = draftFromContact(contact);
+    this.set({
+      selectedContactId: id,
+      contactEdit: { mode: "edit", contactId: id, draft, saved: draftFromContact(contact), error: null, saving: false },
+    });
+  }
+
+  updateContactDraft(patch: Partial<ContactDraft>): void {
+    const edit = this.state.contactEdit;
+    if (!edit) return;
+    this.set({ contactEdit: { ...edit, draft: { ...edit.draft, ...patch }, error: null } });
+  }
+
+  cancelContactEdit(): void {
+    this.set({ contactEdit: null });
+  }
+
+  hasUnsavedContactEdit(): boolean {
+    const edit = this.state.contactEdit;
+    return edit !== null && !sameDraft(edit.draft, edit.saved);
+  }
+
+  private contactsFailure(accountId: string, err: unknown): void {
+    if (err instanceof ContactsConsentRequired) this.deps.contactSync.markNeedsConsent(accountId);
+    this.deps.showNotice(this.errorMessage(err));
+  }
+
+  /** Server-first: the cache and view only change once the provider accepted
+   *  the write, so a failure never needs a rollback. */
+  async saveContact(): Promise<void> {
+    const edit = this.state.contactEdit;
+    const acct = this.state.activeAccountId;
+    const provider = acct ? this.deps.getProvider(acct) : undefined;
+    if (!edit || !acct || !supportsContacts(provider)) return;
+    const invalid = validateDraft(edit.draft);
+    if (invalid) {
+      this.set({ contactEdit: { ...edit, error: invalid } });
+      return;
+    }
+    this.set({ contactEdit: { ...edit, saving: true, error: null } });
+    try {
+      const after = finalizeDraft(edit.draft);
+      let saved: Contact | undefined;
+      if (edit.mode === "new") {
+        saved = await provider.createContact(after);
+      } else {
+        const before = this.state.contacts.find((c) => c.id === edit.contactId);
+        if (!before || !edit.contactId) throw new Error("That contact no longer exists.");
+        const patch = patchBetween(finalizeDraft(draftFromContact(before)), after);
+        saved = Object.keys(patch).length ? await provider.updateContact(edit.contactId, patch) : before;
+      }
+      await this.deps.contactStore.put(acct, saved);
+      if (acct !== this.state.activeAccountId) return;
+      this.set({
+        contacts: sortContacts([...this.state.contacts.filter((c) => c.id !== saved!.id), saved]),
+        selectedContactId: saved.id,
+        contactEdit: null,
+      });
+    } catch (err) {
+      if (this.state.contactEdit) this.set({ contactEdit: { ...this.state.contactEdit, saving: false } });
+      this.contactsFailure(acct, err);
+    }
+  }
+
+  async deleteContact(id: string): Promise<void> {
+    const acct = this.state.activeAccountId;
+    const provider = acct ? this.deps.getProvider(acct) : undefined;
+    if (!acct || !supportsContacts(provider)) return;
+    try {
+      await provider.deleteContact(id);
+      await this.deps.contactStore.remove(acct, id);
+      if (acct !== this.state.activeAccountId) return;
+      this.set({
+        contacts: this.state.contacts.filter((c) => c.id !== id),
+        selectedContactId: this.state.selectedContactId === id ? null : this.state.selectedContactId,
+        contactEdit: this.state.contactEdit?.contactId === id ? null : this.state.contactEdit,
+      });
+    } catch (err) {
+      this.contactsFailure(acct, err);
+    }
+  }
+
+  /** Opens a new message addressed to the contact (or to one specific address). */
+  emailContact(id: string, email?: string): void {
+    const contact = this.state.contacts.find((c) => c.id === id);
+    if (!contact) return;
+    const address = email ?? contact.emails[0]?.email;
+    if (!address) {
+      this.deps.showNotice("This contact has no email address.");
+      return;
+    }
+    this.openComposer({ mode: "new" }, { to: [{ name: contact.displayName, email: address }] });
+  }
+
+  async refreshContacts(): Promise<void> {
+    const acct = this.state.activeAccountId;
+    if (!acct) return;
+    await this.deps.contactSync.syncAccount(acct, { force: true });
+    const s = this.deps.contactSync.getState(acct);
+    if (s.status === "error" && s.lastError) this.deps.showNotice(`Couldn't refresh contacts: ${s.lastError}`);
+  }
+
+  async grantContactsAccess(): Promise<void> {
+    const acct = this.state.activeAccountId;
+    if (acct) await this.deps.grantContactsAccess(acct);
+  }
+
+  /** Composer autocomplete: the active account's contacts matching `query`. */
+  suggestRecipients(query: string, exclude: string[] = []): RecipientSuggestion[] {
+    return rankSuggestions(this.state.contacts, query, exclude);
   }
 
   dispose(): void {

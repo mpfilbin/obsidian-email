@@ -6,7 +6,7 @@ import { SyncEngine } from "../../src/sync/sync-engine";
 import { SettingsStore } from "../../src/settings/settings-store";
 import { FakeProvider } from "../../src/providers/fake-provider";
 import { Logger } from "../../src/util/logger";
-import { AuthError } from "../../src/providers/types";
+import { AuthError, ContactsConsentRequired } from "../../src/providers/types";
 import { contactDeps } from "../helpers/contact-deps";
 import type { MessageSummary } from "../../src/providers/types";
 
@@ -263,6 +263,186 @@ describe("ViewModel", () => {
     ctx.sync.changes.emit({ accountId: "a1", mailboxIds: ["INBOX"], reason: "incremental" });
     await new Promise((resolve) => setTimeout(resolve));
     expect(ctx.vm.getState().threads.map((t) => t.threadId)).toEqual(["t2", "t1"]);
+  });
+
+  describe("contacts", () => {
+    const ada = { id: "C1", displayName: "Ada Lovelace", emails: [{ email: "ada@x.com" }], businessPhones: [], homePhones: [], companyName: "Engines" };
+
+    async function start() {
+      await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+      await ctx.contacts.contactStore.put("a1", ada);
+      await ctx.vm.init();
+      return ctx.vm;
+    }
+
+    it("loads the active account's cached contacts on init and starts in mail mode", async () => {
+      const vm = await start();
+      expect(vm.getState().mode).toBe("mail");
+      expect(vm.getState().contacts.map((c) => c.id)).toEqual(["C1"]);
+      expect(vm.getState().contactsStatus).toBe("idle");
+    });
+
+    it("reloads contacts when ContactSync reports a change, and mirrors its status", async () => {
+      const vm = await start();
+      ctx.provider.seedContacts([ada, { ...ada, id: "C2", displayName: "Bob" }]);
+      await ctx.contacts.contactSync.syncAccount("a1", { force: true });
+      await vi.waitFor(() => expect(vm.getState().contacts.map((c) => c.id)).toEqual(["C1", "C2"]));
+      ctx.contacts.contactSync.markNeedsConsent("a1");
+      expect(vm.getState().contactsStatus).toBe("needs-consent");
+    });
+
+    it("setMode('contacts') drops the composer and force-syncs; setMode('mail') returns", async () => {
+      const vm = await start();
+      const spy = vi.spyOn(ctx.provider, "listContacts");
+      vm.openNewMessage();
+      vm.setMode("contacts");
+      expect(vm.getState().mode).toBe("contacts");
+      expect(vm.getState().composer).toBeNull();
+      await vi.waitFor(() => expect(spy).toHaveBeenCalled());
+      vm.setMode("mail");
+      expect(vm.getState().mode).toBe("mail");
+    });
+
+    it("selectContact selects and clears any edit; searchContacts stores the query", async () => {
+      const vm = await start();
+      vm.selectContact("C1");
+      expect(vm.getState().selectedContactId).toBe("C1");
+      vm.searchContacts("ada");
+      expect(vm.getState().contactSearch).toBe("ada");
+    });
+
+    it("newContact opens a blank edit; hasUnsavedContactEdit tracks changes", async () => {
+      const vm = await start();
+      vm.newContact();
+      expect(vm.getState().contactEdit).toMatchObject({ mode: "new", error: null, saving: false });
+      expect(vm.hasUnsavedContactEdit()).toBe(false);
+      vm.updateContactDraft({ givenName: "Zed" });
+      expect(vm.hasUnsavedContactEdit()).toBe(true);
+      vm.cancelContactEdit();
+      expect(vm.getState().contactEdit).toBeNull();
+      expect(vm.hasUnsavedContactEdit()).toBe(false);
+    });
+
+    it("saving a new contact creates it server-first, caches it, and selects it", async () => {
+      const vm = await start();
+      vm.newContact();
+      vm.updateContactDraft({ givenName: "Grace", surname: "Hopper", emails: [{ email: "grace@x.com" }] });
+      await vm.saveContact();
+      const created = vm.getState().contacts.find((c) => c.displayName === "Grace Hopper")!;
+      expect(created).toBeTruthy();
+      expect(vm.getState().selectedContactId).toBe(created.id);
+      expect(vm.getState().contactEdit).toBeNull();
+      expect((await ctx.contacts.contactStore.list("a1")).map((c) => c.id)).toContain(created.id);
+      expect((await ctx.provider.listContacts()).map((c) => c.id)).toContain(created.id);
+    });
+
+    it("saving an edit sends only the changed fields", async () => {
+      const vm = await start();
+      ctx.provider.seedContacts([ada]);
+      const spy = vi.spyOn(ctx.provider, "updateContact");
+      vm.editContact("C1");
+      vm.updateContactDraft({ jobTitle: "Countess" });
+      await vm.saveContact();
+      expect(spy).toHaveBeenCalledWith("C1", { jobTitle: "Countess" });
+      expect(vm.getState().contacts.find((c) => c.id === "C1")?.jobTitle).toBe("Countess");
+      expect(vm.getState().contactEdit).toBeNull();
+    });
+
+    it("saving with no changes makes no server call", async () => {
+      const vm = await start();
+      const spy = vi.spyOn(ctx.provider, "updateContact");
+      vm.editContact("C1");
+      await vm.saveContact();
+      expect(spy).not.toHaveBeenCalled();
+      expect(vm.getState().contactEdit).toBeNull();
+    });
+
+    it("an invalid draft stays open with a message and makes no server call", async () => {
+      const vm = await start();
+      const spy = vi.spyOn(ctx.provider, "createContact");
+      vm.newContact();
+      await vm.saveContact();
+      expect(spy).not.toHaveBeenCalled();
+      expect(vm.getState().contactEdit?.error).toMatch(/name or an email/i);
+    });
+
+    it("a failed save toasts and keeps the form and its input", async () => {
+      const vm = await start();
+      ctx.provider.contactsError = new Error("network down");
+      vm.newContact();
+      vm.updateContactDraft({ givenName: "Grace" });
+      await vm.saveContact();
+      expect(ctx.showNotice).toHaveBeenCalledWith("network down");
+      expect(vm.getState().contactEdit).toMatchObject({ saving: false, draft: { givenName: "Grace" } });
+    });
+
+    it("a consent failure marks the account needs-consent and toasts a grant hint", async () => {
+      const vm = await start();
+      ctx.provider.contactsError = new ContactsConsentRequired();
+      vm.newContact();
+      vm.updateContactDraft({ givenName: "Grace" });
+      await vm.saveContact();
+      expect(vm.getState().contactsStatus).toBe("needs-consent");
+      expect(ctx.showNotice).toHaveBeenCalledWith(expect.stringMatching(/grant contacts access/i));
+    });
+
+    it("deleteContact removes it server-side and locally, clearing the selection", async () => {
+      const vm = await start();
+      ctx.provider.seedContacts([ada]);
+      vm.selectContact("C1");
+      await vm.deleteContact("C1");
+      expect(vm.getState().contacts).toEqual([]);
+      expect(vm.getState().selectedContactId).toBeNull();
+      expect(await ctx.contacts.contactStore.list("a1")).toEqual([]);
+      expect(await ctx.provider.listContacts()).toEqual([]);
+    });
+
+    it("emailContact opens a new composer addressed to the contact and returns to mail mode", async () => {
+      const vm = await start();
+      vm.setMode("contacts");
+      vm.emailContact("C1");
+      expect(vm.getState().mode).toBe("mail");
+      expect(vm.getState().composer).toMatchObject({ mode: "new", to: [{ name: "Ada Lovelace", email: "ada@x.com" }] });
+    });
+
+    it("emailContact uses a specific address when given, and toasts if the contact has none", async () => {
+      const vm = await start();
+      await ctx.contacts.contactStore.put("a1", { ...ada, id: "C3", displayName: "Nomail", emails: [] });
+      await vm.selectAccount("a1");
+      vm.emailContact("C1", "other@x.com");
+      expect(vm.getState().composer?.to).toEqual([{ name: "Ada Lovelace", email: "other@x.com" }]);
+      vm.closeComposer();
+      vm.emailContact("C3");
+      expect(ctx.showNotice).toHaveBeenCalledWith(expect.stringMatching(/no email/i));
+      expect(vm.getState().composer).toBeNull();
+    });
+
+    it("suggestRecipients ranks the active account's contacts", async () => {
+      const vm = await start();
+      expect(vm.suggestRecipients("ada")).toEqual([{ name: "Ada Lovelace", email: "ada@x.com" }]);
+      expect(vm.suggestRecipients("ada", ["ada@x.com"])).toEqual([]);
+    });
+
+    it("refreshContacts force-syncs and toasts on failure", async () => {
+      const vm = await start();
+      ctx.provider.contactsError = new Error("offline");
+      await vm.refreshContacts();
+      expect(ctx.showNotice).toHaveBeenCalledWith(expect.stringContaining("offline"));
+    });
+
+    it("grantContactsAccess delegates to the host with the active account", async () => {
+      const vm = await start();
+      await vm.grantContactsAccess();
+      expect(ctx.contacts.grantContactsAccess).toHaveBeenCalledWith("a1");
+    });
+
+    it("switching accounts clears the selection, edit and search", async () => {
+      const vm = await start();
+      vm.selectContact("C1");
+      vm.searchContacts("x");
+      await vm.selectAccount("a1");
+      expect(vm.getState()).toMatchObject({ selectedContactId: null, contactEdit: null, contactSearch: "" });
+    });
   });
 });
 
