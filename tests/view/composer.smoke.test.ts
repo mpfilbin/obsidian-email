@@ -326,6 +326,60 @@ describe("Composer recipient autocomplete", () => {
     done();
   });
 
+  it("survives a suggester returning two rows with the same email", () => {
+    const dupes = [
+      { name: "Ada Lovelace", email: "ada@x.com" },
+      { name: "Ada (work)", email: "ada@x.com" },
+    ];
+    const { host, done } = mountWith({ suggest: vi.fn(() => dupes) });
+    type(input(host, "to"), "a");
+    expect(items(host).map((i) => i.textContent?.replace(/\s+/g, " ").trim())).toEqual([
+      "Ada Lovelace ada@x.com", "Ada (work) ada@x.com",
+    ]);
+    done();
+  });
+
+  // The tests above pass a plain vi.fn() for onFieldsChange, so `to` never
+  // changes and the prop-sync $effect that accept() races with never re-runs.
+  // This host echoes the patch back into the prop, like App → ViewModel does.
+  it("accept survives the real prop round-trip and keeps the trailing separator", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const onFieldsChange = vi.fn();
+    const app = mount(ComposerHost, {
+      target: host,
+      props: {
+        initial: { mode: "new" as const, to: [], cc: [], bcc: [], subject: "", bodyHtml: "" },
+        echo: true,
+        suggest: () => suggestions,
+        onFieldsChange,
+        onBodyChange: vi.fn(),
+      },
+    });
+    flushSync();
+    const to = input(host, "to");
+
+    type(to, "a");
+    press(to, "ArrowDown");
+    press(to, "Enter");
+    await tick();
+    await tick();
+    expect(to.value).toBe("alan@x.com, ");
+
+    // A second recipient can be typed straight after and accepted.
+    type(to, "alan@x.com, a");
+    press(to, "Enter");
+    await tick();
+    await tick();
+    expect(to.value).toBe("alan@x.com, ada@x.com, ");
+
+    expect(onFieldsChange).toHaveBeenLastCalledWith({
+      to: [{ email: "alan@x.com" }, { email: "ada@x.com" }],
+    });
+    unmount(app);
+    host.remove();
+  });
+
   it("plain Enter/Tab without a dropdown are left alone", () => {
     const { host, done } = mountWith({ suggest: vi.fn(() => []) });
     const to = input(host, "to");

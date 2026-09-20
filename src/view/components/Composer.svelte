@@ -161,7 +161,7 @@
       />
       {#if suggestField === field}
         <ul class="oe-suggest" role="listbox">
-          {#each suggestions as s, i (s.email)}
+          {#each suggestions as s, i (i + s.email)}
             <li
               role="option" tabindex="-1" aria-selected={i === highlight}
               class="oe-suggest-item" class:is-active={i === highlight}
