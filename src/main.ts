@@ -289,8 +289,12 @@ export default class EmailPlugin extends Plugin {
             new Notice("Finish or discard your unsent message before opening contacts.");
             return;
           }
-          await this.activateView();
-          ctx.vm.setMode("contacts");
+          try {
+            await this.activateView();
+            ctx.vm.setMode("contacts");
+          } catch (err) {
+            new Notice(`Couldn't open contacts: ${(err as Error).message}`);
+          }
         })();
       },
     });

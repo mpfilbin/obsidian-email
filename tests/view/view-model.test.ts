@@ -323,6 +323,18 @@ describe("ViewModel", () => {
       expect(vm.hasUnsavedContactEdit()).toBe(false);
     });
 
+    it("every newContact/editContact gets a fresh seq so the form remounts", async () => {
+      const vm = await start();
+      vm.newContact();
+      const first = vm.getState().contactEdit!.seq;
+      vm.cancelContactEdit();
+      vm.newContact();
+      const second = vm.getState().contactEdit!.seq;
+      expect(second).not.toBe(first);
+      vm.editContact("C1");
+      expect(vm.getState().contactEdit!.seq).not.toBe(second);
+    });
+
     it("saving a new contact creates it server-first, caches it, and selects it", async () => {
       const vm = await start();
       vm.newContact();
@@ -488,6 +500,18 @@ describe("ViewModel", () => {
       ctx.provider.contactsError = new Error("offline");
       await vm.refreshContacts();
       expect(ctx.showNotice).toHaveBeenCalledWith(expect.stringContaining("offline"));
+    });
+
+    it("refreshContacts isn't a silent no-op when access hasn't been granted", async () => {
+      const vm = await start();
+      ctx.provider.contactsError = new ContactsConsentRequired();
+      await vm.refreshContacts();
+      expect(ctx.showNotice).toHaveBeenCalledWith(expect.stringMatching(/grant contacts access/i));
+
+      ctx.showNotice.mockClear();
+      ctx.provider.contactsError = new AuthError("Graph 401");
+      await vm.refreshContacts();
+      expect(ctx.showNotice).toHaveBeenCalledWith(expect.stringMatching(/grant contacts access/i));
     });
 
     it("grantContactsAccess delegates to the host with the active account", async () => {

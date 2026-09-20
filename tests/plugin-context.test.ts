@@ -229,6 +229,23 @@ describe("PluginContext", () => {
     cacheOpen.mockRestore();
   }, 20_000);
 
+  it("startContacts twice leaves a single interval running", async () => {
+    const settings = await SettingsStore.load({ loadData: async () => null, saveData: async () => {} });
+    await settings.addAccount({ id: "a1", email: "a1@g.com", provider: "ms-graph", clientId: "c", addedAt: 0 });
+    const ctx = await PluginContext.create(settings, hostDeps(), logger);
+    vi.useFakeTimers();
+    try {
+      ctx.startContacts();
+      ctx.startContacts();
+      const spy = vi.spyOn(ctx.contactSync, "syncAll");
+      vi.advanceTimersByTime(15 * 60_000);
+      expect(spy).toHaveBeenCalledOnce();
+      ctx.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("removeAccountFlow tells contact sync to forget the account first", async () => {
     const settings = await SettingsStore.load({ loadData: async () => null, saveData: async () => {} });
     await settings.addAccount({ id: "gone", email: "g@g.com", provider: "ms-graph", clientId: "c", addedAt: 0 });

@@ -19,8 +19,9 @@
 <section class="oe-reading-pane">
   <div class="oe-reading-scroll">
     {#if edit}
-      <!-- Remount per form so the text mirrors re-seed when switching contacts. -->
-      {#key `${edit.mode}:${edit.contactId ?? ""}`}
+      <!-- Remount per form so the text mirrors re-seed. Keyed on `seq`, not
+           mode+contactId: those are identical for two consecutive New forms. -->
+      {#key edit.seq}
         <ContactForm {edit} {onChange} {onSave} {onCancel} />
       {/key}
     {:else if contact}

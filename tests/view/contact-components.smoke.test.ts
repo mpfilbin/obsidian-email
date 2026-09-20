@@ -6,6 +6,7 @@ import ContactDetail from "../../src/view/components/ContactDetail.svelte";
 import ContactForm from "../../src/view/components/ContactForm.svelte";
 import ContactPane from "../../src/view/components/ContactPane.svelte";
 import ContactFormHost from "./fixtures/ContactFormHost.svelte";
+import ContactPaneHost from "./fixtures/ContactPaneHost.svelte";
 import { draftFromContact, emptyDraft } from "../../src/view/contact-draft";
 import type { Contact } from "../../src/providers/types";
 import type { ContactEditState } from "../../src/view/view-model";
@@ -45,8 +46,48 @@ describe("AddressBook", () => {
     });
   }
 
+  it("disables the grant button while the OAuth flow is pending", async () => {
+    let release!: () => void;
+    const onGrant = vi.fn(() => new Promise<void>((res) => { release = res; }));
+    const { host, done } = mountIn(AddressBook, { count: 0, status: "needs-consent", onGrant });
+    const button = q<HTMLButtonElement>(host, ".oe-grant-contacts")!;
+
+    button.click();
+    flushSync();
+    expect(button.disabled).toBe(true);
+
+    // A second click while pending must not start a second OAuth flow.
+    button.click();
+    flushSync();
+    expect(onGrant).toHaveBeenCalledOnce();
+
+    release();
+    await Promise.resolve();
+    await Promise.resolve();
+    flushSync();
+    expect(button.disabled).toBe(false);
+    done();
+  });
+
+  it("re-enables the grant button when the OAuth flow rejects", async () => {
+    const onGrant = vi.fn(() => Promise.reject(new Error("user cancelled")));
+    const { host, done } = mountIn(AddressBook, { count: 0, status: "needs-reauth", onGrant });
+    const button = q<HTMLButtonElement>(host, ".oe-grant-contacts")!;
+
+    button.click();
+    flushSync();
+    expect(button.disabled).toBe(true);
+
+    await Promise.resolve();
+    await Promise.resolve();
+    flushSync();
+    expect(button.disabled).toBe(false);
+    done();
+  });
+
   it("error shows a message and no grant button", () => {
     const { host, done } = mountIn(AddressBook, { count: 0, status: "error", onGrant: vi.fn() });
+
     expect(host.textContent).toMatch(/couldn't load contacts/i);
     expect(q(host, ".oe-grant-contacts")).toBeNull();
     done();
@@ -135,7 +176,7 @@ describe("ContactDetail", () => {
 
 describe("ContactForm", () => {
   const editState = (over: Partial<ContactEditState> = {}): ContactEditState => ({
-    mode: "edit", contactId: "C1", draft: draftFromContact(ada), saved: draftFromContact(ada), error: null, saving: false, ...over,
+    mode: "edit", seq: 1, contactId: "C1", draft: draftFromContact(ada), saved: draftFromContact(ada), error: null, saving: false, ...over,
   });
   const field = (host: HTMLElement, name: string) => q<HTMLInputElement>(host, `[data-field="contact-${name}"]`)!;
   const change = (el: HTMLInputElement | HTMLTextAreaElement, value: string, evt: "input" | "change") => {
@@ -268,7 +309,7 @@ describe("ContactForm", () => {
 
 describe("ContactPane", () => {
   const handlers = { onEmail: vi.fn(), onEdit: vi.fn(), onDelete: vi.fn(), onChange: vi.fn(), onSave: vi.fn(), onCancel: vi.fn() };
-  const edit: ContactEditState = { mode: "new", draft: emptyDraft(), saved: emptyDraft(), error: null, saving: false };
+  const edit: ContactEditState = { mode: "new", seq: 1, draft: emptyDraft(), saved: emptyDraft(), error: null, saving: false };
 
   it("prompts to select a contact when there is neither a contact nor a form", () => {
     const { host, done } = mountIn(ContactPane, { contact: null, edit: null, ...handlers });
@@ -290,5 +331,31 @@ describe("ContactPane", () => {
     const { host, done } = mountIn(ContactPane, { contact: null, edit: null, ...handlers });
     expect(q(host, "section.oe-reading-pane")).not.toBeNull();
     done();
+  });
+
+  it("re-seeds the form when New is used twice in a row", () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const app = mount(ContactPaneHost, {
+      target: host,
+      props: { contact: null, initial: { ...edit, seq: 1 }, ...handlers },
+    }) as unknown as { set(next: ContactEditState): void };
+    flushSync();
+
+    // Type an address without committing it (no change event).
+    const emails = q<HTMLInputElement>(host, '[data-field="contact-emails"]')!;
+    emails.value = "half-typed@x";
+    emails.dispatchEvent(new Event("input", { bubbles: true }));
+    flushSync();
+    expect(q<HTMLInputElement>(host, '[data-field="contact-emails"]')!.value).toBe("half-typed@x");
+
+    // Cancel + New again: mode and contactId are identical, so only `seq`
+    // distinguishes the two forms.
+    app.set({ ...edit, seq: 2 });
+    flushSync();
+    expect(q<HTMLInputElement>(host, '[data-field="contact-emails"]')!.value).toBe("");
+
+    unmount(app as never);
+    host.remove();
   });
 });

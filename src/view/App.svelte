@@ -196,6 +196,12 @@
   function cancelDelete(): void {
     pendingDelete = null;
   }
+  // Opening the edit form invalidates a queued delete confirmation: left
+  // standing, confirming it would delete the very contact being edited.
+  function editContact(id: string): void {
+    pendingDelete = null;
+    vm.editContact(id);
+  }
 
   // Archive/Delete on a row are navigation-like: when the acted-on message or
   // thread is the open one, the ViewModel calls `closeThread()`, which drops
@@ -301,7 +307,7 @@
       attachNote: () => { void vm.requestAttachNote(); },
       toggleContacts: () => guarded(() => vm.setMode(inContacts ? "mail" : "contacts")),
       newContact: () => guarded(() => vm.newContact()),
-      editContact: () => { const id = state.selectedContactId; if (id) vm.editContact(id); },
+      editContact: () => { const id = state.selectedContactId; if (id) editContact(id); },
       deleteContact: () => {
         const id = state.selectedContactId;
         if (id) requestDeleteContact(() => { void vm.deleteContact(id); });
@@ -385,7 +391,7 @@
   />
   <section class="oe-mailbox-col">
     {#if inContacts}
-      <AddressBook count={state.contacts.length} status={state.contactsStatus} onGrant={() => { void vm.grantContactsAccess(); }} />
+      <AddressBook count={state.contacts.length} status={state.contactsStatus} onGrant={() => vm.grantContactsAccess()} />
     {:else}
       <MailboxList
         mailboxes={state.mailboxes}
@@ -424,26 +430,26 @@
           onSearch={(q) => vm.runSearch(q)}
           onClose={closeSearch}
         />
-    {/if}
-    <MessageList
-      threads={state.threads}
-      openThreadId={state.openThreadId}
-      hasMore={state.hasMore}
-      loading={state.loadingList}
-      onOpen={(id) => requestSwitch(() => { vm.openThread(id); setReadingPaneCollapsed(false); })}
-      onLoadMore={() => vm.loadMore()}
-      {isDraftsMailbox}
-      {isArchiveMailbox}
-      {isTrashMailbox}
-      onArchiveThread={(id) => requestRowAction(() => { const closes = closesOpenThread(id); vm.archiveThread(id); if (closes) setReadingPaneCollapsed(true); })}
-      onDeleteThread={(id) => requestRowAction(() => requestDelete("thread", () => { const closes = closesOpenThread(id); vm.deleteThread(id); if (closes) setReadingPaneCollapsed(true); }))}
-      onThreadContextMenu={(evt, id) =>
-        onThreadContextMenu(
-          evt,
-          state.mailboxes.filter((m) => m.id !== state.activeMailboxId),
-          (destinationId) => moveThread(id, destinationId),
-        )}
-    />
+      {/if}
+      <MessageList
+        threads={state.threads}
+        openThreadId={state.openThreadId}
+        hasMore={state.hasMore}
+        loading={state.loadingList}
+        onOpen={(id) => requestSwitch(() => { vm.openThread(id); setReadingPaneCollapsed(false); })}
+        onLoadMore={() => vm.loadMore()}
+        {isDraftsMailbox}
+        {isArchiveMailbox}
+        {isTrashMailbox}
+        onArchiveThread={(id) => requestRowAction(() => { const closes = closesOpenThread(id); vm.archiveThread(id); if (closes) setReadingPaneCollapsed(true); })}
+        onDeleteThread={(id) => requestRowAction(() => requestDelete("thread", () => { const closes = closesOpenThread(id); vm.deleteThread(id); if (closes) setReadingPaneCollapsed(true); }))}
+        onThreadContextMenu={(evt, id) =>
+          onThreadContextMenu(
+            evt,
+            state.mailboxes.filter((m) => m.id !== state.activeMailboxId),
+            (destinationId) => moveThread(id, destinationId),
+          )}
+      />
     {/if}
   </section>
   <Resizer label="Resize reading pane" onDrag={resizeMessageList} />
@@ -452,7 +458,7 @@
       contact={selectedContact}
       edit={state.contactEdit}
       onEmail={(email) => { const id = state.selectedContactId; if (id) guarded(() => vm.emailContact(id, email)); }}
-      onEdit={() => { const id = state.selectedContactId; if (id) vm.editContact(id); }}
+      onEdit={() => { const id = state.selectedContactId; if (id) editContact(id); }}
       onDelete={() => { const id = state.selectedContactId; if (id) requestDeleteContact(() => { void vm.deleteContact(id); }); }}
       onChange={(patch) => vm.updateContactDraft(patch)}
       onSave={() => { void vm.saveContact(); }}

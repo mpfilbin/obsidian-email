@@ -48,6 +48,10 @@ export interface ComposerState {
 /** An open New/Edit contact form. `saved` is the baseline `hasUnsavedContactEdit` compares against. */
 export interface ContactEditState {
   mode: "new" | "edit";
+  /** Monotonic per-form id. `mode`+`contactId` are identical for two
+   *  consecutive `newContact()` calls, which is not enough to remount the
+   *  form — its uncommitted text mirrors would keep the previous input. */
+  seq: number;
   contactId?: string;
   draft: ContactDraft;
   saved: ContactDraft;
@@ -108,6 +112,9 @@ export interface ViewModelDeps {
 }
 
 const PAGE = 50;
+
+const CONTACTS_GRANT_HINT =
+  "Contacts access hasn't been granted — use “Grant contacts access” in the Contacts view.";
 
 function groupThreads(messages: MessageSummary[]): ThreadView[] {
   const byThread = new Map<string, MessageSummary[]>();
@@ -177,6 +184,8 @@ export class ViewModel {
   private providerListExhausted = false;
   /** Monotonic guard so a slow cache read can't paint over a newer one. */
   private reloadSeq = 0;
+  /** Monotonic id handed to each contact form; see `ContactEditState.seq`. */
+  private contactEditSeq = 0;
   private readonly _renderDeps: {
     getInlineAttachment: (cid: string) => Promise<Blob | undefined>;
     openExternal: (url: string) => void;
@@ -570,7 +579,7 @@ export class ViewModel {
 
   private errorMessage(err: unknown): string {
     if (err instanceof ContactsConsentRequired) {
-      return "Contacts access hasn't been granted — use “Grant contacts access” in the Contacts view.";
+      return CONTACTS_GRANT_HINT;
     }
     if (err instanceof AuthError) {
       return "Reauthentication required — go to Settings → Email and click Re-authenticate.";
@@ -892,7 +901,10 @@ export class ViewModel {
 
   newContact(): void {
     const blank = emptyDraft();
-    this.set({ selectedContactId: null, contactEdit: { mode: "new", draft: blank, saved: blank, error: null, saving: false } });
+    this.set({
+      selectedContactId: null,
+      contactEdit: { mode: "new", seq: ++this.contactEditSeq, draft: blank, saved: blank, error: null, saving: false },
+    });
   }
 
   editContact(id: string): void {
@@ -901,7 +913,10 @@ export class ViewModel {
     const draft = draftFromContact(contact);
     this.set({
       selectedContactId: id,
-      contactEdit: { mode: "edit", contactId: id, draft, saved: draftFromContact(contact), error: null, saving: false },
+      contactEdit: {
+        mode: "edit", seq: ++this.contactEditSeq, contactId: id, draft,
+        saved: draftFromContact(contact), error: null, saving: false,
+      },
     });
   }
 
@@ -1014,7 +1029,13 @@ export class ViewModel {
     if (!acct) return;
     await this.deps.contactSync.syncAccount(acct, { force: true });
     const s = this.deps.contactSync.getState(acct);
-    if (s.status === "error" && s.lastError) this.deps.showNotice(`Couldn't refresh contacts: ${s.lastError}`);
+    if (s.status === "error" && s.lastError) {
+      this.deps.showNotice(`Couldn't refresh contacts: ${s.lastError}`);
+    } else if (s.status === "needs-consent" || s.status === "needs-reauth") {
+      // Otherwise Refresh looks like a silent no-op: the sync bails out early
+      // for a blocked account and nothing on screen changes.
+      this.deps.showNotice(CONTACTS_GRANT_HINT);
+    }
   }
 
   async grantContactsAccess(): Promise<void> {

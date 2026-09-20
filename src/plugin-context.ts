@@ -191,6 +191,8 @@ export class PluginContext {
 
   /** Syncs contacts now, then on a slow timer (each sync is also throttled). */
   startContacts(): void {
+    // Idempotent: a second call replaces the timer instead of stacking one.
+    if (this.contactTimer) clearInterval(this.contactTimer);
     void this.contactSync.syncAll();
     this.contactTimer = setInterval(() => void this.contactSync.syncAll(), CONTACT_POLL_MS);
   }

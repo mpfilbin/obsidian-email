@@ -1245,8 +1245,25 @@ describe("App — contacts mode", () => {
     done();
   });
 
+  for (const [label, sel] of [["the detail's Edit", ".oe-contact-edit"], ["the ribbon Edit", '[data-action="edit-contact"]']] as const) {
+    it(`${label} clears a pending delete confirmation`, () => {
+      const vm = fakeVm({ mode: "contacts", contacts: [ada], selectedContactId: "C1" });
+      const { host, done } = mountApp(vm);
+      click(q(host, ".oe-contact-delete"));
+      expect(q(host, ".oe-composer-prompt")).not.toBeNull();
+
+      click(q(host, sel));
+
+      expect(vm.editContact).toHaveBeenCalledWith("C1");
+      // A confirmation left standing would delete the contact being edited.
+      expect(q(host, ".oe-composer-prompt")).toBeNull();
+      expect(vm.deleteContact).not.toHaveBeenCalled();
+      done();
+    });
+  }
+
   it("the form's Save/Cancel and the grant button call the view-model", () => {
-    const edit = { mode: "new" as const, draft: { displayName: "", emails: [], businessPhones: [], homePhones: [] }, saved: { displayName: "", emails: [], businessPhones: [], homePhones: [] }, error: null, saving: false };
+    const edit = { mode: "new" as const, seq: 1, draft: { displayName: "", emails: [], businessPhones: [], homePhones: [] }, saved: { displayName: "", emails: [], businessPhones: [], homePhones: [] }, error: null, saving: false };
     const vm = fakeVm({ mode: "contacts", contacts: [], contactEdit: edit, contactsStatus: "needs-consent" });
     const { host, done } = mountApp(vm);
     click(q(host, ".oe-contact-save"));
