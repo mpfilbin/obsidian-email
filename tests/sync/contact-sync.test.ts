@@ -112,6 +112,39 @@ describe("ContactSync", () => {
     expect(h.sync.getState("a1").status).toBe("idle");
   });
 
+  it("forget makes an in-flight sync drop its results", async () => {
+    let release!: (contacts: Contact[]) => void;
+    const provider = {
+      kind: "ms-graph",
+      listContacts: () => new Promise<Contact[]>((res) => { release = res; }),
+    } as unknown as MailProvider;
+    const { store, sync } = harness(provider);
+    const changes: string[] = [];
+    sync.changes.on((e) => changes.push(e.accountId));
+
+    const run = sync.syncAccount("a1", { force: true });
+    sync.forget("a1");
+    release([c("1"), c("2")]);
+    await run;
+
+    expect(await store.list("a1")).toEqual([]);
+    expect(sync.getState("a1")).toEqual({ accountId: "a1", status: "idle" });
+    expect(changes).toEqual([]);
+  });
+
+  it("an account re-added under the same id syncs normally after forget", async () => {
+    const provider = new FakeProvider();
+    provider.seedContacts([c("1")]);
+    const { store, sync } = harness(provider);
+    await sync.syncAccount("a1", { force: true });
+    sync.forget("a1");
+    expect(sync.getState("a1")).toEqual({ accountId: "a1", status: "idle" });
+
+    await sync.syncAccount("a1", { force: true });
+    expect((await store.list("a1")).map((x) => x.id)).toEqual(["1"]);
+    expect(sync.getState("a1").status).toBe("idle");
+  });
+
   it("syncAll syncs every listed account", async () => {
     const provider = new FakeProvider();
     provider.seedContacts([c("1")]);

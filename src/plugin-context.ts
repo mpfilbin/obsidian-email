@@ -276,6 +276,9 @@ export class PluginContext {
   async removeAccountFlow(id: string): Promise<void> {
     await this.tokens.get(id)?.clear();
     await this.settings.removeAccount(id);
+    // Before clearing: a contact sync already past `listContacts()` would
+    // otherwise write the removed account's contacts straight back in.
+    this.contactSync.forget(id);
     await this.cache.clearAccount(id);
     await this.contactStore.clear(id);
     this.rebuildProviders();

@@ -41,6 +41,8 @@ export class ContactSync {
 
   private inFlight = new Map<string, Promise<void>>();
   private state = new Map<string, ContactsState>();
+  /** Bumped by `forget`; a run whose captured epoch is stale discards itself. */
+  private epoch = new Map<string, number>();
   private now: () => number;
   private minIntervalMs: number;
 
@@ -64,6 +66,20 @@ export class ContactSync {
     this.setState(accountId, { status: "needs-consent" });
   }
 
+  /**
+   * Drops everything this engine knows about an account — called when the
+   * account is removed. A `run` that is already past `await listContacts()`
+   * would otherwise write the removed account's contacts back into the store
+   * moments after `removeAccountFlow` cleared it; bumping the epoch makes that
+   * run discard its result instead. The account may be re-added under the same
+   * id afterwards and syncs normally.
+   */
+  forget(accountId: string): void {
+    this.epoch.set(accountId, (this.epoch.get(accountId) ?? 0) + 1);
+    this.state.delete(accountId);
+    this.inFlight.delete(accountId);
+  }
+
   syncAll(): Promise<void> {
     return Promise.all(this.deps.listAccountIds().map((id) => this.syncAccount(id))).then(() => undefined);
   }
@@ -72,7 +88,11 @@ export class ContactSync {
     const existing = this.inFlight.get(accountId);
     if (existing) return existing;
     if (!opts.force && !this.due(accountId)) return Promise.resolve();
-    const run = this.run(accountId).finally(() => this.inFlight.delete(accountId));
+    // Identity-checked so a run that outlived a `forget` can't clear the
+    // marker belonging to a later run for the same (re-added) id.
+    const run: Promise<void> = this.run(accountId).finally(() => {
+      if (this.inFlight.get(accountId) === run) this.inFlight.delete(accountId);
+    });
     this.inFlight.set(accountId, run);
     return run;
   }
@@ -88,13 +108,19 @@ export class ContactSync {
   private async run(accountId: string): Promise<void> {
     const provider = this.deps.getProvider(accountId);
     if (!supportsContacts(provider)) return;
+    const epoch = this.epoch.get(accountId) ?? 0;
+    const forgotten = () => (this.epoch.get(accountId) ?? 0) !== epoch;
     this.setState(accountId, { status: "syncing" });
     try {
       const contacts = await provider.listContacts();
+      // The account was removed while we were waiting: writing now would
+      // resurrect its contacts in a store that has just been cleared.
+      if (forgotten()) return;
       await this.deps.store.replace(accountId, contacts);
       this.setState(accountId, { status: "idle", lastSyncMs: this.now(), lastError: undefined });
       this.changes.emit({ accountId });
     } catch (err) {
+      if (forgotten()) return;
       if (err instanceof ContactsConsentRequired) {
         this.setState(accountId, { status: "needs-consent", lastError: err.message });
       } else if (err instanceof AuthError) {

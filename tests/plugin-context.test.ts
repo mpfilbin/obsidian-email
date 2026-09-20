@@ -229,6 +229,21 @@ describe("PluginContext", () => {
     cacheOpen.mockRestore();
   }, 20_000);
 
+  it("removeAccountFlow tells contact sync to forget the account first", async () => {
+    const settings = await SettingsStore.load({ loadData: async () => null, saveData: async () => {} });
+    await settings.addAccount({ id: "gone", email: "g@g.com", provider: "ms-graph", clientId: "c", addedAt: 0 });
+    const ctx = await PluginContext.create(settings, hostDeps(), logger);
+    const order: string[] = [];
+    const forget = vi.spyOn(ctx.contactSync, "forget").mockImplementation(() => { order.push("forget"); });
+    vi.spyOn(ctx.contactStore, "clear").mockImplementation(async () => { order.push("clear"); });
+
+    await ctx.removeAccountFlow("gone");
+
+    expect(forget).toHaveBeenCalledWith("gone");
+    expect(order).toEqual(["forget", "clear"]);
+    ctx.dispose();
+  });
+
   it("removing an account clears its cached contacts", async () => {
     const settings = await SettingsStore.load({ loadData: async () => null, saveData: async () => {} });
     await settings.addAccount({ id: "acct-rm", email: "r@g.com", provider: "ms-graph", clientId: "c", addedAt: 0 });
