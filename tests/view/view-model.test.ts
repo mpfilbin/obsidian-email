@@ -348,6 +348,57 @@ describe("ViewModel", () => {
       expect(vm.getState().contactEdit).toBeNull();
     });
 
+    it("a cache write that fails after a successful create doesn't duplicate the contact", async () => {
+      const vm = await start();
+      const create = vi.spyOn(ctx.provider, "createContact");
+      vi.spyOn(ctx.contacts.contactStore, "put").mockRejectedValue(new Error("QuotaExceededError"));
+      vm.newContact();
+      vm.updateContactDraft({ givenName: "Grace", surname: "Hopper" });
+      await vm.saveContact();
+
+      // The server write succeeded, so the form must close and the contact
+      // must appear — a re-Save here would create a second one server-side.
+      expect(create).toHaveBeenCalledOnce();
+      expect(vm.getState().contactEdit).toBeNull();
+      expect(vm.getState().contacts.map((c) => c.displayName)).toContain("Grace Hopper");
+      expect(ctx.showNotice).not.toHaveBeenCalled();
+    });
+
+    it("a cache removal that fails after a successful delete still drops the contact", async () => {
+      const vm = await start();
+      ctx.provider.seedContacts([ada]);
+      const del = vi.spyOn(ctx.provider, "deleteContact");
+      vi.spyOn(ctx.contacts.contactStore, "remove").mockRejectedValue(new Error("QuotaExceededError"));
+      vm.selectContact("C1");
+      await vm.deleteContact("C1");
+
+      expect(del).toHaveBeenCalledOnce();
+      expect(vm.getState().contacts).toEqual([]);
+      expect(vm.getState().selectedContactId).toBeNull();
+      expect(ctx.showNotice).not.toHaveBeenCalled();
+    });
+
+    it("the update patch is diffed against what the form was seeded from, not the live cache", async () => {
+      const vm = await start();
+      ctx.provider.seedContacts([{ ...ada, jobTitle: "Dev" }]);
+      await ctx.contacts.contactSync.syncAccount("a1", { force: true });
+      await vi.waitFor(() => expect(vm.getState().contacts[0].jobTitle).toBe("Dev"));
+
+      vm.editContact("C1");
+
+      // A remote edit lands mid-edit and replaces state.contacts.
+      ctx.provider.seedContacts([{ ...ada, jobTitle: "Lead" }]);
+      await ctx.contacts.contactSync.syncAccount("a1", { force: true });
+      await vi.waitFor(() => expect(vm.getState().contacts[0].jobTitle).toBe("Lead"));
+
+      const spy = vi.spyOn(ctx.provider, "updateContact");
+      vm.updateContactDraft({ notes: "n" });
+      await vm.saveContact();
+
+      // Only the field the user touched — the stale "Dev" must not revert "Lead".
+      expect(spy).toHaveBeenCalledWith("C1", { notes: "n" });
+    });
+
     it("saving with no changes makes no server call", async () => {
       const vm = await start();
       const spy = vi.spyOn(ctx.provider, "updateContact");

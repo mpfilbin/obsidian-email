@@ -946,10 +946,21 @@ export class ViewModel {
       } else {
         const before = this.state.contacts.find((c) => c.id === edit.contactId);
         if (!before || !edit.contactId) throw new Error("That contact no longer exists.");
-        const patch = patchBetween(finalizeDraft(draftFromContact(before)), after);
+        // Diff against what the form was seeded from, not the live cache entry:
+        // a contactSync change landing mid-edit replaces `state.contacts` with
+        // remote values, and diffing against those would send the user's stale
+        // copy of fields they never touched, reverting the remote edit.
+        const patch = patchBetween(finalizeDraft(edit.saved), after);
         saved = Object.keys(patch).length ? await provider.updateContact(edit.contactId, patch) : before;
       }
-      await this.deps.contactStore.put(acct, saved);
+      // The cache is best-effort — the next sync reconciles it. The server
+      // write is not: reporting a failure here would leave the form open in
+      // mode "new", and Saving again would create a *second* contact.
+      try {
+        await this.deps.contactStore.put(acct, saved);
+      } catch {
+        // Swallowed deliberately: the write landed server-side.
+      }
       if (acct !== this.state.activeAccountId) return;
       this.set({
         contacts: sortContacts([...this.state.contacts.filter((c) => c.id !== saved!.id), saved]),
@@ -968,7 +979,13 @@ export class ViewModel {
     if (!acct || !supportsContacts(provider)) return;
     try {
       await provider.deleteContact(id);
-      await this.deps.contactStore.remove(acct, id);
+      // Best-effort, as in saveContact: the contact is gone server-side, so a
+      // failure to evict it locally must not look like a failed delete.
+      try {
+        await this.deps.contactStore.remove(acct, id);
+      } catch {
+        // Swallowed deliberately: the next sync reconciles the cache.
+      }
       if (acct !== this.state.activeAccountId) return;
       this.set({
         contacts: this.state.contacts.filter((c) => c.id !== id),
