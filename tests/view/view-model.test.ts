@@ -657,6 +657,60 @@ describe("ViewModel", () => {
       expect(c.vm.getState().composer).toBeNull();
     });
 
+    it("selectFlagged leaves the open thread alone", async () => {
+      const c = await build();
+      await seed(c, [flaggedMsg("f1", "t1", 5), sum("m2", "t2", 6)]);
+      await c.vm.init();
+      await c.vm.openThread("t2");
+      const before = c.vm.getState().openMessages.map((m) => m.summary.id);
+      expect(before).toEqual(["m2"]);
+      await c.vm.selectFlagged();
+      expect(c.vm.getState().openThreadId).toBe("t2");
+      expect(c.vm.getState().openMessages.map((m) => m.summary.id)).toEqual(before);
+    });
+
+    it("leaving the view while the server request is in flight does not strand loading or paint flagged rows", async () => {
+      const c = await build();
+      await seed(c, [flaggedMsg("f1", "t1", 5, { mailboxIds: ["SENT"] }), sum("m2", "t2", 6)], []);
+      await c.vm.init();
+      let release!: () => void;
+      const spy = vi.spyOn(c.provider, "listFlaggedMessages").mockImplementation(
+        () => new Promise((res) => {
+          release = () => res({ items: [flaggedMsg("late", "t-late", 1, { mailboxIds: ["SENT"] })], nextPageToken: "more" });
+        }),
+      );
+      const p = c.vm.selectFlagged();
+      await vi.waitFor(() => expect(spy).toHaveBeenCalled());
+      await c.vm.selectMailbox("INBOX");
+      release();
+      await p;
+      const s = c.vm.getState();
+      expect(s.loadingList).toBe(false);
+      expect(s.flaggedActive).toBe(false);
+      expect(s.threads.map((t) => t.threadId)).toEqual(["t2"]); // INBOX only: no flagged (SENT) rows painted in
+      expect((await c.cache.getThreadMessages("a1", "t-late")).map((m) => m.id)).toEqual(["late"]);
+    });
+
+    it("leaving the view before the request starts never sends it and leaves loading cleared", async () => {
+      const c = await build();
+      await seed(c, [flaggedMsg("f1", "t1", 5)]);
+      await c.vm.init();
+      const spy = vi.spyOn(c.provider, "listFlaggedMessages");
+      // Hold selectFlagged's cache read open so the whole INBOX reload finishes first.
+      let releaseCache!: () => void;
+      const realList = c.cache.listFlaggedMessages.bind(c.cache);
+      vi.spyOn(c.cache, "listFlaggedMessages").mockImplementation(
+        (acct) => new Promise((res) => { releaseCache = () => res(realList(acct)); }),
+      );
+      const p = c.vm.selectFlagged();
+      await c.vm.selectMailbox("INBOX");
+      releaseCache();
+      await p;
+      expect(c.vm.getState().loadingList).toBe(false);
+      expect(c.vm.getState().flaggedActive).toBe(false);
+      expect(spy).not.toHaveBeenCalled();
+    });
+
     it("clearing a search made inside the view returns to the flagged list", async () => {
       const c = await build();
       await seed(c, [flaggedMsg("f1", "t1", 5)]);

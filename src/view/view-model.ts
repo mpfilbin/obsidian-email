@@ -368,14 +368,17 @@ export class ViewModel {
     const acct = this.state.activeAccountId;
     const provider = acct ? this.deps.getProvider(acct) : undefined;
     if (!acct || !provider) return;
+    if (!this.state.flaggedActive) return; // the user already left the view
     if (!this.deps.isOnline()) return; // cached list only; offline is not an error
     if (more && this.flaggedToken === undefined) return;
     this.set({ loadingList: true });
     try {
       const page = await provider.listFlaggedMessages(more ? this.flaggedToken : undefined);
       if (page.items.length) await this.deps.cache.upsertMessages(acct, page.items);
-      if (acct !== this.state.activeAccountId || !this.state.flaggedActive) return; // navigated away
-      this.flaggedToken = page.nextPageToken;
+      // Navigated away mid-fetch: the rows are cached, but the token belongs to
+      // a view that is gone. Fall through to reloadList, which re-derives
+      // whatever is showing now and owns clearing `loadingList`.
+      if (acct === this.state.activeAccountId && this.state.flaggedActive) this.flaggedToken = page.nextPageToken;
     } catch {
       this.deps.showNotice("Couldn't load flagged messages.");
     }
