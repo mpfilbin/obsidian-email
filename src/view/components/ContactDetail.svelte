@@ -1,8 +1,10 @@
 <script lang="ts">
   import type { Contact } from "../../providers/types";
 
-  let { contact, onEmail, onEdit, onDelete }: {
+  let { contact, readOnly = false, onEmail, onEdit, onDelete }: {
     contact: Contact;
+    /** Writes would fail (no grant / bad token): Edit and Delete are disabled. Emailing still works. */
+    readOnly?: boolean;
     onEmail: (email: string) => void;
     onEdit: () => void;
     onDelete: () => void;
@@ -19,8 +21,8 @@
 <div class="oe-contact-detail">
   <header class="oe-contact-detail-head">
     <h3>{contact.displayName}</h3>
-    <button type="button" class="oe-contact-edit" onclick={onEdit}>Edit</button>
-    <button type="button" class="oe-contact-delete" onclick={onDelete}>Delete</button>
+    <button type="button" class="oe-contact-edit" disabled={readOnly} onclick={onEdit}>Edit</button>
+    <button type="button" class="oe-contact-delete" disabled={readOnly} onclick={onDelete}>Delete</button>
   </header>
   {#if work}<p class="oe-contact-work">{work}</p>{/if}
   {#if contact.emails.length}

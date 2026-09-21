@@ -4,9 +4,10 @@
   import ContactDetail from "./ContactDetail.svelte";
   import ContactForm from "./ContactForm.svelte";
 
-  let { contact, edit, onEmail, onEdit, onDelete, onChange, onSave, onCancel }: {
+  let { contact, edit, readOnly = false, onEmail, onEdit, onDelete, onChange, onSave, onCancel }: {
     contact: Contact | null;
     edit: ContactEditState | null;
+    readOnly?: boolean;
     onEmail: (email: string) => void;
     onEdit: () => void;
     onDelete: () => void;
@@ -25,7 +26,7 @@
         <ContactForm {edit} {onChange} {onSave} {onCancel} />
       {/key}
     {:else if contact}
-      <ContactDetail {contact} {onEmail} {onEdit} {onDelete} />
+      <ContactDetail {contact} {readOnly} {onEmail} {onEdit} {onDelete} />
     {:else}
       <p class="oe-empty">Select a contact</p>
     {/if}

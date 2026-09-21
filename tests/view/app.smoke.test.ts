@@ -1275,6 +1275,16 @@ describe("App — contacts mode", () => {
     done();
   });
 
+  it("Edit and Delete are disabled (ribbon and inline) while access is blocked", () => {
+    const vm = fakeVm({ mode: "contacts", contacts: [ada], selectedContactId: "C1", contactsStatus: "needs-reauth" });
+    const { host, done } = mountApp(vm);
+    for (const sel of ['[data-action="edit-contact"]', '[data-action="delete-contact"]', ".oe-contact-edit", ".oe-contact-delete"]) {
+      expect(q(host, sel)!.hasAttribute("disabled"), sel).toBe(true);
+    }
+    expect(q(host, '[data-action="email-contact"]')!.hasAttribute("disabled")).toBe(false);
+    done();
+  });
+
   it("New contact is disabled while access is blocked", () => {
     const { host, done } = mountApp(fakeVm({ mode: "contacts", contactsStatus: "needs-consent" }));
     expect(q(host, '[data-action="new-contact"]')!.hasAttribute("disabled")).toBe(true);

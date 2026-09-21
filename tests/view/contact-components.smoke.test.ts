@@ -46,6 +46,18 @@ describe("AddressBook", () => {
     });
   }
 
+  it("needs-consent explains the missing grant; needs-reauth explains the failed sign-in and offers re-authentication", () => {
+    const a = mountIn(AddressBook, { count: 0, status: "needs-consent", onGrant: vi.fn() });
+    expect(a.host.textContent).toMatch(/hasn't been granted/i);
+    expect(q(a.host, ".oe-grant-contacts")!.textContent).toBe("Grant contacts access");
+    a.done();
+    const b = mountIn(AddressBook, { count: 0, status: "needs-reauth", onGrant: vi.fn() });
+    expect(b.host.textContent).not.toMatch(/hasn't been granted/i);
+    expect(b.host.textContent).toMatch(/sign(ing)? in/i);
+    expect(q(b.host, ".oe-grant-contacts")!.textContent).toBe("Re-authenticate");
+    b.done();
+  });
+
   it("disables the grant button while the OAuth flow is pending", async () => {
     let release!: () => void;
     const onGrant = vi.fn(() => new Promise<void>((res) => { release = res; }));
@@ -158,6 +170,20 @@ describe("ContactDetail", () => {
     const { host, done } = mountIn(ContactDetail, { contact: bob, onEmail: vi.fn(), onEdit: vi.fn(), onDelete: vi.fn() });
     expect(host.querySelectorAll(".oe-contact-email")).toHaveLength(0);
     expect(q(host, ".oe-contact-notes")).toBeNull();
+    done();
+  });
+
+  it("readOnly disables Edit and Delete but leaves the email links working", () => {
+    const onEmail = vi.fn(); const onEdit = vi.fn(); const onDelete = vi.fn();
+    const { host, done } = mountIn(ContactDetail, { contact: ada, readOnly: true, onEmail, onEdit, onDelete });
+    expect(q<HTMLButtonElement>(host, ".oe-contact-edit")!.disabled).toBe(true);
+    expect(q<HTMLButtonElement>(host, ".oe-contact-delete")!.disabled).toBe(true);
+    q(host, ".oe-contact-edit")!.click();
+    q(host, ".oe-contact-delete")!.click();
+    expect(onEdit).not.toHaveBeenCalled();
+    expect(onDelete).not.toHaveBeenCalled();
+    (host.querySelectorAll(".oe-contact-email")[0] as HTMLElement).click();
+    expect(onEmail).toHaveBeenCalledWith("ada@x.com");
     done();
   });
 

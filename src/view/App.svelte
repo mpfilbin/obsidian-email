@@ -457,6 +457,7 @@
     <ContactPane
       contact={selectedContact}
       edit={state.contactEdit}
+      readOnly={contactsBlocked}
       onEmail={(email) => { const id = state.selectedContactId; if (id) guarded(() => vm.emailContact(id, email)); }}
       onEdit={() => { const id = state.selectedContactId; if (id) editContact(id); }}
       onDelete={() => { const id = state.selectedContactId; if (id) requestDeleteContact(() => { void vm.deleteContact(id); }); }}

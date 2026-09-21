@@ -9,8 +9,10 @@
     onGrant: () => void | Promise<void>;
   } = $props();
 
-  // Both need the same fix: run the OAuth flow again with the Contacts scope.
+  // Both need the same fix — run the OAuth flow again (now with the Contacts
+  // scope) — but they have different causes, so each gets its own explanation.
   const blocked = $derived(status === "needs-consent" || status === "needs-reauth");
+  const reauth = $derived(status === "needs-reauth");
 
   // Granting opens a browser window; a second click while the first flow is
   // still running would start a second, competing OAuth round-trip.
@@ -37,8 +39,14 @@
   </button>
   {#if blocked}
     <div class="oe-contacts-consent">
-      <p>Contacts access hasn't been granted for this account.</p>
-      <button type="button" class="oe-grant-contacts" disabled={granting} onclick={() => void grant()}>Grant contacts access</button>
+      <p>
+        {reauth
+          ? "Signing in to contacts failed for this account."
+          : "Contacts access hasn't been granted for this account."}
+      </p>
+      <button type="button" class="oe-grant-contacts" disabled={granting} onclick={() => void grant()}>
+        {reauth ? "Re-authenticate" : "Grant contacts access"}
+      </button>
     </div>
   {:else if status === "error"}
     <p class="oe-empty">Couldn't load contacts.</p>

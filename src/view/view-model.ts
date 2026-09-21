@@ -115,6 +115,9 @@ const PAGE = 50;
 
 const CONTACTS_GRANT_HINT =
   "Contacts access hasn't been granted — use “Grant contacts access” in the Contacts view.";
+// A 401 is a failed sign-in, not a missing grant — the fix (same button) is to re-authenticate.
+const CONTACTS_REAUTH_HINT =
+  "Signing in to contacts failed — use “Re-authenticate” in the Contacts view.";
 
 function groupThreads(messages: MessageSummary[]): ThreadView[] {
   const byThread = new Map<string, MessageSummary[]>();
@@ -1032,9 +1035,9 @@ export class ViewModel {
     if (s.status === "error" && s.lastError) {
       this.deps.showNotice(`Couldn't refresh contacts: ${s.lastError}`);
     } else if (s.status === "needs-consent" || s.status === "needs-reauth") {
-      // Otherwise Refresh looks like a silent no-op: the sync bails out early
-      // for a blocked account and nothing on screen changes.
-      this.deps.showNotice(CONTACTS_GRANT_HINT);
+      // Otherwise Refresh looks like a silent no-op: the forced sync just hits
+      // the same 403/401 again and nothing on screen changes.
+      this.deps.showNotice(s.status === "needs-reauth" ? CONTACTS_REAUTH_HINT : CONTACTS_GRANT_HINT);
     }
   }
 

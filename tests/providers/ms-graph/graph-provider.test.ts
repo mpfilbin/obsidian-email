@@ -367,6 +367,15 @@ describe("GraphProvider contacts", () => {
     expect(req.mock.calls[1][0].url).toBe("https://graph.microsoft.com/v1.0/me/contacts?$skiptoken=P2");
   });
 
+  it("listContacts fails loudly when paging never ends, instead of returning a truncated list", async () => {
+    const req = vi.fn(async () => resp({
+      value: [{ id: "C", displayName: "x" }],
+      "@odata.nextLink": "https://graph.microsoft.com/v1.0/me/contacts?$skiptoken=LOOP",
+    }));
+    await expect(make(req).listContacts()).rejects.toThrow(/too many pages/i);
+    expect(req).toHaveBeenCalledTimes(500);
+  });
+
   it("a 403 on a contacts call becomes ContactsConsentRequired, not AuthError", async () => {
     const req = vi.fn(async () => resp({ error: { code: "ErrorAccessDenied" } }, 403));
     await expect(make(req).listContacts()).rejects.toBeInstanceOf(ContactsConsentRequired);

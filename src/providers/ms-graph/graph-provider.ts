@@ -16,6 +16,7 @@ const SUMMARY_SELECT =
   "id,conversationId,subject,bodyPreview,from,toRecipients,ccRecipients,bccRecipients,receivedDateTime,isRead,hasAttachments,flag";
 const TOP = 25;
 const CONTACT_PAGE = 100;
+const MAX_CONTACT_PAGES = 500;
 
 /** Pull `error.code` out of a Graph error body, e.g. "resyncRequired". */
 function graphErrorCode(json: unknown): string | undefined {
@@ -220,11 +221,17 @@ export class GraphProvider implements MailProvider, ContactsProvider {
     const out: Contact[] = [];
     let url: string | undefined = `/me/contacts?$select=${CONTACT_SELECT}&$top=${CONTACT_PAGE}`;
     // Bounded so a misbehaving nextLink can't loop forever.
-    for (let i = 0; url && i < 500; i++) {
+    for (let i = 0; url && i < MAX_CONTACT_PAGES; i++) {
       const data: { value?: GraphContact[]; "@odata.nextLink"?: string } =
         await this.request(url, "GET", undefined, { contacts: true });
       out.push(...(data.value ?? []).map(mapGraphContact));
       url = data["@odata.nextLink"];
+    }
+    // Still more to fetch after the cap: fail rather than hand back a partial
+    // list — ContactSync.replace would otherwise silently delete every contact
+    // past the cutoff from the cache.
+    if (url) {
+      throw new ProviderError(`Contacts listing aborted: too many pages (over ${MAX_CONTACT_PAGES}).`);
     }
     return out;
   }

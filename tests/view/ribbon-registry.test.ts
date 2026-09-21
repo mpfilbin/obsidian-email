@@ -204,6 +204,10 @@ describe("ribbon registry — contacts", () => {
     expect(enabled("edit-contact", inContacts({ hasSelectedContact: true, contactEditing: true }))).toBe(false);
     expect(enabled("delete-contact", inContacts({ hasSelectedContact: true }))).toBe(true);
     expect(enabled("delete-contact", inContacts({ hasSelectedContact: true, contactEditing: true }))).toBe(false);
+    // Blocked access means writes would just fail — Edit/Delete go dead like New contact; Email (read-only) stays live.
+    expect(enabled("edit-contact", inContacts({ hasSelectedContact: true, contactsBlocked: true }))).toBe(false);
+    expect(enabled("delete-contact", inContacts({ hasSelectedContact: true, contactsBlocked: true }))).toBe(false);
+    expect(enabled("email-contact", inContacts({ hasSelectedContact: true, selectedContactHasEmail: true, contactsBlocked: true }))).toBe(true);
     expect(enabled("email-contact", inContacts({ hasSelectedContact: true }))).toBe(false);
     expect(enabled("email-contact", inContacts({ hasSelectedContact: true, selectedContactHasEmail: true }))).toBe(true);
   });

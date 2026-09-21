@@ -511,7 +511,9 @@ describe("ViewModel", () => {
       ctx.showNotice.mockClear();
       ctx.provider.contactsError = new AuthError("Graph 401");
       await vm.refreshContacts();
-      expect(ctx.showNotice).toHaveBeenCalledWith(expect.stringMatching(/grant contacts access/i));
+      // A failed sign-in is not a missing grant — point at re-authentication, not "grant".
+      expect(ctx.showNotice).toHaveBeenCalledWith(expect.stringMatching(/re-authenticate/i));
+      expect(ctx.showNotice).not.toHaveBeenCalledWith(expect.stringMatching(/hasn't been granted/i));
     });
 
     it("grantContactsAccess delegates to the host with the active account", async () => {
