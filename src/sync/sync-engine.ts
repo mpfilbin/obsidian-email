@@ -28,6 +28,8 @@ export interface SyncEngineDeps {
   logger: Logger;
   now?: () => number;
   backfillMailboxKinds?: string[];
+  /** The account's pinned conversation ids — exempt from cache pruning. */
+  getPinnedThreadIds?: (accountId: string) => Iterable<string>;
 }
 
 const BACKFILL_KINDS = ["inbox", "sent", "drafts", "archive"];
@@ -139,7 +141,9 @@ export class SyncEngine {
     }
     const cursor = await provider.initialCursor();
     await this.deps.cursors.set(accountId, cursor, true);
-    await this.deps.cache.pruneAccount(accountId, this.now());
+    await this.deps.cache.pruneAccount(accountId, this.now(), {
+      keepThreadIds: this.deps.getPinnedThreadIds?.(accountId) ?? [],
+    });
     this.changes.emit({ accountId, mailboxIds: [...touched], reason: "backfill" });
   }
 
@@ -161,7 +165,9 @@ export class SyncEngine {
     if (result.upserts.length) await this.deps.cache.patchMessages(accountId, result.upserts);
     if (result.deletions.length) await this.deps.cache.deleteMessages(accountId, result.deletions);
     await this.deps.cursors.set(accountId, result.cursor, true);
-    await this.deps.cache.pruneAccount(accountId, this.now());
+    await this.deps.cache.pruneAccount(accountId, this.now(), {
+      keepThreadIds: this.deps.getPinnedThreadIds?.(accountId) ?? [],
+    });
     const mailboxIds = [
       ...new Set(result.upserts.flatMap((m) => m.mailboxIds)),
     ];

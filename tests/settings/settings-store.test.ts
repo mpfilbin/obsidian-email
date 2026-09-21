@@ -63,4 +63,58 @@ describe("SettingsStore", () => {
     expect(s2.get().prefs.ribbonEnabled).toBe(false);
     expect(s2.get().prefs.ribbonCollapsedByDefault).toBe(true);
   });
+
+  describe("pins", () => {
+    it("loads an old data file with no pins as an empty list", async () => {
+      const s = await SettingsStore.load(host({ schemaVersion: 1, accounts: [], prefs: {} }));
+      expect(s.get().pins).toEqual([]);
+      expect(s.pinnedThreadIds("a1").size).toBe(0);
+    });
+
+    it("pin / unpin are idempotent, scoped per account, and persisted", async () => {
+      const h = host();
+      const s = await SettingsStore.load(h);
+      await s.pin("a1", "t1");
+      await s.pin("a1", "t1");
+      await s.pin("a2", "t1");
+      expect(s.isPinned("a1", "t1")).toBe(true);
+      expect([...s.pinnedThreadIds("a1")]).toEqual(["t1"]);
+      expect((h.saved() as { pins: unknown[] }).pins).toHaveLength(2);
+      await s.unpin("a1", "t1");
+      await s.unpin("a1", "t1");
+      expect(s.isPinned("a1", "t1")).toBe(false);
+      expect(s.isPinned("a2", "t1")).toBe(true);
+    });
+
+    it("records when a thread was pinned", async () => {
+      const s = await SettingsStore.load(host());
+      const before = Date.now();
+      await s.pin("a1", "t1");
+      expect(s.get().pins[0].pinnedAt).toBeGreaterThanOrEqual(before);
+    });
+
+    it("removing an account drops its pins", async () => {
+      const s = await SettingsStore.load(host());
+      await s.addAccount(acct("a1"));
+      await s.pin("a1", "t1");
+      await s.pin("a2", "t9");
+      await s.removeAccount("a1");
+      expect(s.isPinned("a1", "t1")).toBe(false);
+      expect(s.isPinned("a2", "t9")).toBe(true);
+    });
+
+    it("reverts the in-memory change and rethrows when persisting fails", async () => {
+      let fail = false;
+      const s = await SettingsStore.load({
+        loadData: async () => null,
+        saveData: async () => { if (fail) throw new Error("disk full"); },
+      });
+      await s.pin("a1", "t1");
+      fail = true;
+      await expect(s.pin("a1", "t2")).rejects.toThrow("disk full");
+      expect(s.isPinned("a1", "t2")).toBe(false);
+      await expect(s.unpin("a1", "t1")).rejects.toThrow("disk full");
+      expect(s.isPinned("a1", "t1")).toBe(true);
+    });
+  });
 });

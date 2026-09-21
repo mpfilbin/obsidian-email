@@ -154,6 +154,7 @@ export class PluginContext {
       now,
       getProvider: (id) => providers.get(id),
       listAccountIds: () => settings.get().accounts.map((a) => a.id),
+      getPinnedThreadIds: (id) => settings.pinnedThreadIds(id),
     });
 
     const contactSync = new ContactSync({
