@@ -401,6 +401,118 @@ describe("ViewModel", () => {
     });
   });
 
+  describe("pinning", () => {
+    type Ctx = Awaited<ReturnType<typeof build>>;
+    async function seed(c: Ctx, msgs: Array<[string, string, number]>) {
+      await c.cache.putMailboxes("a1", await c.provider.listMailboxes());
+      await c.cache.upsertMessages("a1", msgs.map(([id, t, d]) => sum(id, t, d)));
+      for (const [id, t, d] of msgs) c.provider.addMessage(sum(id, t, d));
+    }
+
+    it("a pinned thread sorts first even when older, and is marked pinned", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1], ["m2", "t2", 2], ["m3", "t3", 3]]);
+      await c.settings.pin("a1", "t1");
+      await c.vm.init();
+      const threads = c.vm.getState().threads;
+      expect(threads.map((t) => t.threadId)).toEqual(["t1", "t3", "t2"]);
+      expect(threads.map((t) => t.pinned)).toEqual([true, false, false]);
+      expect(c.vm.getState().pinnedThreadIds).toEqual(["t1"]);
+    });
+
+    it("several pinned threads keep newest-activity order among themselves", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1], ["m2", "t2", 2], ["m3", "t3", 3]]);
+      await c.settings.pin("a1", "t1");
+      await c.settings.pin("a1", "t2");
+      await c.vm.init();
+      expect(c.vm.getState().threads.map((t) => t.threadId)).toEqual(["t2", "t1", "t3"]);
+    });
+
+    it("toggleThreadPin pins and unpins, persists, and re-sorts the list", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1], ["m2", "t2", 2]]);
+      await c.vm.init();
+      expect(c.vm.getState().threads.map((t) => t.threadId)).toEqual(["t2", "t1"]);
+      await c.vm.toggleThreadPin("t1");
+      expect(c.settings.isPinned("a1", "t1")).toBe(true);
+      expect(c.vm.getState().threads.map((t) => t.threadId)).toEqual(["t1", "t2"]);
+      expect(c.vm.getState().pinnedThreadIds).toEqual(["t1"]);
+      await c.vm.toggleThreadPin("t1");
+      expect(c.settings.isPinned("a1", "t1")).toBe(false);
+      expect(c.vm.getState().threads.map((t) => t.threadId)).toEqual(["t2", "t1"]);
+      expect(c.vm.getState().pinnedThreadIds).toEqual([]);
+    });
+
+    it("a pinned thread older than the loaded page still appears, at the top", async () => {
+      const c = await build();
+      const many: Array<[string, string, number]> = Array.from({ length: 205 }, (_, i) => [`n${i}`, `tn${i}`, 1000 + i]);
+      await seed(c, [["old", "t-old", 1], ...many]);
+      await c.settings.pin("a1", "t-old");
+      await c.vm.init();
+      const threads = c.vm.getState().threads;
+      expect(threads[0].threadId).toBe("t-old");
+      expect(threads).toHaveLength(201); // the 200 newest + the pinned extra
+    });
+
+    it("a pinned thread appears only in mailboxes that hold its messages", async () => {
+      const c = await build();
+      await c.cache.putMailboxes("a1", await c.provider.listMailboxes());
+      await c.cache.upsertMessages("a1", [
+        sum("m1", "t1", 5),
+        { ...sum("m2", "t2", 1), mailboxIds: ["SENT"] },
+      ]);
+      await c.settings.pin("a1", "t2");
+      await c.vm.init();
+      expect(c.vm.getState().threads.map((t) => t.threadId)).toEqual(["t1"]);
+      await c.vm.selectMailbox("SENT");
+      expect(c.vm.getState().threads.map((t) => t.threadId)).toEqual(["t2"]);
+    });
+
+    it("search results show the pin but are not reordered", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1], ["m2", "t2", 2]]);
+      await c.settings.pin("a1", "t1");
+      await c.vm.init();
+      c.provider.setSearchResults("q", [sum("m2", "t2", 2), sum("m1", "t1", 1)]);
+      await c.vm.runSearch("q");
+      const threads = c.vm.getState().threads;
+      expect(threads.map((t) => t.threadId)).toEqual(["t2", "t1"]);
+      expect(threads.find((t) => t.threadId === "t1")!.pinned).toBe(true);
+    });
+
+    it("toggling a pin while searching updates the pin mark in place", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1]]);
+      await c.vm.init();
+      c.provider.setSearchResults("q", [sum("m1", "t1", 1)]);
+      await c.vm.runSearch("q");
+      await c.vm.toggleThreadPin("t1");
+      expect(c.vm.getState().search.active).toBe(true);
+      expect(c.vm.getState().threads[0].pinned).toBe(true);
+    });
+
+    it("a failed save reverts the pin and toasts", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1]]);
+      await c.vm.init();
+      vi.spyOn(c.settings, "pin").mockRejectedValue(new Error("disk full"));
+      await c.vm.toggleThreadPin("t1");
+      expect(c.vm.getState().pinnedThreadIds).toEqual([]);
+      expect(c.vm.getState().threads[0].pinned).toBe(false);
+      expect(c.showNotice).toHaveBeenCalledWith(expect.stringContaining("disk full"));
+    });
+
+    it("pins are per account: another account's pin doesn't mark this one's thread", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1]]);
+      await c.settings.pin("other-account", "t1");
+      await c.vm.init();
+      expect(c.vm.getState().threads[0].pinned).toBe(false);
+      expect(c.vm.getState().pinnedThreadIds).toEqual([]);
+    });
+  });
+
   describe("contacts", () => {
     const ada = { id: "C1", displayName: "Ada Lovelace", emails: [{ email: "ada@x.com" }], businessPhones: [], homePhones: [], companyName: "Engines" };
 

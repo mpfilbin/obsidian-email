@@ -18,6 +18,8 @@ export interface ThreadView {
   unread: boolean;
   /** Any message in the thread is flagged. */
   flagged: boolean;
+  /** The user pinned this conversation (local to the plugin). */
+  pinned: boolean;
 }
 
 /** The editable fields of a composer, as of the last load or successful save. */
@@ -67,6 +69,8 @@ export interface ViewState {
   mailboxes: Mailbox[];
   activeMailboxId: string | null;
   threads: ThreadView[];
+  /** The active account's pinned conversation ids. */
+  pinnedThreadIds: string[];
   hasMore: boolean;
   loadingList: boolean;
   /** Mirrors `prefs.autoLoadImages`; drives the renderer's `allowRemote`. */
@@ -121,7 +125,11 @@ const CONTACTS_GRANT_HINT =
 const CONTACTS_REAUTH_HINT =
   "Signing in to contacts failed — use “Re-authenticate” in the Contacts view.";
 
-function groupThreads(messages: MessageSummary[]): ThreadView[] {
+function groupThreads(
+  messages: MessageSummary[],
+  pinned: ReadonlySet<string> = new Set(),
+  opts: { floatPinned?: boolean } = {},
+): ThreadView[] {
   const byThread = new Map<string, MessageSummary[]>();
   for (const m of messages) {
     const arr = byThread.get(m.threadId) ?? [];
@@ -138,9 +146,13 @@ function groupThreads(messages: MessageSummary[]): ThreadView[] {
       messages: msgs,
       unread: msgs.some((m) => m.unread),
       flagged: msgs.some((m) => m.flagged),
+      pinned: pinned.has(threadId),
     });
   }
-  threads.sort((a, b) => b.lastDate - a.lastDate);
+  // Pinned threads float to the top (newest activity first within each group);
+  // search results keep plain recency order and only show the pin mark.
+  const float = opts.floatPinned ?? true;
+  threads.sort((a, b) => (float ? Number(b.pinned) - Number(a.pinned) : 0) || b.lastDate - a.lastDate);
   return threads;
 }
 
@@ -177,7 +189,7 @@ function sameSnapshot(a: ComposerSnapshot, b: ComposerSnapshot): boolean {
 export class ViewModel {
   private state: ViewState = {
     accounts: [], activeAccountId: null, mailboxes: [], activeMailboxId: null,
-    threads: [], hasMore: false, loadingList: false, autoLoadImages: false,
+    threads: [], pinnedThreadIds: [], hasMore: false, loadingList: false, autoLoadImages: false,
     search: { query: "", active: false },
     openThreadId: null, openMessages: [],
     ribbonEnabled: true, ribbonCollapsedByDefault: false,
@@ -296,6 +308,7 @@ export class ViewModel {
       // Navigation always drops the composer (see `closeThread`).
       composer: null,
       selectedContactId: null, contactEdit: null, contactSearch: "",
+      pinnedThreadIds: [...this.deps.settings.pinnedThreadIds(id)],
     });
     await this.loadContacts(id);
     if (inbox) await this.selectMailbox(inbox.id);
@@ -409,9 +422,20 @@ export class ViewModel {
     this.set({ loadingList: true });
     const limit = PAGE * 4;
     const rows = await this.deps.cache.listMailboxMessages(acct, mb, { limit });
+    // A pinned thread must show even if it is older than the loaded page:
+    // fetch its messages that live in this mailbox and add them to the rows.
+    const pinned = this.deps.settings.pinnedThreadIds(acct);
+    const seen = new Set(rows.map((r) => r.threadId));
+    const extra: MessageSummary[] = [];
+    for (const threadId of pinned) {
+      if (seen.has(threadId)) continue;
+      const messages = await this.deps.cache.getThreadMessages(acct, threadId);
+      extra.push(...messages.filter((m) => m.mailboxIds.includes(mb)));
+    }
     if (seq !== this.reloadSeq) return;
     this.set({
-      threads: groupThreads(rows),
+      threads: groupThreads([...rows, ...extra], pinned),
+      pinnedThreadIds: [...pinned],
       // Offer "load more" when the cache filled a page, when a provider cursor
       // is still open, or when the cache is empty for this mailbox. The last
       // case covers folders `SyncEngine.backfill` never populates (Spam, Trash,
@@ -798,6 +822,29 @@ export class ViewModel {
     await this.setFlags(acct, provider, [summary], !summary.flagged);
   }
 
+  /** Pins or unpins the conversation (local to the plugin). A save failure
+   *  leaves the pin as it was — SettingsStore reverts its own change. */
+  async toggleThreadPin(threadId: string): Promise<void> {
+    const acct = this.state.activeAccountId;
+    if (!acct) return;
+    const { settings } = this.deps;
+    try {
+      if (settings.isPinned(acct, threadId)) await settings.unpin(acct, threadId);
+      else await settings.pin(acct, threadId);
+    } catch (err) {
+      this.deps.showNotice(`Couldn't save the pin: ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
+    const pinned = settings.pinnedThreadIds(acct);
+    this.set({
+      pinnedThreadIds: [...pinned],
+      // Search results aren't re-derived from the cache — mark them in place.
+      threads: this.state.threads.map((t) => ({ ...t, pinned: pinned.has(t.threadId) })),
+    });
+    // Re-sort (and pull in a pinned thread older than the page) from the cache.
+    await this.reloadListUnlessSearching();
+  }
+
   /** Optimistic: the cache and the visible rows change first, then the server
    *  is told; whatever the server rejects is written back. `messages` are all
    *  currently `!flagged`, so a rollback simply restores `!flagged`. */
@@ -948,7 +995,8 @@ export class ViewModel {
       const page = await provider.search(query);
       this.set({
         search: { query, active: true },
-        threads: groupThreads(page.items),
+        threads: groupThreads(page.items, this.deps.settings.pinnedThreadIds(acct), { floatPinned: false }),
+        pinnedThreadIds: [...this.deps.settings.pinnedThreadIds(acct)],
         hasMore: false,
         loadingList: false,
       });
