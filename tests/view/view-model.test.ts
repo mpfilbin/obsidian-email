@@ -777,6 +777,57 @@ describe("ViewModel", () => {
       expect(spy).not.toHaveBeenCalled();
     });
 
+    it("leaving for an account with no cached mailboxes mid-fetch still clears loading", async () => {
+      const c = await build();
+      await seed(c, [flaggedMsg("f1", "t1", 5)], []);
+      await c.vm.init();
+      let release!: () => void;
+      const spy = vi.spyOn(c.provider, "listFlaggedMessages").mockImplementation(
+        () => new Promise((res) => { release = () => res({ items: [] }); }),
+      );
+      const p = c.vm.selectFlagged();
+      await vi.waitFor(() => expect(spy).toHaveBeenCalled());
+      expect(c.vm.getState().loadingList).toBe(true);
+      // "a2" has no cached mailboxes, so there is no active mailbox to fall
+      // back to and no flagged view either — reloadList has nothing to load.
+      await c.vm.selectAccount("a2");
+      expect(c.vm.getState().activeMailboxId).toBeNull();
+      expect(c.vm.getState().flaggedActive).toBe(false);
+      release();
+      await p;
+      expect(c.vm.getState().loadingList).toBe(false);
+    });
+
+    it("flagging while searching inside the view keeps the search results on screen", async () => {
+      const c = await build();
+      await seed(c, [flaggedMsg("f1", "t1", 5), sum("m9", "t9", 1)]);
+      await c.vm.init();
+      await c.vm.selectFlagged();
+      c.provider.setSearchResults("q", [sum("m9", "t9", 1)]);
+      await c.vm.runSearch("q");
+      expect(c.vm.getState().threads.map((t) => t.threadId)).toEqual(["t9"]);
+
+      await c.vm.toggleThreadFlag("t9");
+      expect(c.vm.getState().search.active).toBe(true);
+      // Still the search hits, not the (now two-row) flagged list.
+      expect(c.vm.getState().threads.map((t) => t.threadId)).toEqual(["t9"]);
+      expect(c.vm.getState().threads[0].flagged).toBe(true);
+    });
+
+    it("refreshing while searching inside the view keeps the search results on screen", async () => {
+      const c = await build();
+      await seed(c, [flaggedMsg("f1", "t1", 5), sum("m9", "t9", 1)]);
+      await c.vm.init();
+      await c.vm.selectFlagged();
+      c.provider.setSearchResults("q", [sum("m9", "t9", 1)]);
+      await c.vm.runSearch("q");
+
+      await c.vm.refresh();
+      expect(c.vm.getState().search.active).toBe(true);
+      expect(c.vm.getState().threads.map((t) => t.threadId)).toEqual(["t9"]);
+      expect(c.vm.getState().loadingList).toBe(false);
+    });
+
     it("clearing a search made inside the view returns to the flagged list", async () => {
       const c = await build();
       await seed(c, [flaggedMsg("f1", "t1", 5)]);

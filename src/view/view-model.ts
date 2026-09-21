@@ -382,7 +382,10 @@ export class ViewModel {
     } catch {
       this.deps.showNotice("Couldn't load flagged messages.");
     }
-    await this.reloadList();
+    // A search is reachable inside the Flagged view (`runSearch` doesn't leave
+    // it), and repainting from the cache there would swap the user's hits for
+    // the flagged list — see `reloadListUnlessSearching`.
+    await this.reloadListUnlessSearching();
   }
 
   /** Prompts for a name via the host, then creates the folder. */
@@ -453,7 +456,14 @@ export class ViewModel {
     const acct = this.state.activeAccountId;
     const mb = this.state.activeMailboxId;
     const flaggedView = this.state.flaggedActive;
-    if (!acct || (!mb && !flaggedView)) return;
+    // Nothing can legitimately be loading when there is no account and no list
+    // to load, and this return is reachable mid-flight (leaving the Flagged
+    // view for an account with no cached mailboxes while `fetchFlagged` — which
+    // relies on this call to clear the flag — is still in the air).
+    if (!acct || (!mb && !flaggedView)) {
+      if (this.state.loadingList) this.set({ loadingList: false });
+      return;
+    }
     // Switching mailbox A -> B fires two overlapping reads; without this guard
     // a slow read for A that lands after B's would paint A's rows under B's
     // header.
@@ -779,7 +789,13 @@ export class ViewModel {
    * the sync-change handler and `loadMore`.
    */
   private async reloadListUnlessSearching(): Promise<void> {
-    if (this.state.search.active) return;
+    if (this.state.search.active) {
+      // Same rule as `reloadList`'s own early return: if nothing is going to
+      // repaint the list, nothing may be left marked as loading — callers like
+      // `fetchFlagged` set the flag before handing the repaint here.
+      if (this.state.loadingList) this.set({ loadingList: false });
+      return;
+    }
     await this.reloadList();
   }
 
@@ -962,8 +978,9 @@ export class ViewModel {
       ),
     });
     // The Flagged list is derived from the cache: unflagging drops the row and
-    // a rollback brings it back.
-    if (this.state.flaggedActive) await this.reloadList();
+    // a rollback brings it back. Not while a search is showing, though — those
+    // rows were just patched in place above (see `reloadListUnlessSearching`).
+    if (this.state.flaggedActive) await this.reloadListUnlessSearching();
   }
 
   async openDraftForEdit(messageId: string): Promise<void> {
