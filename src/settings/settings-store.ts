@@ -46,13 +46,22 @@ export interface PersistHost {
   saveData(data: unknown): Promise<void>;
 }
 
+/** Guards against hand-edited or corrupt data files: a malformed entry would
+ *  otherwise throw inside `isPinned` / `pinnedThreadIds` on every sync. */
+function isPinnedThread(p: unknown): p is PinnedThread {
+  if (typeof p !== "object" || p === null) return false;
+  const o = p as Record<string, unknown>;
+  return typeof o.accountId === "string" && typeof o.threadId === "string" &&
+    typeof o.pinnedAt === "number" && Number.isFinite(o.pinnedAt);
+}
+
 function migrate(raw: unknown): PluginSettings {
   const obj = (raw ?? {}) as Partial<PluginSettings>;
   return {
     schemaVersion: DEFAULT_SETTINGS.schemaVersion,
     accounts: Array.isArray(obj.accounts) ? obj.accounts : [],
     prefs: { ...DEFAULT_SETTINGS.prefs, ...(obj.prefs ?? {}) },
-    pins: Array.isArray(obj.pins) ? obj.pins : [],
+    pins: Array.isArray(obj.pins) ? obj.pins.filter(isPinnedThread) : [],
   };
 }
 
@@ -96,14 +105,28 @@ export class SettingsStore {
     return new Set(this.settings.pins.filter((p) => p.accountId === accountId).map((p) => p.threadId));
   }
 
-  async pin(accountId: string, threadId: string): Promise<void> {
-    if (this.isPinned(accountId, threadId)) return;
-    await this.mutatePins((pins) => [...pins, { accountId, threadId, pinnedAt: Date.now() }]);
+  pin(accountId: string, threadId: string): Promise<void> {
+    return this.serial(async () => {
+      if (this.isPinned(accountId, threadId)) return;
+      await this.mutatePins((pins) => [...pins, { accountId, threadId, pinnedAt: Date.now() }]);
+    });
   }
 
-  async unpin(accountId: string, threadId: string): Promise<void> {
-    if (!this.isPinned(accountId, threadId)) return;
-    await this.mutatePins((pins) => pins.filter((p) => !(p.accountId === accountId && p.threadId === threadId)));
+  unpin(accountId: string, threadId: string): Promise<void> {
+    return this.serial(async () => {
+      if (!this.isPinned(accountId, threadId)) return;
+      await this.mutatePins((pins) => pins.filter((p) => !(p.accountId === accountId && p.threadId === threadId)));
+    });
+  }
+
+  /** Runs pin/unpin tasks one at a time, in call order, so each one's guard,
+   *  persist and revert finish before the next starts. A failed task rejects
+   *  its own caller but never blocks later ones. */
+  private pinQueue: Promise<unknown> = Promise.resolve();
+  private serial<T>(task: () => Promise<T>): Promise<T> {
+    const run = this.pinQueue.then(task, task);
+    this.pinQueue = run.catch(() => undefined);
+    return run;
   }
 
   /** Applies `change`, persists, and puts the previous pins back if persisting

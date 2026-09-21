@@ -116,5 +116,87 @@ describe("SettingsStore", () => {
       await expect(s.unpin("a1", "t1")).rejects.toThrow("disk full");
       expect(s.isPinned("a1", "t1")).toBe(true);
     });
+
+    describe("overlapping mutations", () => {
+      /** A host whose saves are async, snapshot what they were given, and fail
+       *  on the (1-based) call numbers in `failOn`. */
+      function flakyHost(failOn: number[]) {
+        let calls = 0;
+        let persisted: unknown = null;
+        return {
+          saved: () => persisted as { pins: Array<{ accountId: string; threadId: string }> },
+          loadData: async () => null,
+          saveData: async (d: unknown) => {
+            const n = ++calls;
+            await Promise.resolve();
+            if (failOn.includes(n)) throw new Error(`save ${n} failed`);
+            persisted = structuredClone(d);
+          },
+        };
+      }
+
+      it("keeps a later pin when an earlier overlapping save fails", async () => {
+        const h = flakyHost([1]);
+        const s = await SettingsStore.load(h);
+        const [first, second] = await Promise.allSettled([s.pin("a1", "t1"), s.pin("a1", "t2")]);
+        expect(first.status).toBe("rejected");
+        expect(second.status).toBe("fulfilled");
+        expect(s.isPinned("a1", "t1")).toBe(false);
+        expect(s.isPinned("a1", "t2")).toBe(true);
+        expect(h.saved().pins.map((p) => p.threadId)).toEqual(["t2"]);
+      });
+
+      it("pins neither thread in memory when both overlapping saves fail", async () => {
+        const h = flakyHost([1, 2]);
+        const s = await SettingsStore.load(h);
+        const results = await Promise.allSettled([s.pin("a1", "t1"), s.pin("a1", "t2")]);
+        expect(results.map((r) => r.status)).toEqual(["rejected", "rejected"]);
+        expect(s.get().pins).toEqual([]);
+      });
+
+      it("applies an overlapping pin and unpin of the same thread in call order", async () => {
+        const h = flakyHost([]);
+        const s = await SettingsStore.load(h);
+        await Promise.all([s.pin("a1", "t1"), s.unpin("a1", "t1")]);
+        expect(s.isPinned("a1", "t1")).toBe(false);
+        expect(h.saved().pins).toEqual([]);
+        // unpin queued behind a pin of a not-yet-pinned thread sees that pin
+        await Promise.all([s.unpin("a1", "t2"), s.pin("a1", "t2"), s.unpin("a1", "t2"), s.pin("a1", "t2")]);
+        expect(s.isPinned("a1", "t2")).toBe(true);
+        expect(h.saved().pins.map((p) => p.threadId)).toEqual(["t2"]);
+      });
+
+      it("a rejected call does not block later calls", async () => {
+        const h = flakyHost([1]);
+        const s = await SettingsStore.load(h);
+        await expect(s.pin("a1", "t1")).rejects.toThrow("save 1 failed");
+        await s.pin("a1", "t2");
+        await s.unpin("a1", "t2");
+        await s.pin("a1", "t3");
+        expect([...s.pinnedThreadIds("a1")]).toEqual(["t3"]);
+        expect(h.saved().pins.map((p) => p.threadId)).toEqual(["t3"]);
+      });
+    });
+
+    it("drops malformed stored pins on load and keeps valid ones", async () => {
+      const valid = { accountId: "a1", threadId: "t1", pinnedAt: 5 };
+      const s = await SettingsStore.load(host({
+        schemaVersion: 1,
+        accounts: [],
+        prefs: {},
+        pins: [
+          valid,
+          null,
+          "t2",
+          { accountId: "a1", pinnedAt: 1 },
+          { accountId: "a1", threadId: "t3", pinnedAt: "yesterday" },
+          { accountId: "a1", threadId: "t4", pinnedAt: NaN },
+          { accountId: 7, threadId: "t5", pinnedAt: 1 },
+        ],
+      }));
+      expect(s.get().pins).toEqual([valid]);
+      expect(s.isPinned("a1", "t1")).toBe(true);
+      expect(s.pinnedThreadIds("a1").size).toBe(1);
+    });
   });
 });
