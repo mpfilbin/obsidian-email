@@ -2,7 +2,7 @@
   import type { ThreadView } from "../view-model";
   import ThreadRow from "./ThreadRow.svelte";
 
-  let { threads, openThreadId, hasMore, loading, onOpen, onLoadMore, isDraftsMailbox, isArchiveMailbox, isTrashMailbox, onArchiveThread, onDeleteThread, onToggleFlag, onThreadContextMenu }: {
+  let { threads, openThreadId, hasMore, loading, onOpen, onLoadMore, isDraftsMailbox, isArchiveMailbox, isTrashMailbox, onArchiveThread, onDeleteThread, onToggleFlag, onTogglePin, onThreadContextMenu }: {
     threads: ThreadView[];
     openThreadId: string | null;
     hasMore: boolean;
@@ -15,6 +15,7 @@
     onArchiveThread: (threadId: string) => void;
     onDeleteThread: (threadId: string) => void;
     onToggleFlag: (threadId: string) => void;
+    onTogglePin: (threadId: string) => void;
     onThreadContextMenu: (evt: MouseEvent, threadId: string) => void;
   } = $props();
 
@@ -45,6 +46,7 @@
       onArchive={() => onArchiveThread(t.threadId)}
       onDelete={() => onDeleteThread(t.threadId)}
       onToggleFlag={() => onToggleFlag(t.threadId)}
+      onTogglePin={() => onTogglePin(t.threadId)}
       onContextMenu={(evt) => onThreadContextMenu(evt, t.threadId)}
     />
   {/each}

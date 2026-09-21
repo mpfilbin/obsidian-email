@@ -35,7 +35,7 @@ function fakeVm(state: Partial<ViewState> = {}): ViewModel {
     }],
     hasMore: false, loadingList: false, autoLoadImages: false,
     search: { query: "", active: false },
-    openThreadId: null, openMessages: [],
+    openThreadId: null, openMessages: [], pinnedThreadIds: [],
     composer: null, mode: "mail",
     contacts: [], contactsStatus: "idle", contactSearch: "", selectedContactId: null, contactEdit: null,
     ribbonEnabled: true, ribbonCollapsedByDefault: false,
@@ -69,7 +69,7 @@ function fakeVm(state: Partial<ViewState> = {}): ViewModel {
     hasUnsavedComposerContent: vi.fn().mockReturnValue(false),
     send: vi.fn(), saveDraft: vi.fn(), discardDraft: vi.fn(), closeComposer: vi.fn(),
     deleteMessage: vi.fn(), archiveMessage: vi.fn(), deleteThread: vi.fn(), archiveThread: vi.fn(),
-    toggleThreadFlag: vi.fn(), toggleMessageFlag: vi.fn(),
+    toggleThreadFlag: vi.fn(), toggleMessageFlag: vi.fn(), toggleThreadPin: vi.fn(),
     moveThread: vi.fn(), requestCreateMailbox: vi.fn(), renameMailbox: vi.fn(), deleteMailbox: vi.fn(),
     requestRenameMailbox: vi.fn(), requestAttachNote: vi.fn(), saveMessageToVault: vi.fn(),
     removeComposerAttachment: vi.fn(),
@@ -1382,6 +1382,53 @@ describe("App — flagging", () => {
     expect(Array.isArray(actions.candidates)).toBe(true);
     actions.onToggleFlag();
     expect(vm.toggleThreadFlag).toHaveBeenCalledWith("t1");
+    done();
+  });
+});
+
+describe("App — pinning", () => {
+  const mountApp = (vm: ViewModel, over: object = {}) => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const app = mount(App, { target: host, props: appProps(vm, over) });
+    flushSync();
+    return { host, done: () => { unmount(app); host.remove(); } };
+  };
+  const click = (el: Element | null) => { (el as HTMLElement).click(); flushSync(); };
+  const openMessages = [{
+    summary: {
+      id: "m1", threadId: "t1", mailboxIds: ["INBOX"], from: { name: "Jane", email: "j@x.com" },
+      to: [], cc: [], subject: "Hello", snippet: "", date: 1, unread: false, hasAttachments: false, flagged: false,
+    },
+  }];
+
+  it("the row Pin button toggles that thread", () => {
+    const vm = fakeVm();
+    const { host, done } = mountApp(vm);
+    click(host.querySelector('.oe-thread-row [data-action="pin"]'));
+    expect(vm.toggleThreadPin).toHaveBeenCalledWith("t1");
+    done();
+  });
+
+  it("the ribbon Pin button toggles the open thread and shows pressed when it is pinned", () => {
+    const vm = fakeVm({ openThreadId: "t1", openMessages, pinnedThreadIds: ["t1"] });
+    const { host, done } = mountApp(vm);
+    const btn = host.querySelector<HTMLElement>('.oe-ribbon [data-action="pin"]')!;
+    expect(btn.getAttribute("aria-pressed")).toBe("true");
+    click(btn);
+    expect(vm.toggleThreadPin).toHaveBeenCalledWith("t1");
+    done();
+  });
+
+  it("the thread context menu receives pin state and a working toggle", () => {
+    const onThreadContextMenu = vi.fn();
+    const vm = fakeVm({ pinnedThreadIds: ["t1"] });
+    const { host, done } = mountApp(vm, { onThreadContextMenu });
+    host.querySelector(".oe-thread-row")!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    const [, actions] = onThreadContextMenu.mock.calls[0];
+    expect(actions.pinned).toBe(true);
+    actions.onTogglePin();
+    expect(vm.toggleThreadPin).toHaveBeenCalledWith("t1");
     done();
   });
 });

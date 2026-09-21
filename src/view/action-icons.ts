@@ -12,4 +12,6 @@ export const ACTION_ICON = {
   saveToVault: "save",
   flag: "flag",
   unflag: "flag-off",
+  pin: "pin",
+  unpin: "pin-off",
 } as const;

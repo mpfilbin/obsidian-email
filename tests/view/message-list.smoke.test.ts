@@ -74,4 +74,16 @@ describe("MessageList smoke", () => {
     expect(onToggleFlag).toHaveBeenCalledWith("t1");
     unmount(app);
   });
+
+  it("passes the thread id to onTogglePin", () => {
+    const onTogglePin = vi.fn();
+    const host = document.createElement("div");
+    const app = mount(MessageList, {
+      target: host,
+      props: { threads: [thread("t1")], openThreadId: null, hasMore: false, loading: false, onOpen: () => {}, onLoadMore: () => {}, onTogglePin },
+    });
+    host.querySelector<HTMLElement>('[data-action="pin"]')!.click();
+    expect(onTogglePin).toHaveBeenCalledWith("t1");
+    unmount(app);
+  });
 });

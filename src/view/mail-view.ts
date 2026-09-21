@@ -13,6 +13,9 @@ export interface ThreadMenuActions {
   /** Any message in the thread is flagged. */
   flagged: boolean;
   onToggleFlag: () => void;
+  /** The conversation is pinned. */
+  pinned: boolean;
+  onTogglePin: () => void;
 }
 
 export type ThreadContextMenuHandler = (evt: MouseEvent, actions: ThreadMenuActions) => void;

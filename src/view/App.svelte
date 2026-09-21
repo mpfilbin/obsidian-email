@@ -20,7 +20,7 @@
     vm: ViewModel;
     onAddAccount: () => void;
     /** Shows the host's native context menu (built in main.ts, since it
-     *  needs Obsidian's real Menu class) with "Flag" and "Move" commands;
+     *  needs Obsidian's real Menu class) with "Flag", "Pin" and "Move" commands;
      *  `actions.onMove` is called back with whichever folder the user picks. */
     onThreadContextMenu: (evt: MouseEvent, actions: ThreadMenuActions) => void;
     /** Shows the host's native context menu with "Rename" and "Delete"
@@ -256,6 +256,7 @@
     hasOpenThread: !paneShowsComposer && state.openThreadId !== null,
     hasTargetMessage: !paneShowsComposer && targetMessageId !== null,
     openThreadFlagged: state.openMessages.some((m) => m.summary.flagged),
+    openThreadPinned: state.openThreadId !== null && state.pinnedThreadIds.includes(state.openThreadId),
     mailboxKind: activeMailbox?.kind ?? null,
     otherMailboxes: state.mailboxes
       .filter((m) => m.id !== state.activeMailboxId)
@@ -318,6 +319,7 @@
       },
       refreshContacts: () => { void vm.refreshContacts(); },
       toggleFlag: () => { const id = state.openThreadId; if (id) void vm.toggleThreadFlag(id); },
+      togglePin: () => { const id = state.openThreadId; if (id) void vm.toggleThreadPin(id); },
     },
   });
 
@@ -450,8 +452,11 @@
             onMove: (destinationId) => moveThread(id, destinationId),
             flagged: state.threads.find((t) => t.threadId === id)?.messages.some((m) => m.flagged) ?? false,
             onToggleFlag: () => { void vm.toggleThreadFlag(id); },
+            pinned: state.pinnedThreadIds.includes(id),
+            onTogglePin: () => { void vm.toggleThreadPin(id); },
           })}
         onToggleFlag={(id) => { void vm.toggleThreadFlag(id); }}
+        onTogglePin={(id) => { void vm.toggleThreadPin(id); }}
       />
     {/if}
   </section>

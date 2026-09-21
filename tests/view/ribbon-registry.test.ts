@@ -9,7 +9,7 @@ function actions(): RibbonActions {
     "newMessage", "reply", "replyAll", "forward", "editDraft", "archive", "deleteMessage", "move",
     "closePane", "refresh", "toggleSearch", "newFolder", "renameFolder", "deleteFolder", "saveToVault",
     "emailFromNote", "emailWithNoteAttached", "send", "saveDraft", "discardDraft", "attachNote",
-    "toggleContacts", "newContact", "editContact", "deleteContact", "emailContact", "refreshContacts", "toggleFlag",
+    "toggleContacts", "newContact", "editContact", "deleteContact", "emailContact", "refreshContacts", "toggleFlag", "togglePin",
   ] as const;
   return Object.fromEntries(names.map((n) => [n, vi.fn()])) as unknown as RibbonActions;
 }
@@ -18,7 +18,7 @@ function ctx(over: Partial<RibbonContext> = {}): RibbonContext {
   return {
     hasAccount: true, hasOpenThread: true, hasTargetMessage: true, mailboxKind: "inbox",
     otherMailboxes: [{ id: "ARCH", name: "Archive" }], readingPaneCollapsed: false, syncing: false, searchOpen: false,
-    composerMode: null, composerSending: false, openThreadFlagged: false,
+    composerMode: null, composerSending: false, openThreadFlagged: false, openThreadPinned: false,
     mode: "mail", hasSelectedContact: false, selectedContactHasEmail: false, contactEditing: false, contactsBlocked: false, contactsSyncing: false,
     actions: actions(), ...over,
   };
@@ -105,8 +105,8 @@ describe("ribbon registry — Home enabled rules", () => {
     expect(c.actions.toggleSearch).toHaveBeenCalledOnce();
   });
 
-  it("only Search, Contacts and Flag are toggle-style (pressed) commands", () => {
-    expect(COMMANDS.filter((c) => c.pressed).map((c) => c.id).sort()).toEqual(["contacts", "flag", "search"]);
+  it("only Search, Contacts, Flag and Pin are toggle-style (pressed) commands", () => {
+    expect(COMMANDS.filter((c) => c.pressed).map((c) => c.id).sort()).toEqual(["contacts", "flag", "pin", "search"]);
   });
 
   it("New message needs an account", () => {
@@ -239,5 +239,23 @@ describe("ribbon registry — flag", () => {
     const c = ctx();
     cmd("flag").run!(c);
     expect(c.actions.toggleFlag).toHaveBeenCalledOnce();
+  });
+});
+
+describe("ribbon registry — pin", () => {
+  it("Pin is a Home › Mark toggle: needs an open thread, pressed while pinned, mail-mode only", () => {
+    expect(cmd("pin").tab).toBe("home");
+    expect(cmd("pin").group).toBe("Mark");
+    expect(enabled("pin", ctx({ hasOpenThread: false }))).toBe(false);
+    expect(enabled("pin", ctx())).toBe(true);
+    expect(enabled("pin", ctx({ mode: "contacts" }))).toBe(false);
+    expect(cmd("pin").pressed?.(ctx({ openThreadPinned: true }))).toBe(true);
+    const c = ctx();
+    cmd("pin").run!(c);
+    expect(c.actions.togglePin).toHaveBeenCalledOnce();
+  });
+
+  it("Home's groups are New, Respond, Manage, Mark, Sync, Search, View", () => {
+    expect(groupsForTab("home", ctx())).toEqual(["New", "Respond", "Manage", "Mark", "Sync", "Search", "View"]);
   });
 });
