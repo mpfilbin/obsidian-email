@@ -265,6 +265,142 @@ describe("ViewModel", () => {
     expect(ctx.vm.getState().threads.map((t) => t.threadId)).toEqual(["t2", "t1"]);
   });
 
+  describe("flagging", () => {
+    type Ctx = Awaited<ReturnType<typeof build>>;
+    async function seed(c: Ctx, msgs: Array<[string, string, number]>) {
+      await c.cache.putMailboxes("a1", await c.provider.listMailboxes());
+      await c.cache.upsertMessages("a1", msgs.map(([id, t, d]) => sum(id, t, d)));
+      for (const [id, t, d] of msgs) c.provider.addMessage(sum(id, t, d));
+      await c.vm.init();
+    }
+    const flaggedInCache = async (c: Ctx, thread: string) =>
+      (await c.cache.getThreadMessages("a1", thread)).map((m) => m.flagged);
+
+    it("a thread row is flagged when any of its messages is", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1], ["m2", "t1", 2]]);
+      expect(c.vm.getState().threads[0].flagged).toBe(false);
+      await c.cache.patchMessages("a1", [{ id: "m1", mailboxIds: ["INBOX"], flagged: true }]);
+      await c.vm.selectMailbox("INBOX");
+      expect(c.vm.getState().threads[0].flagged).toBe(true);
+    });
+
+    it("toggleMessageFlag flags optimistically — before the server answers — then confirms", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1]]);
+      await c.vm.openThread("t1");
+      let release!: () => void;
+      const spy = vi.spyOn(c.provider, "setMessageFlag").mockImplementation(
+        () => new Promise<void>((res) => { release = res; }),
+      );
+      const pending = c.vm.toggleMessageFlag("m1");
+      await vi.waitFor(() => expect(c.vm.getState().openMessages[0].summary.flagged).toBe(true));
+      expect(c.vm.getState().threads[0].flagged).toBe(true);
+      expect(await flaggedInCache(c, "t1")).toEqual([true]);
+      expect(spy).toHaveBeenCalledWith("m1", true);
+      release();
+      await pending;
+      expect(c.vm.getState().openMessages[0].summary.flagged).toBe(true);
+      expect(c.showNotice).not.toHaveBeenCalled();
+    });
+
+    it("toggleMessageFlag clears an already-flagged message", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1]]);
+      await c.provider.setMessageFlag("m1", true);
+      await c.cache.patchMessages("a1", [{ id: "m1", mailboxIds: ["INBOX"], flagged: true }]);
+      await c.vm.openThread("t1");
+      const spy = vi.spyOn(c.provider, "setMessageFlag");
+      await c.vm.toggleMessageFlag("m1");
+      expect(spy).toHaveBeenCalledWith("m1", false);
+      expect(c.vm.getState().openMessages[0].summary.flagged).toBe(false);
+      expect(await flaggedInCache(c, "t1")).toEqual([false]);
+    });
+
+    it("rolls back the cache and the view and toasts when the server rejects", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1]]);
+      await c.vm.openThread("t1");
+      vi.spyOn(c.provider, "setMessageFlag").mockRejectedValue(new Error("boom"));
+      await c.vm.toggleMessageFlag("m1");
+      expect(c.vm.getState().openMessages[0].summary.flagged).toBe(false);
+      expect(c.vm.getState().threads[0].flagged).toBe(false);
+      expect(await flaggedInCache(c, "t1")).toEqual([false]);
+      expect(c.showNotice).toHaveBeenCalledWith("boom");
+    });
+
+    it("toggleThreadFlag flags every message when some are unflagged (only the unflagged are sent)", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1], ["m2", "t1", 2]]);
+      await c.cache.patchMessages("a1", [{ id: "m1", mailboxIds: ["INBOX"], flagged: true }]);
+      await c.vm.selectMailbox("INBOX");
+      const spy = vi.spyOn(c.provider, "setMessageFlag");
+      await c.vm.toggleThreadFlag("t1");
+      expect(spy.mock.calls).toEqual([["m2", true]]);
+      expect(await flaggedInCache(c, "t1")).toEqual([true, true]);
+      expect(c.vm.getState().threads[0].flagged).toBe(true);
+    });
+
+    it("toggleThreadFlag clears every message when they are all flagged", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1], ["m2", "t1", 2]]);
+      await c.cache.patchMessages("a1", [
+        { id: "m1", mailboxIds: ["INBOX"], flagged: true }, { id: "m2", mailboxIds: ["INBOX"], flagged: true },
+      ]);
+      await c.vm.selectMailbox("INBOX");
+      const spy = vi.spyOn(c.provider, "setMessageFlag");
+      await c.vm.toggleThreadFlag("t1");
+      expect(spy.mock.calls.map((a) => a[1])).toEqual([false, false]);
+      expect(await flaggedInCache(c, "t1")).toEqual([false, false]);
+      expect(c.vm.getState().threads[0].flagged).toBe(false);
+    });
+
+    it("a partial thread failure rolls back only the failed messages and reports N of M", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1], ["m2", "t1", 2]]);
+      vi.spyOn(c.provider, "setMessageFlag").mockImplementation(async (id: string) => {
+        if (id === "m2") throw new Error("boom");
+      });
+      await c.vm.toggleThreadFlag("t1");
+      expect(await flaggedInCache(c, "t1")).toEqual([true, false]);
+      expect(c.showNotice).toHaveBeenCalledWith(expect.stringMatching(/1 of 2/));
+    });
+
+    it("a total thread failure rolls everything back and toasts the reason", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1], ["m2", "t1", 2]]);
+      vi.spyOn(c.provider, "setMessageFlag").mockRejectedValue(new AuthError("expired"));
+      await c.vm.toggleThreadFlag("t1");
+      expect(await flaggedInCache(c, "t1")).toEqual([false, false]);
+      expect(c.vm.getState().threads[0].flagged).toBe(false);
+      expect(c.showNotice).toHaveBeenCalledWith(expect.stringMatching(/reauthentication/i));
+    });
+
+    it("updates a search-result row in place (search results aren't cache-derived)", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1]]);
+      c.provider.setSearchResults("q", [sum("m1", "t1", 1)]);
+      await c.vm.runSearch("q");
+      await c.vm.toggleThreadFlag("t1");
+      expect(c.vm.getState().search.active).toBe(true);
+      expect(c.vm.getState().threads[0].flagged).toBe(true);
+    });
+
+    it("toggleMessageFlag for a message that isn't open toasts instead of throwing", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1]]);
+      await c.vm.toggleMessageFlag("nope");
+      expect(c.showNotice).toHaveBeenCalledWith(expect.stringMatching(/couldn't find/i));
+    });
+
+    it("toggleThreadFlag for an unknown thread toasts instead of throwing", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1]]);
+      await c.vm.toggleThreadFlag("nope");
+      expect(c.showNotice).toHaveBeenCalledWith(expect.stringMatching(/couldn't find/i));
+    });
+  });
+
   describe("contacts", () => {
     const ada = { id: "C1", displayName: "Ada Lovelace", emails: [{ email: "ada@x.com" }], businessPhones: [], homePhones: [], companyName: "Engines" };
 

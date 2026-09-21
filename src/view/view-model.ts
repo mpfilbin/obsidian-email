@@ -16,6 +16,8 @@ export interface ThreadView {
   lastDate: number;
   messages: MessageSummary[];
   unread: boolean;
+  /** Any message in the thread is flagged. */
+  flagged: boolean;
 }
 
 /** The editable fields of a composer, as of the last load or successful save. */
@@ -135,6 +137,7 @@ function groupThreads(messages: MessageSummary[]): ThreadView[] {
       lastDate: Math.max(...msgs.map((m) => m.date)),
       messages: msgs,
       unread: msgs.some((m) => m.unread),
+      flagged: msgs.some((m) => m.flagged),
     });
   }
   threads.sort((a, b) => b.lastDate - a.lastDate);
@@ -759,6 +762,92 @@ export class ViewModel {
    *  menu's "Move" command. */
   async moveThread(threadId: string, destinationMailboxId: string): Promise<void> {
     await this.actOnThread(threadId, (provider, id) => provider.moveMessage(id, destinationMailboxId), "Moved");
+  }
+
+  /** Flags every message in the thread, or clears them all if they are all
+   *  flagged already — the same thread-level reach as Archive/Delete/Move. */
+  async toggleThreadFlag(threadId: string): Promise<void> {
+    const acct = this.state.activeAccountId;
+    const provider = acct ? this.deps.getProvider(acct) : undefined;
+    if (!acct || !provider) return;
+    let messages: MessageSummary[];
+    try {
+      messages = await this.deps.cache.getThreadMessages(acct, threadId);
+    } catch (err) {
+      this.deps.showNotice(this.errorMessage(err));
+      return;
+    }
+    if (messages.length === 0) {
+      this.deps.showNotice("Couldn't find any messages in that thread.");
+      return;
+    }
+    const flagged = !messages.every((m) => m.flagged);
+    await this.setFlags(acct, provider, messages.filter((m) => m.flagged !== flagged), flagged);
+  }
+
+  /** Per-message toggle from the reading pane; the message must be open. */
+  async toggleMessageFlag(messageId: string): Promise<void> {
+    const acct = this.state.activeAccountId;
+    const provider = acct ? this.deps.getProvider(acct) : undefined;
+    if (!acct || !provider) return;
+    const summary = this.state.openMessages.find((m) => m.summary.id === messageId)?.summary;
+    if (!summary) {
+      this.deps.showNotice("Couldn't find that message.");
+      return;
+    }
+    await this.setFlags(acct, provider, [summary], !summary.flagged);
+  }
+
+  /** Optimistic: the cache and the visible rows change first, then the server
+   *  is told; whatever the server rejects is written back. `messages` are all
+   *  currently `!flagged`, so a rollback simply restores `!flagged`. */
+  private async setFlags(
+    acct: string,
+    provider: MailProvider,
+    messages: MessageSummary[],
+    flagged: boolean,
+  ): Promise<void> {
+    if (messages.length === 0) return;
+    const write = (value: boolean, list: MessageSummary[]) =>
+      this.deps.cache.patchMessages(
+        acct,
+        list.map((m) => ({ id: m.id, mailboxIds: m.mailboxIds, flagged: value })),
+      );
+    try {
+      await write(flagged, messages);
+      this.applyFlagChange(acct, messages.map((m) => m.id), flagged);
+      const results = await Promise.allSettled(messages.map((m) => provider.setMessageFlag(m.id, flagged)));
+      const failed = messages.filter((_, i) => results[i].status === "rejected");
+      if (failed.length === 0) return;
+      await write(!flagged, failed);
+      this.applyFlagChange(acct, failed.map((m) => m.id), !flagged);
+      const firstError = (results.find((r) => r.status === "rejected") as PromiseRejectedResult).reason;
+      this.deps.showNotice(
+        failed.length === messages.length
+          ? this.errorMessage(firstError)
+          : `${flagged ? "Flagged" : "Unflagged"} ${messages.length - failed.length} of ${messages.length} messages — ${failed.length} failed.`,
+      );
+    } catch (err) {
+      this.deps.showNotice(this.errorMessage(err));
+    }
+  }
+
+  /** Mirrors a flag change into the rows already on screen (search results
+   *  aren't derived from the cache, so they can't just be reloaded). */
+  private applyFlagChange(acct: string, ids: string[], flagged: boolean): void {
+    if (acct !== this.state.activeAccountId) return; // the user switched accounts mid-flight
+    const hit = new Set(ids);
+    const patch = (m: MessageSummary): MessageSummary => (hit.has(m.id) ? { ...m, flagged } : m);
+    this.set({
+      threads: this.state.threads.map((t) => {
+        if (!t.messages.some((m) => hit.has(m.id))) return t;
+        const messages = t.messages.map(patch);
+        return { ...t, messages, flagged: messages.some((m) => m.flagged) };
+      }),
+      openMessages: this.state.openMessages.map((o) =>
+        hit.has(o.summary.id) ? { ...o, summary: patch(o.summary) } : o,
+      ),
+    });
   }
 
   async openDraftForEdit(messageId: string): Promise<void> {
