@@ -329,14 +329,27 @@ describe("ViewModel", () => {
       expect(c.showNotice).toHaveBeenCalledWith("boom");
     });
 
-    it("toggleThreadFlag flags every message when some are unflagged (only the unflagged are sent)", async () => {
+    it("toggleThreadFlag clears the flagged ones when only some are flagged (matching the row's label)", async () => {
       const c = await build();
       await seed(c, [["m1", "t1", 1], ["m2", "t1", 2]]);
       await c.cache.patchMessages("a1", [{ id: "m1", mailboxIds: ["INBOX"], flagged: true }]);
       await c.vm.selectMailbox("INBOX");
+      // The row says "flagged" (any message flagged), so the click must UNFLAG.
+      expect(c.vm.getState().threads[0].flagged).toBe(true);
       const spy = vi.spyOn(c.provider, "setMessageFlag");
       await c.vm.toggleThreadFlag("t1");
-      expect(spy.mock.calls).toEqual([["m2", true]]);
+      expect(spy.mock.calls).toEqual([["m1", false]]);
+      expect(await flaggedInCache(c, "t1")).toEqual([false, false]);
+      expect(c.vm.getState().threads[0].flagged).toBe(false);
+    });
+
+    it("toggleThreadFlag flags every message when none is flagged", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1], ["m2", "t1", 2]]);
+      expect(c.vm.getState().threads[0].flagged).toBe(false);
+      const spy = vi.spyOn(c.provider, "setMessageFlag");
+      await c.vm.toggleThreadFlag("t1");
+      expect(spy.mock.calls).toEqual([["m1", true], ["m2", true]]);
       expect(await flaggedInCache(c, "t1")).toEqual([true, true]);
       expect(c.vm.getState().threads[0].flagged).toBe(true);
     });
@@ -624,6 +637,24 @@ describe("ViewModel", () => {
       vi.spyOn(c.provider, "setMessageFlag").mockRejectedValue(new Error("boom"));
       await c.vm.toggleThreadFlag("t1");
       expect(c.vm.getState().threads.map((t) => t.threadId)).toEqual(["t1"]); // rolled back
+    });
+
+    it("a partially flagged thread unflags (not flags) from a row that only shows the flagged subset", async () => {
+      const c = await build();
+      // t1 holds one flagged and one unflagged message; only the flagged one
+      // is part of the Flagged view's row, and the row reads as flagged.
+      await seed(c, [flaggedMsg("f1", "t1", 5), sum("u1", "t1", 6)]);
+      await c.vm.init();
+      await c.vm.selectFlagged();
+      expect(c.vm.getState().threads.map((t) => t.threadId)).toEqual(["t1"]);
+      expect(c.vm.getState().threads[0].messages.map((m) => m.id)).toEqual(["f1"]);
+      expect(c.vm.getState().threads[0].flagged).toBe(true);
+
+      const spy = vi.spyOn(c.provider, "setMessageFlag");
+      await c.vm.toggleThreadFlag("t1");
+      expect(spy.mock.calls).toEqual([["f1", false]]);
+      expect((await c.cache.getThreadMessages("a1", "t1")).map((m) => m.flagged)).toEqual([false, false]);
+      expect(c.vm.getState().threads).toEqual([]);
     });
 
     it("pinned threads still float to the top of the flagged list", async () => {

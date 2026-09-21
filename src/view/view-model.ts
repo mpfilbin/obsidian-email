@@ -845,8 +845,14 @@ export class ViewModel {
     await this.actOnThread(threadId, (provider, id) => provider.moveMessage(id, destinationMailboxId), "Moved");
   }
 
-  /** Flags every message in the thread, or clears them all if they are all
-   *  flagged already — the same thread-level reach as Archive/Delete/Move. */
+  /** Clears the flag on every message in the thread if ANY of them is flagged,
+   *  and flags them all if none is — the same thread-level reach as
+   *  Archive/Delete/Move. The "any flagged" test is deliberately the same one
+   *  `ThreadView.flagged` (and so the row's label, aria-pressed and indicator)
+   *  uses, so the control always does what it says: a partially flagged thread
+   *  reads as flagged, and clicking it clears the thread. It acts on the whole
+   *  cached conversation even when the visible row only holds part of it (the
+   *  Flagged view shows just the flagged subset). */
   async toggleThreadFlag(threadId: string): Promise<void> {
     const acct = this.state.activeAccountId;
     const provider = acct ? this.deps.getProvider(acct) : undefined;
@@ -862,7 +868,7 @@ export class ViewModel {
       this.deps.showNotice("Couldn't find any messages in that thread.");
       return;
     }
-    const flagged = !messages.every((m) => m.flagged);
+    const flagged = !messages.some((m) => m.flagged);
     await this.setFlags(acct, provider, messages.filter((m) => m.flagged !== flagged), flagged);
   }
 

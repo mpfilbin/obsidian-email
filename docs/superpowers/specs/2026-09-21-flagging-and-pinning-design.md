@@ -97,8 +97,14 @@ interface MailProvider {
   (`cache.getThreadMessages` filtered by `mailboxIds`), so a pinned thread older
   than the loaded page still shows.
 - **Toggles**
-  - `toggleThreadFlag(threadId)`: if every message is flagged, unflag all;
-    otherwise flag all. `toggleMessageFlag(messageId)` for one message.
+  - `toggleThreadFlag(threadId)`: if ANY message is flagged, unflag all;
+    otherwise flag all — the same "any message flagged" test that drives
+    `ThreadView.flagged`, so the control's label, `aria-pressed` and action
+    always agree (a partially flagged thread reads as flagged and clicking it
+    clears the thread). Only the messages whose state differs are sent, and the
+    whole cached conversation is acted on even when the visible row holds only
+    part of it (the Flagged view shows just the flagged subset).
+    `toggleMessageFlag(messageId)` for one message.
   - Optimistic: write `{ id, mailboxIds, flagged }` patches to the cache,
     reload the list (and refresh `openMessages` summaries), then send the
     PATCHes via `Promise.allSettled`; on failure write the previous values back
@@ -112,7 +118,8 @@ interface MailProvider {
 - **Flagged view**
   - State `flaggedActive: boolean` alongside `activeMailboxId` (a virtual
     entry, not a mailbox). `selectMailbox` clears it; `selectFlagged()` sets it
-    and clears search, composer and the open thread (like `selectMailbox`).
+    and clears the search and the composer — exactly what `selectMailbox` does,
+    which means the open thread is left alone.
   - Shows cached flagged threads immediately, then (if online) fetches
     `provider.listFlaggedMessages`, upserts into the cache and reloads; Load
     more follows the page token. Server failure keeps the cached list and
