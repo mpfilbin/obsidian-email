@@ -389,6 +389,41 @@ describe("ViewModel", () => {
       expect(c.showNotice).toHaveBeenCalledWith(expect.stringMatching(/reauthentication/i));
     });
 
+    it("a rollback never resurrects a message deleted while the PATCH was in flight", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1]]);
+      await c.vm.openThread("t1");
+      // The user archives/deletes the thread (or another client does) between
+      // the optimistic cache write and the server's rejection.
+      vi.spyOn(c.provider, "setMessageFlag").mockImplementation(async (id: string) => {
+        await c.cache.deleteMessages("a1", [id]);
+        throw new Error("boom");
+      });
+      await c.vm.toggleThreadFlag("t1");
+      expect(await c.cache.getThreadMessages("a1", "t1")).toEqual([]);
+      // ...and not under a fabricated thread either: `patchMessages`' placeholder
+      // branch would re-create it as a blank row (threadId = its own id, subject
+      // "(no subject)", date = now) that sorts to the top of the Inbox.
+      expect(await c.cache.getThreadMessages("a1", "m1")).toEqual([]);
+      expect(await c.cache.listMailboxMessages("a1", "INBOX", { limit: 100 })).toEqual([]);
+      expect(c.showNotice).toHaveBeenCalledWith("boom");
+    });
+
+    it("a rollback doesn't undo a move that landed while the PATCH was in flight", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1]]);
+      await c.vm.openThread("t1");
+      vi.spyOn(c.provider, "setMessageFlag").mockImplementation(async (id: string) => {
+        // A sync delta (or a concurrent move) relocates the message mid-flight.
+        await c.cache.patchMessages("a1", [{ id, mailboxIds: ["SENT"] }]);
+        throw new Error("boom");
+      });
+      await c.vm.toggleThreadFlag("t1");
+      const [stored] = await c.cache.getThreadMessages("a1", "t1");
+      expect(stored.mailboxIds).toEqual(["SENT"]);
+      expect(stored.flagged).toBe(false); // the flag itself still rolled back
+    });
+
     it("updates a search-result row in place (search results aren't cache-derived)", async () => {
       const c = await build();
       await seed(c, [["m1", "t1", 1]]);

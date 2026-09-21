@@ -105,7 +105,9 @@ interface MailProvider {
     whole cached conversation is acted on even when the visible row holds only
     part of it (the Flagged view shows just the flagged subset).
     `toggleMessageFlag(messageId)` for one message.
-  - Optimistic: write `{ id, mailboxIds, flagged }` patches to the cache,
+  - Optimistic: set the flag in the cache via `cache.setFlagged` (flag-only,
+    and it never creates a row — so a rollback landing after a concurrent move
+    or delete can neither undo the move nor resurrect the message),
     reload the list (and refresh `openMessages` summaries), then send the
     PATCHes via `Promise.allSettled`; on failure write the previous values back
     for the failed messages, reload, and toast — "Flagged N of M" for partial

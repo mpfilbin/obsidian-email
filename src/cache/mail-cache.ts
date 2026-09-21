@@ -134,6 +134,26 @@ export class MailCache {
     await tx.done;
   }
 
+  /** Sets the flag on already-cached messages and nothing else. Unlike
+   *  `patchMessages` this never creates a row: an id that isn't cached is
+   *  simply skipped. Both matter for the optimistic flag path, whose rollback
+   *  runs after a server round-trip — by then the message may have been moved
+   *  (so re-writing the `mailboxIds` captured before the call would undo the
+   *  move) or deleted (so re-creating it would resurrect a blank placeholder
+   *  dated now, at the top of the Inbox, that nothing ever prunes). */
+  async setFlagged(accountId: string, ids: string[], flagged: boolean): Promise<void> {
+    if (!ids.length) return;
+    const tx = this.db.transaction("messages", "readwrite");
+    await Promise.all(
+      ids.map(async (id) => {
+        const row = await tx.store.get(key(accountId, id));
+        if (!row) return;
+        await tx.store.put({ ...row, flagged });
+      }),
+    );
+    await tx.done;
+  }
+
   async deleteMessages(accountId: string, ids: string[]): Promise<void> {
     const tx = this.db.transaction("messages", "readwrite");
     await Promise.all(ids.map((id) => tx.store.delete(key(accountId, id))));

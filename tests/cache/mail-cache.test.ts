@@ -79,6 +79,51 @@ describe("MailCache", () => {
     expect(stored.from).toEqual({ email: "" });
   });
 
+  describe("setFlagged", () => {
+    it("changes only `flagged`, leaving every other field (notably mailboxIds) alone", async () => {
+      await cache.upsertMessages("a1", [
+        msg("m1", { subject: "Real subject", mailboxIds: ["INBOX", "CUSTOM1"], from: { name: "Jane", email: "j@x.com" }, date: 42 }),
+      ]);
+      await cache.setFlagged("a1", ["m1"], true);
+      const [stored] = await cache.listMailboxMessages("a1", "INBOX");
+      expect(stored.flagged).toBe(true);
+      expect(stored.mailboxIds).toEqual(["INBOX", "CUSTOM1"]);
+      expect(stored.subject).toBe("Real subject");
+      expect(stored.from).toEqual({ name: "Jane", email: "j@x.com" });
+      expect(stored.date).toBe(42);
+    });
+
+    it("ignores ids that aren't cached — it never creates a placeholder row", async () => {
+      await cache.setFlagged("a1", ["ghost"], true);
+      expect(await cache.listMailboxMessages("a1", "INBOX", { limit: 100 })).toEqual([]);
+      expect(await cache.getThreadMessages("a1", "ghost")).toEqual([]);
+    });
+
+    it("updates the cached ids and skips the absent ones in the same call", async () => {
+      await cache.upsertMessages("a1", [msg("m1")]);
+      await cache.setFlagged("a1", ["m1", "ghost"], true);
+      const list = await cache.listMailboxMessages("a1", "INBOX");
+      expect(list.map((m) => [m.id, m.flagged])).toEqual([["m1", true]]);
+    });
+
+    it("scopes to the account", async () => {
+      await cache.upsertMessages("a1", [msg("m1")]);
+      await cache.upsertMessages("a2", [msg("m1")]);
+      await cache.setFlagged("a1", ["m1"], true);
+      expect((await cache.listMailboxMessages("a1", "INBOX"))[0].flagged).toBe(true);
+      expect((await cache.listMailboxMessages("a2", "INBOX"))[0].flagged).toBe(false);
+    });
+
+    it("a second call reverses the first", async () => {
+      await cache.upsertMessages("a1", [msg("m1", { mailboxIds: ["INBOX"] })]);
+      await cache.setFlagged("a1", ["m1"], true);
+      await cache.setFlagged("a1", ["m1"], false);
+      const [stored] = await cache.listMailboxMessages("a1", "INBOX");
+      expect(stored.flagged).toBe(false);
+      expect(stored.mailboxIds).toEqual(["INBOX"]);
+    });
+  });
+
   it("replaceMailboxes upserts the given folders and removes cached ones no longer present", async () => {
     await cache.putMailboxes("a1", [
       { id: "INBOX", name: "Inbox", kind: "inbox" },

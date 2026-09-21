@@ -910,7 +910,13 @@ export class ViewModel {
 
   /** Optimistic: the cache and the visible rows change first, then the server
    *  is told; whatever the server rejects is written back. `messages` are all
-   *  currently `!flagged`, so a rollback simply restores `!flagged`. */
+   *  currently `!flagged`, so a rollback simply restores `!flagged`.
+   *
+   *  The cache write goes through `cache.setFlagged`, which touches only the
+   *  flag and skips ids that are no longer cached — the rollback runs after a
+   *  server round-trip, by which time a move or a delete may have landed, and
+   *  writing back the fields captured before the call would undo it (or
+   *  resurrect a blank row for a message that is gone). */
   private async setFlags(
     acct: string,
     provider: MailProvider,
@@ -919,10 +925,7 @@ export class ViewModel {
   ): Promise<void> {
     if (messages.length === 0) return;
     const write = (value: boolean, list: MessageSummary[]) =>
-      this.deps.cache.patchMessages(
-        acct,
-        list.map((m) => ({ id: m.id, mailboxIds: m.mailboxIds, flagged: value })),
-      );
+      this.deps.cache.setFlagged(acct, list.map((m) => m.id), value);
     try {
       await write(flagged, messages);
       await this.applyFlagChange(acct, messages.map((m) => m.id), flagged);
