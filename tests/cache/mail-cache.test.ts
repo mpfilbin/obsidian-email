@@ -139,4 +139,79 @@ describe("MailCache", () => {
     expect(await cache.getMailboxes("a1")).toHaveLength(0);
     expect(await cache.listMailboxMessages("a2", "INBOX")).toHaveLength(1);
   });
+
+  describe("flagged messages", () => {
+    it("listFlaggedMessages returns flagged messages newest-first, across mailboxes", async () => {
+      await cache.putMailboxes("a1", [
+        { id: "INBOX", name: "Inbox", kind: "inbox" },
+        { id: "ARCH", name: "Archive", kind: "archive" },
+      ]);
+      await cache.upsertMessages("a1", [
+        msg("m1", { flagged: true, date: 1 }),
+        msg("m2", { flagged: false, date: 5 }),
+        msg("m3", { flagged: true, date: 3, mailboxIds: ["ARCH"] }),
+      ]);
+      expect((await cache.listFlaggedMessages("a1")).map((m) => m.id)).toEqual(["m3", "m1"]);
+    });
+
+    it("excludes flagged messages that live only in Trash or Junk, and other accounts'", async () => {
+      await cache.putMailboxes("a1", [
+        { id: "INBOX", name: "Inbox", kind: "inbox" },
+        { id: "TRASH", name: "Deleted Items", kind: "trash" },
+        { id: "JUNK", name: "Junk", kind: "spam" },
+      ]);
+      await cache.upsertMessages("a1", [
+        msg("keep", { flagged: true }),
+        msg("trashed", { flagged: true, mailboxIds: ["TRASH"] }),
+        msg("junked", { flagged: true, mailboxIds: ["JUNK"] }),
+      ]);
+      await cache.upsertMessages("a2", [msg("other", { flagged: true })]);
+      expect((await cache.listFlaggedMessages("a1")).map((m) => m.id)).toEqual(["keep"]);
+    });
+
+    it("strips storage fields from the returned summaries", async () => {
+      await cache.putMailboxes("a1", [{ id: "INBOX", name: "Inbox", kind: "inbox" }]);
+      await cache.upsertMessages("a1", [msg("m1", { flagged: true })]);
+      const [s] = await cache.listFlaggedMessages("a1");
+      expect("key" in s).toBe(false);
+      expect("accountId" in s).toBe(false);
+    });
+  });
+
+  describe("retention keeps flagged and pinned", () => {
+    const DAY = 24 * 3600 * 1000;
+    const seedOverCap = async () => {
+      const now = Date.now();
+      const old = now - 100 * DAY;
+      const many = Array.from({ length: 2001 }, (_, i) => msg(`m${i}`, { date: i < 5 ? old : now }));
+      // m0 flagged, m1 in a kept thread, m2..m4 are ordinary old messages
+      many[0] = msg("m0", { date: old, flagged: true });
+      many[1] = msg("m1", { date: old, threadId: "keep-thread" });
+      await cache.upsertMessages("a1", many);
+      return now;
+    };
+
+    it("never prunes a flagged message, even when old and over the cap", async () => {
+      const now = await seedOverCap();
+      await cache.pruneAccount("a1", now);
+      const list = await cache.listMailboxMessages("a1", "INBOX", { limit: 5000 });
+      expect(list.find((m) => m.id === "m0")).toBeDefined();
+      expect(list.find((m) => m.id === "m2")).toBeUndefined();
+    });
+
+    it("never prunes messages of a kept (pinned) thread", async () => {
+      const now = await seedOverCap();
+      await cache.pruneAccount("a1", now, { keepThreadIds: ["keep-thread"] });
+      const list = await cache.listMailboxMessages("a1", "INBOX", { limit: 5000 });
+      expect(list.find((m) => m.id === "m1")).toBeDefined();
+      expect(list.find((m) => m.id === "m3")).toBeUndefined();
+    });
+
+    it("without keepThreadIds an old unflagged message is still pruned", async () => {
+      const now = await seedOverCap();
+      await cache.pruneAccount("a1", now);
+      const list = await cache.listMailboxMessages("a1", "INBOX", { limit: 5000 });
+      expect(list.find((m) => m.id === "m1")).toBeUndefined();
+    });
+  });
 });
