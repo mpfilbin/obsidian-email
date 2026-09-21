@@ -67,8 +67,11 @@ interface MailProvider {
   mailbox kind), newest first.
 - `pruneAccount(accountId, now, { keepThreadIds })`: `pruneSummaries` never
   deletes a row that is `flagged` or whose `threadId` is in `keepThreadIds`.
-- `patchMessages` already merges `{ id, mailboxIds, flagged }` — used for
-  optimistic writes and rollback.
+- `setFlagged(accountId, ids, flagged)`: a flag-only write used for the
+  optimistic update and its rollback. It merges onto an existing row and never
+  creates one, and never touches `mailboxIds` — `patchMessages` is not used
+  here because its placeholder branch would resurrect a deleted message and its
+  `mailboxIds` overwrite could undo a concurrent move.
 
 ### Pins (`src/settings/settings-store.ts`)
 
