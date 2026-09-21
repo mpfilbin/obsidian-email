@@ -107,3 +107,48 @@ describe("ThreadRow smoke", () => {
     unmount(app);
   });
 });
+
+describe("ThreadRow flagging", () => {
+  const flaggedThread: ThreadView = {
+    ...thread, flagged: true,
+    messages: [{ ...thread.messages[0], flagged: true }],
+  };
+
+  it("shows a Flag button that reports the toggle without opening the thread", () => {
+    const onToggleFlag = vi.fn(); const onOpen = vi.fn();
+    const host = document.createElement("div");
+    const app = mount(ThreadRow, { target: host, props: baseProps({ onToggleFlag, onOpen }) });
+    flushSync();
+    const btn = host.querySelector<HTMLButtonElement>('[data-action="flag"]')!;
+    expect(btn.textContent).toContain("Flag");
+    expect(btn.getAttribute("aria-pressed")).toBe("false");
+    btn.click();
+    expect(onToggleFlag).toHaveBeenCalledOnce();
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(host.querySelector(".oe-flag")).toBeNull();
+    unmount(app);
+  });
+
+  it("a flagged thread shows the indicator and an Unflag button", () => {
+    const host = document.createElement("div");
+    const app = mount(ThreadRow, { target: host, props: baseProps({ thread: flaggedThread, onToggleFlag: vi.fn() }) });
+    flushSync();
+    expect(host.querySelector(".oe-flag")).not.toBeNull();
+    const btn = host.querySelector<HTMLButtonElement>('[data-action="flag"]')!;
+    expect(btn.textContent).toContain("Unflag");
+    expect(btn.getAttribute("aria-pressed")).toBe("true");
+    unmount(app);
+  });
+
+  it("the indicator shows when only one of several messages is flagged", () => {
+    const two: ThreadView = {
+      ...thread,
+      messages: [thread.messages[0], { ...thread.messages[0], id: "m2", flagged: true }],
+    };
+    const host = document.createElement("div");
+    const app = mount(ThreadRow, { target: host, props: baseProps({ thread: two }) });
+    flushSync();
+    expect(host.querySelector(".oe-flag")).not.toBeNull();
+    unmount(app);
+  });
+});

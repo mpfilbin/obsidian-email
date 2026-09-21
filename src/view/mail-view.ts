@@ -6,11 +6,16 @@ import type { Mailbox } from "../providers/types";
 
 export const MAIL_VIEW_TYPE = "obsidian-email-mail-view";
 
-export type ThreadContextMenuHandler = (
-  evt: MouseEvent,
-  candidates: Mailbox[],
-  onMove: (destinationMailboxId: string) => void,
-) => void;
+export interface ThreadMenuActions {
+  /** Every mailbox except the active one — the Move destinations. */
+  candidates: Mailbox[];
+  onMove: (destinationMailboxId: string) => void;
+  /** Any message in the thread is flagged. */
+  flagged: boolean;
+  onToggleFlag: () => void;
+}
+
+export type ThreadContextMenuHandler = (evt: MouseEvent, actions: ThreadMenuActions) => void;
 
 export type MailboxContextMenuHandler = (
   evt: MouseEvent,

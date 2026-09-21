@@ -2,7 +2,7 @@
   import type { ViewModel, ViewState } from "./view-model";
   import Ribbon from "./ribbon/Ribbon.svelte";
   import type { RibbonContext } from "./ribbon/registry";
-  import type { NoteCommands } from "./mail-view";
+  import type { NoteCommands, ThreadMenuActions } from "./mail-view";
   import AccountSwitcher from "./components/AccountSwitcher.svelte";
   import MailboxList from "./components/MailboxList.svelte";
   import MessageList from "./components/MessageList.svelte";
@@ -15,15 +15,14 @@
   import Resizer from "./components/Resizer.svelte";
   import { clampPaneWidths, loadPaneWidths, savePaneWidths, type PaneWidths } from "./pane-layout";
   import { showSyncingToast } from "./refresh-toast";
-  import type { Mailbox } from "../providers/types";
 
   let { vm, onAddAccount, onThreadContextMenu, onMailboxContextMenu, noteCommands }: {
     vm: ViewModel;
     onAddAccount: () => void;
     /** Shows the host's native context menu (built in main.ts, since it
-     *  needs Obsidian's real Menu class) with a "Move" command; `onMove`
-     *  is called back with whichever folder the user picks. */
-    onThreadContextMenu: (evt: MouseEvent, candidates: Mailbox[], onMove: (destinationMailboxId: string) => void) => void;
+     *  needs Obsidian's real Menu class) with "Flag" and "Move" commands;
+     *  `actions.onMove` is called back with whichever folder the user picks. */
+    onThreadContextMenu: (evt: MouseEvent, actions: ThreadMenuActions) => void;
     /** Shows the host's native context menu with "Rename" and "Delete"
      *  commands; `onRename`/`onDelete` are called back if confirmed. */
     onMailboxContextMenu: (
@@ -256,6 +255,7 @@
     hasAccount: state.activeAccountId !== null,
     hasOpenThread: !paneShowsComposer && state.openThreadId !== null,
     hasTargetMessage: !paneShowsComposer && targetMessageId !== null,
+    openThreadFlagged: state.openMessages.some((m) => m.summary.flagged),
     mailboxKind: activeMailbox?.kind ?? null,
     otherMailboxes: state.mailboxes
       .filter((m) => m.id !== state.activeMailboxId)
@@ -317,6 +317,7 @@
         if (id) guarded(() => vm.emailContact(id));
       },
       refreshContacts: () => { void vm.refreshContacts(); },
+      toggleFlag: () => { const id = state.openThreadId; if (id) void vm.toggleThreadFlag(id); },
     },
   });
 
@@ -444,11 +445,13 @@
         onArchiveThread={(id) => requestRowAction(() => { const closes = closesOpenThread(id); vm.archiveThread(id); if (closes) setReadingPaneCollapsed(true); })}
         onDeleteThread={(id) => requestRowAction(() => requestDelete("thread", () => { const closes = closesOpenThread(id); vm.deleteThread(id); if (closes) setReadingPaneCollapsed(true); }))}
         onThreadContextMenu={(evt, id) =>
-          onThreadContextMenu(
-            evt,
-            state.mailboxes.filter((m) => m.id !== state.activeMailboxId),
-            (destinationId) => moveThread(id, destinationId),
-          )}
+          onThreadContextMenu(evt, {
+            candidates: state.mailboxes.filter((m) => m.id !== state.activeMailboxId),
+            onMove: (destinationId) => moveThread(id, destinationId),
+            flagged: state.threads.find((t) => t.threadId === id)?.messages.some((m) => m.flagged) ?? false,
+            onToggleFlag: () => { void vm.toggleThreadFlag(id); },
+          })}
+        onToggleFlag={(id) => { void vm.toggleThreadFlag(id); }}
       />
     {/if}
   </section>
@@ -477,6 +480,7 @@
       activeComposerMessageId={state.composer?.targetMessageId ?? null}
       composerMode={state.composer?.mode ?? null}
       composerProps={composerFieldProps}
+      onToggleFlag={(id) => { void vm.toggleMessageFlag(id); }}
     />
   {/if}
   {#if pendingSwitch}

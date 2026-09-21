@@ -203,9 +203,15 @@ export default class EmailPlugin extends Plugin {
     // click event: on desktop a MenuItem can be backed by a native OS menu,
     // whose click callback doesn't carry a real DOM mouse position — using it
     // for showAtMouseEvent put the submenu at (0, 0) instead of near the row.
-    const showThreadContextMenu: ThreadContextMenuHandler = (evt, candidates, onMove) => {
+    const showThreadContextMenu: ThreadContextMenuHandler = (evt, { candidates, onMove, flagged, onToggleFlag }) => {
       const position = { x: evt.clientX, y: evt.clientY };
       const menu = new Menu();
+      menu.addItem((item) =>
+        item
+          .setTitle(flagged ? "Remove flag" : "Flag")
+          .setIcon(flagged ? "flag-off" : "flag")
+          .onClick(() => onToggleFlag()),
+      );
       menu.addItem((item) =>
         item
           .setTitle("Move")

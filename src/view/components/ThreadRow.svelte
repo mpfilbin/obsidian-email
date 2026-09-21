@@ -5,16 +5,17 @@
 
   import { THREAD_DRAG_TYPE } from "../drag-types";
 
-  let { thread, isOpen, onOpen, isDraftsMailbox, isArchiveMailbox, isTrashMailbox, onArchive, onDelete, onContextMenu }: {
+  let { thread, isOpen, onOpen, isDraftsMailbox, isArchiveMailbox, isTrashMailbox, onArchive, onDelete, onToggleFlag, onContextMenu }: {
     thread: ThreadView; isOpen: boolean; onOpen: () => void;
     isDraftsMailbox: boolean; isArchiveMailbox: boolean; isTrashMailbox: boolean;
-    onArchive: () => void; onDelete: () => void;
+    onArchive: () => void; onDelete: () => void; onToggleFlag: () => void;
     onContextMenu: (evt: MouseEvent) => void;
   } = $props();
 
   const newest = $derived(thread.messages[thread.messages.length - 1]);
   const sender = $derived(newest.from.name || newest.from.email || "(unknown)");
   const hasAttachments = $derived(thread.messages.some((m) => m.hasAttachments));
+  const flagged = $derived(thread.messages.some((m) => m.flagged));
   const showArchive = $derived(!isDraftsMailbox && !isArchiveMailbox && !isTrashMailbox);
 
   function relative(ts: number): string {
@@ -48,9 +49,13 @@
     <span class="oe-thread-subject">{thread.subject}</span>
     {#if thread.messages.length > 1}<span class="oe-thread-count">{thread.messages.length}</span>{/if}
     {#if hasAttachments}<span class="oe-clip" aria-label="has attachments">📎</span>{/if}
+    {#if flagged}<span class="oe-flag" role="img" aria-label="flagged" use:icon={ACTION_ICON.flag}></span>{/if}
   </div>
   <div class="oe-thread-snippet">{newest.snippet}</div>
   <div class="oe-thread-actions">
+    <button type="button" data-action="flag" aria-pressed={flagged} onclick={(e) => { e.stopPropagation(); onToggleFlag(); }}>
+      <span class="oe-action-icon" use:icon={flagged ? ACTION_ICON.unflag : ACTION_ICON.flag}></span>{flagged ? "Unflag" : "Flag"}
+    </button>
     {#if showArchive}
       <button type="button" data-action="archive" onclick={(e) => { e.stopPropagation(); onArchive(); }}>
         <span class="oe-action-icon" use:icon={ACTION_ICON.archive}></span>Archive

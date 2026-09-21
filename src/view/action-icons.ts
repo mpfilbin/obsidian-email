@@ -10,4 +10,6 @@ export const ACTION_ICON = {
   editDraft: "pencil",
   collapse: "x",
   saveToVault: "save",
+  flag: "flag",
+  unflag: "flag-off",
 } as const;

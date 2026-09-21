@@ -301,3 +301,40 @@ describe("ReadingPane — composer rendering", () => {
     unmount(app);
   });
 });
+
+describe("ReadingPane message flag toggle", () => {
+  const mountPane = (messages: ViewState["openMessages"], onToggleFlag = vi.fn()) => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const app = mount(ReadingPane, {
+      target: host,
+      props: { openMessages: messages, autoLoadImages: false, renderDeps, onClose: vi.fn(), onDownload: vi.fn(), onToggleFlag },
+    });
+    flushSync();
+    return { host, onToggleFlag, done: () => { unmount(app); host.remove(); } };
+  };
+
+  it("each message header has a flag toggle that reports its id and reflects the state", () => {
+    const msgs = open();
+    msgs[0] = { ...msgs[0], summary: { ...msgs[0].summary, flagged: true } };
+    const { host, onToggleFlag, done } = mountPane(msgs);
+    const btn = host.querySelector<HTMLButtonElement>(".oe-message-flag")!;
+    expect(btn.getAttribute("aria-pressed")).toBe("true");
+    expect(btn.classList.contains("is-flagged")).toBe(true);
+    btn.click();
+    expect(onToggleFlag).toHaveBeenCalledWith("m1");
+    done();
+  });
+
+  it("toggling the flag does not expand or collapse the message (click or keyboard)", () => {
+    const { host, done } = mountPane(open());
+    const block = host.querySelector(".oe-message-block")!;
+    const wasExpanded = block.classList.contains("is-expanded");
+    const btn = host.querySelector<HTMLButtonElement>(".oe-message-flag")!;
+    btn.click();
+    btn.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    flushSync();
+    expect(block.classList.contains("is-expanded")).toBe(wasExpanded);
+    done();
+  });
+});

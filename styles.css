@@ -289,3 +289,12 @@
 .oe-contact-notes-field span { padding-top: 6px; }
 .oe-contact-notes-field textarea { flex: 1; resize: vertical; }
 .oe-contact-form-actions { display: flex; gap: 8px; margin-top: 4px; }
+
+/* --- Flags --- */
+.oe-flag { display: inline-flex; width: 14px; height: 14px; color: var(--color-red, #d64545); }
+.oe-flag svg { width: 12px; height: 12px; fill: currentColor; }
+.oe-message-flag { margin-left: 8px; height: auto; padding: 2px; background: transparent; border: none; color: var(--text-faint); cursor: pointer; display: inline-flex; }
+.oe-message-flag svg { width: 14px; height: 14px; }
+.oe-message-flag:hover { color: var(--text-muted); }
+.oe-message-flag.is-flagged { color: var(--color-red, #d64545); }
+.oe-message-flag.is-flagged svg { fill: currentColor; }

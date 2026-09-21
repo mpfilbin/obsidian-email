@@ -69,6 +69,7 @@ function fakeVm(state: Partial<ViewState> = {}): ViewModel {
     hasUnsavedComposerContent: vi.fn().mockReturnValue(false),
     send: vi.fn(), saveDraft: vi.fn(), discardDraft: vi.fn(), closeComposer: vi.fn(),
     deleteMessage: vi.fn(), archiveMessage: vi.fn(), deleteThread: vi.fn(), archiveThread: vi.fn(),
+    toggleThreadFlag: vi.fn(), toggleMessageFlag: vi.fn(),
     moveThread: vi.fn(), requestCreateMailbox: vi.fn(), renameMailbox: vi.fn(), deleteMailbox: vi.fn(),
     requestRenameMailbox: vi.fn(), requestAttachNote: vi.fn(), saveMessageToVault: vi.fn(),
     removeComposerAttachment: vi.fn(),
@@ -455,10 +456,10 @@ describe("App.svelte — delete/archive wiring", () => {
       new MouseEvent("contextmenu", { bubbles: true, cancelable: true }),
     );
     expect(onThreadContextMenu).toHaveBeenCalledOnce();
-    const [, candidates, onMove] = onThreadContextMenu.mock.calls[0] as [MouseEvent, Mailbox[], (id: string) => void];
-    expect(candidates.map((m) => m.id)).toEqual(["PROJ"]);
+    const [, actions] = onThreadContextMenu.mock.calls[0] as [MouseEvent, { candidates: Mailbox[]; onMove: (id: string) => void }];
+    expect(actions.candidates.map((m) => m.id)).toEqual(["PROJ"]);
 
-    onMove("PROJ");
+    actions.onMove("PROJ");
     expect(moveThread).toHaveBeenCalledWith("t1", "PROJ");
     unmount(app);
   });
@@ -1321,6 +1322,66 @@ describe("App — contacts mode", () => {
     flushSync();
     expect(vm.suggestRecipients).toHaveBeenCalledWith("a", []);
     expect(host.querySelectorAll(".oe-suggest-item")).toHaveLength(1);
+    done();
+  });
+});
+
+describe("App — flagging", () => {
+  const openState = {
+    openThreadId: "t1",
+    openMessages: [{
+      summary: {
+        id: "m1", threadId: "t1", mailboxIds: ["INBOX"], from: { name: "Jane", email: "j@x.com" },
+        to: [], cc: [], subject: "Hello", snippet: "", date: 1, unread: false, hasAttachments: false, flagged: true,
+      },
+    }],
+  };
+  const mountApp = (vm: ViewModel, over: object = {}) => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const app = mount(App, { target: host, props: appProps(vm, over) });
+    flushSync();
+    return { host, done: () => { unmount(app); host.remove(); } };
+  };
+  const click = (el: Element | null) => { (el as HTMLElement).click(); flushSync(); };
+
+  it("the row Flag button toggles that thread", () => {
+    const vm = fakeVm();
+    const { host, done } = mountApp(vm);
+    click(host.querySelector('.oe-thread-row [data-action="flag"]'));
+    expect(vm.toggleThreadFlag).toHaveBeenCalledWith("t1");
+    done();
+  });
+
+  it("the ribbon Flag button toggles the open thread and shows pressed when it has a flagged message", () => {
+    const vm = fakeVm(openState);
+    const { host, done } = mountApp(vm);
+    const btn = host.querySelector<HTMLElement>('.oe-ribbon [data-action="flag"]')!;
+    expect(btn.getAttribute("aria-pressed")).toBe("true");
+    click(btn);
+    expect(vm.toggleThreadFlag).toHaveBeenCalledWith("t1");
+    done();
+  });
+
+  it("a message header flag toggles that message", () => {
+    const vm = fakeVm(openState);
+    const { host, done } = mountApp(vm);
+    click(host.querySelector(".oe-message-flag"));
+    expect(vm.toggleMessageFlag).toHaveBeenCalledWith("m1");
+    done();
+  });
+
+  it("the thread context menu receives flag state and a working toggle", () => {
+    const onThreadContextMenu = vi.fn();
+    const vm = fakeVm();
+    const { host, done } = mountApp(vm, { onThreadContextMenu });
+    host.querySelector(".oe-thread-row")!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    expect(onThreadContextMenu).toHaveBeenCalledOnce();
+    const [, actions] = onThreadContextMenu.mock.calls[0];
+    expect(actions.flagged).toBe(false);
+    expect(Array.isArray(actions.candidates)).toBe(true);
+    actions.onToggleFlag();
+    expect(vm.toggleThreadFlag).toHaveBeenCalledWith("t1");
     done();
   });
 });
