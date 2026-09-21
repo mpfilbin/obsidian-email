@@ -925,8 +925,10 @@ export class ViewModel {
   }
 
   /** Optimistic: the cache and the visible rows change first, then the server
-   *  is told; whatever the server rejects is written back. `messages` are all
-   *  currently `!flagged`, so a rollback simply restores `!flagged`.
+   *  is told; whatever the server rejects is written back. `flagged` is the
+   *  TARGET value and `messages` are only those whose current state is the
+   *  opposite (callers filter out the rest) — unflagged messages when flagging,
+   *  flagged ones when unflagging — so a rollback simply restores `!flagged`.
    *
    *  The cache write goes through `cache.setFlagged`, which touches only the
    *  flag and skips ids that are no longer cached — the rollback runs after a
