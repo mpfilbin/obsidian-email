@@ -327,14 +327,42 @@ describe("ReadingPane message flag toggle", () => {
   });
 
   it("toggling the flag does not expand or collapse the message (click or keyboard)", () => {
-    const { host, done } = mountPane(open());
-    const block = host.querySelector(".oe-message-block")!;
-    const wasExpanded = block.classList.contains("is-expanded");
+    const onToggleExpand = vi.fn();
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const app = mount(ReadingPane, {
+      target: host,
+      props: { openMessages: open(), autoLoadImages: false, renderDeps, onClose: vi.fn(), onDownload: vi.fn(), onToggleFlag: vi.fn(), onToggleExpand },
+    });
+    flushSync();
     const btn = host.querySelector<HTMLButtonElement>(".oe-message-flag")!;
     btn.click();
-    btn.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    for (const key of ["Enter", " "]) {
+      btn.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+    }
     flushSync();
-    expect(block.classList.contains("is-expanded")).toBe(wasExpanded);
-    done();
+    expect(onToggleExpand).not.toHaveBeenCalled();
+    unmount(app);
+    host.remove();
+  });
+
+  it("control: clicking or pressing Enter/Space on the header itself does toggle expansion", () => {
+    const onToggleExpand = vi.fn();
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const app = mount(ReadingPane, {
+      target: host,
+      props: { openMessages: open(), autoLoadImages: false, renderDeps, onClose: vi.fn(), onDownload: vi.fn(), onToggleFlag: vi.fn(), onToggleExpand },
+    });
+    flushSync();
+    const head = host.querySelector<HTMLElement>(".oe-message-head")!;
+    head.click();
+    expect(onToggleExpand).toHaveBeenCalledTimes(1);
+    expect(onToggleExpand).toHaveBeenLastCalledWith("m1");
+    head.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    head.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true }));
+    expect(onToggleExpand).toHaveBeenCalledTimes(3);
+    unmount(app);
+    host.remove();
   });
 });

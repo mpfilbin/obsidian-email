@@ -151,4 +151,19 @@ describe("ThreadRow flagging", () => {
     expect(host.querySelector(".oe-flag")).not.toBeNull();
     unmount(app);
   });
+
+  it("Enter on a row action button does not open the thread, but Enter on the row does", () => {
+    const onOpen = vi.fn();
+    const host = document.createElement("div");
+    const app = mount(ThreadRow, { target: host, props: baseProps({ onOpen, onToggleFlag: vi.fn() }) });
+    flushSync();
+    const enter = () => new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+    for (const action of ["flag", "archive", "delete"]) {
+      host.querySelector(`[data-action="${action}"]`)!.dispatchEvent(enter());
+      expect(onOpen, action).not.toHaveBeenCalled();
+    }
+    host.querySelector(".oe-thread-row")!.dispatchEvent(enter());
+    expect(onOpen).toHaveBeenCalledOnce();
+    unmount(app);
+  });
 });

@@ -53,15 +53,15 @@
   </div>
   <div class="oe-thread-snippet">{newest.snippet}</div>
   <div class="oe-thread-actions">
-    <button type="button" data-action="flag" aria-pressed={flagged} onclick={(e) => { e.stopPropagation(); onToggleFlag(); }}>
+    <button type="button" data-action="flag" aria-pressed={flagged} onclick={(e) => { e.stopPropagation(); onToggleFlag(); }} onkeydown={(e) => e.stopPropagation()}>
       <span class="oe-action-icon" use:icon={flagged ? ACTION_ICON.unflag : ACTION_ICON.flag}></span>{flagged ? "Unflag" : "Flag"}
     </button>
     {#if showArchive}
-      <button type="button" data-action="archive" onclick={(e) => { e.stopPropagation(); onArchive(); }}>
+      <button type="button" data-action="archive" onclick={(e) => { e.stopPropagation(); onArchive(); }} onkeydown={(e) => e.stopPropagation()}>
         <span class="oe-action-icon" use:icon={ACTION_ICON.archive}></span>Archive
       </button>
     {/if}
-    <button type="button" data-action="delete" onclick={(e) => { e.stopPropagation(); onDelete(); }}>
+    <button type="button" data-action="delete" onclick={(e) => { e.stopPropagation(); onDelete(); }} onkeydown={(e) => e.stopPropagation()}>
       <span class="oe-action-icon" use:icon={ACTION_ICON.delete}></span>Delete
     </button>
   </div>
