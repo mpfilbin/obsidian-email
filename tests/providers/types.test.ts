@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { AuthError, ProviderError } from "../../src/providers/types";
+import { AuthError, ProviderError, supportsContacts, ContactsConsentRequired } from "../../src/providers/types";
 import type { MessageSummary, SyncCursor } from "../../src/providers/types";
 
 describe("types", () => {
@@ -23,5 +23,21 @@ describe("types", () => {
       unread: true, hasAttachments: false, flagged: false,
     };
     expect(m.id).toBe("1");
+  });
+});
+
+describe("supportsContacts", () => {
+  it("is true for an object with listContacts, false otherwise", () => {
+    expect(supportsContacts({ listContacts: async () => [] })).toBe(true);
+    expect(supportsContacts({})).toBe(false);
+    expect(supportsContacts(undefined)).toBe(false);
+  });
+});
+
+describe("ContactsConsentRequired", () => {
+  it("is an Error with its own name", () => {
+    const e = new ContactsConsentRequired();
+    expect(e).toBeInstanceOf(Error);
+    expect(e.name).toBe("ContactsConsentRequired");
   });
 });

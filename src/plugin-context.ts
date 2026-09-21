@@ -8,7 +8,10 @@ import type { Logger } from "./util/logger";
 import type { SettingsStore } from "./settings/settings-store";
 import { CursorStore } from "./cache/cursor-store";
 import { MailCache } from "./cache/mail-cache";
+import { ContactCache, MemoryContactStore, type ContactStore } from "./cache/contact-cache";
+import { CacheOpenTimeout, openWithTimeout } from "./cache/open-with-timeout";
 import { SyncEngine } from "./sync/sync-engine";
+import { ContactSync } from "./sync/contact-sync";
 import { ViewModel } from "./view/view-model";
 import { TokenManager } from "./auth/token-manager";
 import { createProvider } from "./providers/provider-factory";
@@ -32,6 +35,9 @@ export interface ContextHostDeps {
   /** Shows a transient, auto-dismissing toast. */
   showNotice: (message: string) => void;
   now?: () => number;
+  /** Test-only seam: how long each IndexedDB open may take before the plugin
+   *  gives up and degrades. Defaults to `CACHE_OPEN_TIMEOUT_MS`. */
+  cacheOpenTimeoutMs?: number;
   /** Test-only seam: lets a spec inject a fake OAuth loopback server. */
   makeLoopback?: (host: "127.0.0.1" | "localhost") => LoopbackLike;
 }
@@ -57,28 +63,40 @@ const DEGRADED_CACHE = {
   async pruneAccount() {},
   async clearAccount() {},
   async clearAll() {},
+  close() {},
 } satisfies Partial<MailCache> as unknown as MailCache;
 
 const DEGRADED_CURSORS = {
   async get() { return undefined; },
   async set() {},
   async delete() {},
+  close() {},
 } satisfies Partial<CursorStore> as unknown as CursorStore;
+
+const CONTACT_POLL_MS = 15 * 60_000;
+
+/** How long to wait for each IndexedDB open before giving up and degrading.
+ *  An open blocked by an older connection never settles on its own. */
+const CACHE_OPEN_TIMEOUT_MS = 8000;
 
 export class PluginContext {
   private now: () => number;
+  private contactTimer?: ReturnType<typeof setInterval>;
 
   private constructor(
     private settings: SettingsStore,
     private host: ContextHostDeps,
     private logger: Logger,
     readonly cache: MailCache,
+    readonly cursors: CursorStore,
     readonly sync: SyncEngine,
     readonly vm: ViewModel,
     private providers: Map<string, MailProvider>,
     private tokens: Map<string, TokenManager>,
     now: () => number,
     readonly degraded: boolean,
+    readonly contactSync: ContactSync,
+    readonly contactStore: ContactStore,
   ) {
     this.now = now;
   }
@@ -89,21 +107,40 @@ export class PluginContext {
     logger: Logger,
   ): Promise<PluginContext> {
     const now = host.now ?? (() => Date.now());
+    const openTimeoutMs = host.cacheOpenTimeoutMs ?? CACHE_OPEN_TIMEOUT_MS;
 
     let cache: MailCache = DEGRADED_CACHE;
     let cursors: CursorStore = DEGRADED_CURSORS;
+    let contactStore: ContactStore = new MemoryContactStore();
     let degraded = false;
     try {
-      cache = await MailCache.open();
-      cursors = await CursorStore.open();
+      // A blocked open (an older plugin instance holding the database in this
+      // renderer) makes `openDB` hang rather than throw, which would leave
+      // `create` pending forever — no view, no commands, no error. The timeout
+      // turns that into the ordinary degraded path.
+      cache = await openWithTimeout(() => MailCache.open(), openTimeoutMs);
+      cursors = await openWithTimeout(() => CursorStore.open(), openTimeoutMs);
     } catch (err) {
       degraded = true;
       logger.error("local cache unavailable; running in degraded mode", (err as Error).message);
+      // Release anything that did open before the failure — a live handle
+      // would itself block the retry after a restart.
+      cache.close();
+      cursors.close();
       new Notice(
-        "Email: local cache is unavailable. Running without offline support or persistence.",
+        err instanceof CacheOpenTimeout
+          ? "Email: the local cache is busy or blocked by an older session. Restart Obsidian to reconnect it; running without persistence until then."
+          : "Email: local cache is unavailable. Running without offline support or persistence.",
       );
       cache = DEGRADED_CACHE;
       cursors = DEGRADED_CURSORS;
+    }
+    // Contacts live in their own database, so a problem there must not degrade
+    // mail (and vice versa): fall back to an in-memory store, quietly.
+    try {
+      contactStore = await openWithTimeout(() => ContactCache.open(), openTimeoutMs);
+    } catch (err) {
+      logger.warn("contacts cache unavailable; keeping contacts in memory for this session", (err as Error).message);
     }
 
     // One shared provider registry backs both the sync engine and the view model.
@@ -119,9 +156,27 @@ export class PluginContext {
       listAccountIds: () => settings.get().accounts.map((a) => a.id),
     });
 
+    const contactSync = new ContactSync({
+      store: contactStore,
+      logger,
+      now,
+      getProvider: (id) => providers.get(id),
+      listAccountIds: () => settings.get().accounts.map((a) => a.id),
+    });
+    // The view-model needs the context (to re-run OAuth) but is built first.
+    const ctxRef: { current?: PluginContext } = {};
+
     const vm = new ViewModel({
       cache,
       sync,
+      contactStore,
+      contactSync,
+      grantContactsAccess: async (accountId) => {
+        // reauthAccount requests the full scope list (now incl. Contacts) and
+        // force-syncs contacts on success.
+        const result = await ctxRef.current!.reauthAccount(accountId);
+        host.showNotice(result.message);
+      },
       settings,
       getProvider: (id) => providers.get(id),
       isOnline: () => (typeof navigator === "undefined" ? true : navigator.onLine),
@@ -135,10 +190,19 @@ export class PluginContext {
     });
 
     const ctx = new PluginContext(
-      settings, host, logger, cache, sync, vm, providers, tokens, now, degraded,
+      settings, host, logger, cache, cursors, sync, vm, providers, tokens, now, degraded, contactSync, contactStore,
     );
+    ctxRef.current = ctx;
     ctx.rebuildProviders();
     return ctx;
+  }
+
+  /** Syncs contacts now, then on a slow timer (each sync is also throttled). */
+  startContacts(): void {
+    // Idempotent: a second call replaces the timer instead of stacking one.
+    if (this.contactTimer) clearInterval(this.contactTimer);
+    void this.contactSync.syncAll();
+    this.contactTimer = setInterval(() => void this.contactSync.syncAll(), CONTACT_POLL_MS);
   }
 
   providerFor(id: string): MailProvider | undefined {
@@ -192,6 +256,7 @@ export class PluginContext {
     await this.settings.addAccount(account);
     this.rebuildProviders();
     void this.sync.syncAccount(account.id);
+    void this.contactSync.syncAccount(account.id, { force: true });
     return account;
   }
 
@@ -211,6 +276,7 @@ export class PluginContext {
       await this.settings.addAccount(refreshed);
       this.rebuildProviders();
       void this.sync.syncAccount(accountId);
+      void this.contactSync.syncAccount(accountId, { force: true });
       return { ok: true, message: `Re-authenticated ${refreshed.email}.` };
     } catch (err) {
       return { ok: false, message: `Could not re-authenticate: ${(err as Error).message}` };
@@ -220,8 +286,28 @@ export class PluginContext {
   async removeAccountFlow(id: string): Promise<void> {
     await this.tokens.get(id)?.clear();
     await this.settings.removeAccount(id);
+    // Before clearing: a contact sync already past `listContacts()` would
+    // otherwise write the removed account's contacts straight back in.
+    this.contactSync.forget(id);
     await this.cache.clearAccount(id);
+    await this.contactStore.clear(id);
     this.rebuildProviders();
+  }
+
+  /**
+   * Settings "Clear local cache": empties the mail cache and the contact
+   * cache, then re-pulls contacts (the throttle would otherwise leave the
+   * address book empty for up to 15 minutes). Mail re-syncs on its own from
+   * the cleared cursors, as before.
+   */
+  async clearLocalCache(): Promise<void> {
+    const accountIds = this.settings.get().accounts.map((a) => a.id);
+    // Before clearing, like removeAccountFlow: a sync already past
+    // `listContacts()` would otherwise write straight back into the store.
+    for (const id of accountIds) this.contactSync.forget(id);
+    await this.cache.clearAll();
+    await this.contactStore.clearAll();
+    for (const id of accountIds) void this.contactSync.syncAccount(id, { force: true });
   }
 
   applyPollInterval(): void {
@@ -230,6 +316,12 @@ export class PluginContext {
 
   dispose(): void {
     this.sync.stop();
+    if (this.contactTimer) clearInterval(this.contactTimer);
     this.vm.dispose();
+    // Leaving these open would block the next version's upgrade when the
+    // plugin is disabled/enabled in place (same renderer, no GC in between).
+    this.cache.close();
+    this.cursors.close();
+    this.contactStore.close();
   }
 }

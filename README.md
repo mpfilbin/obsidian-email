@@ -53,8 +53,12 @@ You need a Microsoft Entra (Azure AD) app registration. Once, per Microsoft acco
    permissions**, add:
    - `Mail.ReadWrite`
    - `Mail.Send`
+   - `Contacts.ReadWrite`
    - `offline_access`
    - `User.Read`
+
+   `Contacts.ReadWrite` is needed for the address book; accounts added before it
+   existed are prompted to grant it the first time they open Contacts.
 4. From the app's **Overview**, copy the **Application (client) ID**.
 5. In Obsidian: **Settings → Email → Add account:**
    - Paste the **Application (client) ID** (no secret needed).

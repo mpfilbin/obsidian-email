@@ -9,6 +9,7 @@ function actions(): RibbonActions {
     "newMessage", "reply", "replyAll", "forward", "editDraft", "archive", "deleteMessage", "move",
     "closePane", "refresh", "toggleSearch", "newFolder", "renameFolder", "deleteFolder", "saveToVault",
     "emailFromNote", "emailWithNoteAttached", "send", "saveDraft", "discardDraft", "attachNote",
+    "toggleContacts", "newContact", "editContact", "deleteContact", "emailContact", "refreshContacts",
   ] as const;
   return Object.fromEntries(names.map((n) => [n, vi.fn()])) as unknown as RibbonActions;
 }
@@ -18,6 +19,7 @@ function ctx(over: Partial<RibbonContext> = {}): RibbonContext {
     hasAccount: true, hasOpenThread: true, hasTargetMessage: true, mailboxKind: "inbox",
     otherMailboxes: [{ id: "ARCH", name: "Archive" }, { id: "P", name: "Project" }],
     readingPaneCollapsed: false, syncing: false, searchOpen: false, composerMode: null, composerSending: false,
+    mode: "mail", hasSelectedContact: false, selectedContactHasEmail: false, contactEditing: false, contactsBlocked: false, contactsSyncing: false,
     actions: actions(), ...over,
   };
 }
@@ -206,6 +208,49 @@ describe("Ribbon smoke", () => {
     (app as unknown as { set: (c: RibbonContext) => void }).set(ctx({ composerMode: null }));
     flushSync();
     expect(q(host, '.oe-ribbon-tab[data-tab="home"]')!.classList.contains("active")).toBe(true);
+    unmount(app);
+  });
+});
+
+describe("Ribbon — contextual Contacts tab", () => {
+  it("auto-selects the Contacts tab entering contacts mode, and restores the previous tab on leaving", () => {
+    const host = document.createElement("div");
+    const app = mount(RibbonHost, { target: host, props: { initial: ctx() } });
+    flushSync();
+    q(host, '.oe-ribbon-tab[data-tab="folder"]')!.click();
+    flushSync();
+    (app as unknown as { set: (c: RibbonContext) => void }).set(ctx({ mode: "contacts" }));
+    flushSync();
+    expect(q(host, '.oe-ribbon-tab[data-tab="contacts"]')!.classList.contains("active")).toBe(true);
+    expect(q(host, '[data-action="new-contact"]')).not.toBeNull();
+    (app as unknown as { set: (c: RibbonContext) => void }).set(ctx({ mode: "mail" }));
+    flushSync();
+    expect(q(host, '.oe-ribbon-tab[data-tab="contacts"]')).toBeNull();
+    expect(q(host, '.oe-ribbon-tab[data-tab="folder"]')!.classList.contains("active")).toBe(true);
+    unmount(app);
+  });
+
+  it("a composer opening straight from contacts mode moves to the Message tab, then back", () => {
+    const host = document.createElement("div");
+    const app = mount(RibbonHost, { target: host, props: { initial: ctx({ mode: "contacts" }) } });
+    flushSync();
+    const set = (c: RibbonContext) => (app as unknown as { set: (c: RibbonContext) => void }).set(c);
+    set(ctx({ mode: "mail", composerMode: "new" }));
+    flushSync();
+    expect(q(host, '.oe-ribbon-tab[data-tab="message"]')!.classList.contains("active")).toBe(true);
+    set(ctx({ mode: "mail", composerMode: null }));
+    flushSync();
+    expect(q(host, '.oe-ribbon-tab[data-tab="home"]')!.classList.contains("active")).toBe(true);
+    unmount(app);
+  });
+
+  it("the Home Contacts button toggles and shows pressed", () => {
+    const c = ctx();
+    const host = document.createElement("div");
+    const app = mount(Ribbon, { target: host, props: { ctx: c, defaultCollapsed: false } });
+    flushSync();
+    q(host, '[data-action="contacts"]')!.click();
+    expect(c.actions.toggleContacts).toHaveBeenCalledOnce();
     unmount(app);
   });
 });

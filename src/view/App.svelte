@@ -8,6 +8,10 @@
   import MessageList from "./components/MessageList.svelte";
   import ReadingPane from "./components/ReadingPane.svelte";
   import SearchBar from "./components/SearchBar.svelte";
+  import AddressBook from "./components/AddressBook.svelte";
+  import ContactList from "./components/ContactList.svelte";
+  import ContactPane from "./components/ContactPane.svelte";
+  import { filterContacts } from "./contact-draft";
   import Resizer from "./components/Resizer.svelte";
   import { clampPaneWidths, loadPaneWidths, savePaneWidths, type PaneWidths } from "./pane-layout";
   import { showSyncingToast } from "./refresh-toast";
@@ -60,6 +64,11 @@
     state.mailboxes.find((m) => m.id === state.activeMailboxId)?.kind === "trash",
   );
   const activeMailbox = $derived(state.mailboxes.find((m) => m.id === state.activeMailboxId) ?? null);
+  const inContacts = $derived(state.mode === "contacts");
+  const selectedContact = $derived(state.contacts.find((c) => c.id === state.selectedContactId) ?? null);
+  const visibleContacts = $derived(filterContacts(state.contacts, state.contactSearch));
+  // No grant / bad token: writes would fail, so the ribbon disables New contact.
+  const contactsBlocked = $derived(state.contactsStatus === "needs-consent" || state.contactsStatus === "needs-reauth");
 
   // Which message in the open thread is expanded — and so the target of the
   // ribbon's Reply/Archive/Delete/… . Lifted out of ReadingPane so both share it.
@@ -126,6 +135,26 @@
     pendingSwitch = null;
   }
 
+  // A dirty New/Edit contact form is unsaved content just like a composer:
+  // anything that would replace it (another contact, leaving Contacts, another
+  // account) asks first. One prompt at a time, like the composer's.
+  let pendingContactSwitch = $state<(() => void) | null>(null);
+  function requestContactSwitch(open: () => void): void {
+    if (vm.hasUnsavedContactEdit()) pendingContactSwitch = open;
+    else open();
+  }
+  // Composer guard first, then the contact-form guard.
+  const guarded = (open: () => void): void => requestSwitch(() => requestContactSwitch(open));
+  function resolveContactDiscard(): void {
+    const next = pendingContactSwitch;
+    pendingContactSwitch = null;
+    vm.cancelContactEdit();
+    next?.();
+  }
+  function resolveContactKeep(): void {
+    pendingContactSwitch = null;
+  }
+
   let pendingDelete = $state<{ label: string; run: () => void } | null>(null);
 
   // Delete is the only action that's ever irreversible (permanently deleting
@@ -159,8 +188,19 @@
     if (pendingSwitch) return;
     pendingDelete = { label: "folder", run };
   }
+  // Like a folder, a contact delete is permanent — always confirm.
+  function requestDeleteContact(run: () => void): void {
+    if (pendingSwitch || pendingContactSwitch) return;
+    pendingDelete = { label: "contact", run };
+  }
   function cancelDelete(): void {
     pendingDelete = null;
+  }
+  // Opening the edit form invalidates a queued delete confirmation: left
+  // standing, confirming it would delete the very contact being edited.
+  function editContact(id: string): void {
+    pendingDelete = null;
+    vm.editContact(id);
   }
 
   // Archive/Delete on a row are navigation-like: when the acted-on message or
@@ -225,8 +265,14 @@
     searchOpen,
     composerMode: state.composer?.mode ?? null,
     composerSending: state.composer?.sending ?? false,
+    mode: state.mode,
+    hasSelectedContact: selectedContact !== null,
+    selectedContactHasEmail: (selectedContact?.emails.length ?? 0) > 0,
+    contactEditing: state.contactEdit !== null,
+    contactsBlocked,
+    contactsSyncing: state.contactsStatus === "syncing",
     actions: {
-      newMessage: () => requestSwitch(() => vm.openNewMessage()),
+      newMessage: () => guarded(() => vm.openNewMessage()),
       reply: () => { const id = targetMessageId; if (id) requestSwitch(() => vm.openReply(id, "reply")); },
       replyAll: () => { const id = targetMessageId; if (id) requestSwitch(() => vm.openReply(id, "replyAll")); },
       forward: () => { const id = targetMessageId; if (id) requestSwitch(() => vm.openForward(id)); },
@@ -253,12 +299,24 @@
         requestRowAction(() => requestDeleteMailbox(() => { void vm.deleteMailbox(id); }));
       },
       saveToVault: () => { if (targetMessageId) void vm.saveMessageToVault(targetMessageId); },
-      emailFromNote: () => requestSwitch(() => noteCommands.composeFromNote()),
-      emailWithNoteAttached: () => requestSwitch(() => noteCommands.composeWithNoteAttached()),
+      emailFromNote: () => guarded(() => noteCommands.composeFromNote()),
+      emailWithNoteAttached: () => guarded(() => noteCommands.composeWithNoteAttached()),
       send: () => { void vm.send(); },
       saveDraft: () => { void vm.saveDraft(); },
       discardDraft: () => { void vm.discardDraft(); },
       attachNote: () => { void vm.requestAttachNote(); },
+      toggleContacts: () => guarded(() => vm.setMode(inContacts ? "mail" : "contacts")),
+      newContact: () => guarded(() => vm.newContact()),
+      editContact: () => { const id = state.selectedContactId; if (id) editContact(id); },
+      deleteContact: () => {
+        const id = state.selectedContactId;
+        if (id) requestDeleteContact(() => { void vm.deleteContact(id); });
+      },
+      emailContact: () => {
+        const id = state.selectedContactId;
+        if (id) guarded(() => vm.emailContact(id));
+      },
+      refreshContacts: () => { void vm.refreshContacts(); },
     },
   });
 
@@ -270,6 +328,7 @@
     onFieldsChange: (patch: Parameters<typeof vm.updateComposerFields>[0]) => vm.updateComposerFields(patch),
     onBodyChange: (html: string) => vm.updateComposerBody(html),
     onRemoveAttachment: (index: number) => vm.removeComposerAttachment(index),
+    suggest: (token: string, exclude: string[]) => vm.suggestRecipients(token, exclude),
   } : null);
 
   // Column widths and the reading-pane collapse are view-only chrome (not
@@ -305,9 +364,11 @@
     animateGridColumnsTimer = setTimeout(() => { animateGridColumns = false; }, 250);
   }
 
+  // Contacts mode always shows its detail column, whatever the mail side did.
+  const paneCollapsed = $derived(!inContacts && readingPaneCollapsed);
   const gridColumns = $derived.by(() => {
     const beforeMessageList = 56 + widths.mailboxes + 6;
-    if (readingPaneCollapsed) return `56px ${widths.mailboxes}px 6px calc(100% - ${beforeMessageList + 6}px) 0px 0px`;
+    if (paneCollapsed) return `56px ${widths.mailboxes}px 6px calc(100% - ${beforeMessageList + 6}px) 0px 0px`;
     const beforeReadingPane = beforeMessageList + widths.messageList + 6 + 6;
     return `56px ${widths.mailboxes}px 6px ${widths.messageList}px 6px calc(100% - ${beforeReadingPane}px)`;
   });
@@ -325,69 +386,99 @@
   <AccountSwitcher
     accounts={state.accounts}
     activeId={state.activeAccountId}
-    onSelect={(id) => requestSwitch(() => vm.selectAccount(id))}
+    onSelect={(id) => guarded(() => vm.selectAccount(id))}
     {onAddAccount}
   />
   <section class="oe-mailbox-col">
-    <MailboxList
-      mailboxes={state.mailboxes}
-      activeId={state.activeMailboxId}
-      onSelect={(id) => requestSwitch(() => vm.selectMailbox(id))}
-      onDropThread={(threadId, destinationId) => moveThread(threadId, destinationId)}
-      onContextMenu={(evt, id) => {
-        const box = state.mailboxes.find((m) => m.id === id);
-        if (!box) return;
-        onMailboxContextMenu(
-          evt,
-          box.name,
-          (newName) => vm.renameMailbox(id, newName),
-          () => requestRowAction(() => requestDeleteMailbox(() => { void vm.deleteMailbox(id); })),
-        );
-      }}
-    />
+    {#if inContacts}
+      <AddressBook count={state.contacts.length} status={state.contactsStatus} onGrant={() => vm.grantContactsAccess()} />
+    {:else}
+      <MailboxList
+        mailboxes={state.mailboxes}
+        activeId={state.activeMailboxId}
+        onSelect={(id) => requestSwitch(() => vm.selectMailbox(id))}
+        onDropThread={(threadId, destinationId) => moveThread(threadId, destinationId)}
+        onContextMenu={(evt, id) => {
+          const box = state.mailboxes.find((m) => m.id === id);
+          if (!box) return;
+          onMailboxContextMenu(
+            evt,
+            box.name,
+            (newName) => vm.renameMailbox(id, newName),
+            () => requestRowAction(() => requestDeleteMailbox(() => { void vm.deleteMailbox(id); })),
+          );
+        }}
+      />
+    {/if}
   </section>
   <Resizer label="Resize mailbox list" onDrag={resizeMailboxes} />
   <section class="oe-list-col">
-    {#if searchOpen}
-      <SearchBar
-        query={state.search.query}
-        onSearch={(q) => vm.runSearch(q)}
-        onClose={closeSearch}
+    {#if inContacts}
+      <ContactList
+        contacts={visibleContacts}
+        selectedId={state.selectedContactId}
+        search={state.contactSearch}
+        hasAny={state.contacts.length > 0}
+        loading={state.contactsStatus === "syncing" && state.contacts.length === 0}
+        onSearch={(q) => vm.searchContacts(q)}
+        onSelect={(id) => guarded(() => vm.selectContact(id))}
+      />
+    {:else}
+      {#if searchOpen}
+        <SearchBar
+          query={state.search.query}
+          onSearch={(q) => vm.runSearch(q)}
+          onClose={closeSearch}
+        />
+      {/if}
+      <MessageList
+        threads={state.threads}
+        openThreadId={state.openThreadId}
+        hasMore={state.hasMore}
+        loading={state.loadingList}
+        onOpen={(id) => requestSwitch(() => { vm.openThread(id); setReadingPaneCollapsed(false); })}
+        onLoadMore={() => vm.loadMore()}
+        {isDraftsMailbox}
+        {isArchiveMailbox}
+        {isTrashMailbox}
+        onArchiveThread={(id) => requestRowAction(() => { const closes = closesOpenThread(id); vm.archiveThread(id); if (closes) setReadingPaneCollapsed(true); })}
+        onDeleteThread={(id) => requestRowAction(() => requestDelete("thread", () => { const closes = closesOpenThread(id); vm.deleteThread(id); if (closes) setReadingPaneCollapsed(true); }))}
+        onThreadContextMenu={(evt, id) =>
+          onThreadContextMenu(
+            evt,
+            state.mailboxes.filter((m) => m.id !== state.activeMailboxId),
+            (destinationId) => moveThread(id, destinationId),
+          )}
       />
     {/if}
-    <MessageList
-      threads={state.threads}
-      openThreadId={state.openThreadId}
-      hasMore={state.hasMore}
-      loading={state.loadingList}
-      onOpen={(id) => requestSwitch(() => { vm.openThread(id); setReadingPaneCollapsed(false); })}
-      onLoadMore={() => vm.loadMore()}
-      {isDraftsMailbox}
-      {isArchiveMailbox}
-      {isTrashMailbox}
-      onArchiveThread={(id) => requestRowAction(() => { const closes = closesOpenThread(id); vm.archiveThread(id); if (closes) setReadingPaneCollapsed(true); })}
-      onDeleteThread={(id) => requestRowAction(() => requestDelete("thread", () => { const closes = closesOpenThread(id); vm.deleteThread(id); if (closes) setReadingPaneCollapsed(true); }))}
-      onThreadContextMenu={(evt, id) =>
-        onThreadContextMenu(
-          evt,
-          state.mailboxes.filter((m) => m.id !== state.activeMailboxId),
-          (destinationId) => moveThread(id, destinationId),
-        )}
-    />
   </section>
   <Resizer label="Resize reading pane" onDrag={resizeMessageList} />
-  <ReadingPane
-    openMessages={state.openMessages}
-    autoLoadImages={state.autoLoadImages}
-    renderDeps={vm.renderDeps()}
-    onClose={() => requestSwitch(() => vm.closeThread())}
-    onDownload={(id, att) => vm.downloadAttachmentToDisk(id, att)}
-    {targetMessageId}
-    onToggleExpand={toggleExpand}
-    activeComposerMessageId={state.composer?.targetMessageId ?? null}
-    composerMode={state.composer?.mode ?? null}
-    composerProps={composerFieldProps}
-  />
+  {#if inContacts}
+    <ContactPane
+      contact={selectedContact}
+      edit={state.contactEdit}
+      readOnly={contactsBlocked}
+      onEmail={(email) => { const id = state.selectedContactId; if (id) guarded(() => vm.emailContact(id, email)); }}
+      onEdit={() => { const id = state.selectedContactId; if (id) editContact(id); }}
+      onDelete={() => { const id = state.selectedContactId; if (id) requestDeleteContact(() => { void vm.deleteContact(id); }); }}
+      onChange={(patch) => vm.updateContactDraft(patch)}
+      onSave={() => { void vm.saveContact(); }}
+      onCancel={() => vm.cancelContactEdit()}
+    />
+  {:else}
+    <ReadingPane
+      openMessages={state.openMessages}
+      autoLoadImages={state.autoLoadImages}
+      renderDeps={vm.renderDeps()}
+      onClose={() => requestSwitch(() => vm.closeThread())}
+      onDownload={(id, att) => vm.downloadAttachmentToDisk(id, att)}
+      {targetMessageId}
+      onToggleExpand={toggleExpand}
+      activeComposerMessageId={state.composer?.targetMessageId ?? null}
+      composerMode={state.composer?.mode ?? null}
+      composerProps={composerFieldProps}
+    />
+  {/if}
   {#if pendingSwitch}
     <div class="oe-composer-prompt">
       <p>You have an unsent message. Save it as a draft before switching?</p>
@@ -396,6 +487,12 @@
       {/if}
       <button type="button" class="oe-composer-prompt-discard" onclick={resolvePromptDiscard}>Discard</button>
       <button type="button" class="oe-composer-prompt-cancel" onclick={resolvePromptCancel}>Cancel</button>
+    </div>
+  {:else if pendingContactSwitch}
+    <div class="oe-composer-prompt">
+      <p>You have unsaved contact changes. Discard them?</p>
+      <button type="button" class="oe-contact-discard" onclick={resolveContactDiscard}>Discard</button>
+      <button type="button" class="oe-contact-keep" onclick={resolveContactKeep}>Keep editing</button>
     </div>
   {:else if pendingDelete}
     <div class="oe-composer-prompt">

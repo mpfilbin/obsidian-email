@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { mount, unmount, flushSync } from "svelte";
+import { mount, unmount, flushSync, tick } from "svelte";
 import Composer from "../../src/view/components/Composer.svelte";
 import ComposerHost from "./fixtures/ComposerHost.svelte";
 
@@ -184,5 +184,208 @@ describe("Composer smoke", () => {
     expect(editorAfter).not.toBeNull();
     expect(editorAfter).toBe(editorBefore);
     unmount(app);
+  });
+});
+
+describe("Composer recipient autocomplete", () => {
+  const suggestions = [{ name: "Ada Lovelace", email: "ada@x.com" }, { name: "Alan Turing", email: "alan@x.com" }];
+
+  function mountWith(over: Partial<Record<string, unknown>> = {}) {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const suggest = vi.fn(() => suggestions);
+    const onFieldsChange = vi.fn();
+    const app = mount(Composer, { target: host, props: baseProps({ mode: "new", suggest, onFieldsChange, ...over }) });
+    flushSync();
+    return { host, suggest, onFieldsChange, done: () => { unmount(app); host.remove(); } };
+  }
+  const input = (host: HTMLElement, field: string) => host.querySelector<HTMLInputElement>(`input[data-field="${field}"]`)!;
+  const type = (el: HTMLInputElement, value: string) => {
+    el.value = value;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    flushSync();
+  };
+  const press = (el: HTMLElement, key: string) => {
+    const e = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+    el.dispatchEvent(e);
+    flushSync();
+    return e;
+  };
+  const items = (host: HTMLElement) => [...host.querySelectorAll<HTMLElement>(".oe-suggest-item")];
+
+  it("shows suggestions for the token being typed", () => {
+    const { host, suggest, done } = mountWith();
+    type(input(host, "to"), "a");
+    expect(suggest).toHaveBeenCalledWith("a", []);
+    expect(items(host).map((i) => i.textContent?.replace(/\s+/g, " ").trim())).toEqual([
+      "Ada Lovelace ada@x.com", "Alan Turing alan@x.com",
+    ]);
+    done();
+  });
+
+  it("only searches the token after the last comma and excludes committed addresses", () => {
+    const { host, suggest, done } = mountWith();
+    type(input(host, "to"), "bob@x.com, al");
+    expect(suggest).toHaveBeenLastCalledWith("al", ["bob@x.com"]);
+    done();
+  });
+
+  it("shows nothing for an empty token or when the suggester returns nothing", () => {
+    const { host, done } = mountWith({ suggest: vi.fn(() => []) });
+    type(input(host, "to"), "zzz");
+    expect(items(host)).toHaveLength(0);
+    type(input(host, "to"), "");
+    expect(items(host)).toHaveLength(0);
+    done();
+  });
+
+  it("ArrowDown then Enter accepts the highlighted suggestion, committing it with a trailing separator", async () => {
+    const { host, onFieldsChange, done } = mountWith();
+    const to = input(host, "to");
+    type(to, "a");
+    expect(items(host)[0].classList.contains("is-active")).toBe(true);
+    press(to, "ArrowDown");
+    expect(items(host)[1].classList.contains("is-active")).toBe(true);
+    const enter = press(to, "Enter");
+    expect(enter.defaultPrevented).toBe(true);
+    await tick();
+    expect(onFieldsChange).toHaveBeenCalledWith({ to: [{ email: "alan@x.com" }] });
+    await tick(); // second tick: accept() awaits its own tick before restoring the trailing separator
+    expect(to.value).toBe("alan@x.com, ");
+    expect(items(host)).toHaveLength(0);
+    done();
+  });
+
+  it("ArrowUp wraps, Tab also accepts, Escape closes without changing the field", async () => {
+    const { host, onFieldsChange, done } = mountWith();
+    const to = input(host, "to");
+    type(to, "a");
+    press(to, "ArrowUp");
+    expect(items(host)[1].classList.contains("is-active")).toBe(true);
+    press(to, "Escape");
+    expect(items(host)).toHaveLength(0);
+    expect(onFieldsChange).not.toHaveBeenCalled();
+    type(to, "a");
+    press(to, "Tab");
+    await tick();
+    expect(onFieldsChange).toHaveBeenCalledWith({ to: [{ email: "ada@x.com" }] });
+    done();
+  });
+
+  it("mousedown on a suggestion accepts it without letting the input blur", async () => {
+    const { host, onFieldsChange, done } = mountWith();
+    const to = input(host, "to");
+    type(to, "al");
+    const down = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+    items(host)[1].dispatchEvent(down);
+    await tick();
+    expect(down.defaultPrevented).toBe(true);
+    expect(onFieldsChange).toHaveBeenCalledWith({ to: [{ email: "alan@x.com" }] });
+    done();
+  });
+
+  it("blur closes the dropdown", () => {
+    const { host, done } = mountWith();
+    const to = input(host, "to");
+    type(to, "a");
+    to.dispatchEvent(new FocusEvent("blur"));
+    flushSync();
+    expect(items(host)).toHaveLength(0);
+    done();
+  });
+
+  it("keeps earlier recipients when accepting a later one", async () => {
+    const { host, onFieldsChange, done } = mountWith();
+    const to = input(host, "to");
+    type(to, "bob@x.com, a");
+    press(to, "Enter");
+    await tick();
+    expect(onFieldsChange).toHaveBeenCalledWith({ to: [{ email: "bob@x.com" }, { email: "ada@x.com" }] });
+    await tick(); // second tick: accept() awaits its own tick before restoring the trailing separator
+    expect(to.value).toBe("bob@x.com, ada@x.com, ");
+    done();
+  });
+
+  it("works on Cc and Bcc, and on the forward To field", () => {
+    const a = mountWith();
+    type(input(a.host, "cc"), "a");
+    expect(items(a.host)).toHaveLength(2);
+    type(input(a.host, "bcc"), "a");
+    expect(a.host.querySelectorAll(".oe-suggest")).toHaveLength(1); // only the focused field's list
+    a.done();
+    const f = mountWith({ mode: "forward" });
+    type(input(f.host, "to"), "a");
+    expect(items(f.host)).toHaveLength(2);
+    f.done();
+  });
+
+  it("does nothing when no suggest prop is given", () => {
+    const { host, done } = mountWith({ suggest: undefined });
+    type(input(host, "to"), "a");
+    expect(items(host)).toHaveLength(0);
+    done();
+  });
+
+  it("survives a suggester returning two rows with the same email", () => {
+    const dupes = [
+      { name: "Ada Lovelace", email: "ada@x.com" },
+      { name: "Ada (work)", email: "ada@x.com" },
+    ];
+    const { host, done } = mountWith({ suggest: vi.fn(() => dupes) });
+    type(input(host, "to"), "a");
+    expect(items(host).map((i) => i.textContent?.replace(/\s+/g, " ").trim())).toEqual([
+      "Ada Lovelace ada@x.com", "Ada (work) ada@x.com",
+    ]);
+    done();
+  });
+
+  // The tests above pass a plain vi.fn() for onFieldsChange, so `to` never
+  // changes and the prop-sync $effect that accept() races with never re-runs.
+  // This host echoes the patch back into the prop, like App → ViewModel does.
+  it("accept survives the real prop round-trip and keeps the trailing separator", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const onFieldsChange = vi.fn();
+    const app = mount(ComposerHost, {
+      target: host,
+      props: {
+        initial: { mode: "new" as const, to: [], cc: [], bcc: [], subject: "", bodyHtml: "" },
+        echo: true,
+        suggest: () => suggestions,
+        onFieldsChange,
+        onBodyChange: vi.fn(),
+      },
+    });
+    flushSync();
+    const to = input(host, "to");
+
+    type(to, "a");
+    press(to, "ArrowDown");
+    press(to, "Enter");
+    await tick();
+    await tick();
+    expect(to.value).toBe("alan@x.com, ");
+
+    // A second recipient can be typed straight after and accepted.
+    type(to, "alan@x.com, a");
+    press(to, "Enter");
+    await tick();
+    await tick();
+    expect(to.value).toBe("alan@x.com, ada@x.com, ");
+
+    expect(onFieldsChange).toHaveBeenLastCalledWith({
+      to: [{ email: "alan@x.com" }, { email: "ada@x.com" }],
+    });
+    unmount(app);
+    host.remove();
+  });
+
+  it("plain Enter/Tab without a dropdown are left alone", () => {
+    const { host, done } = mountWith({ suggest: vi.fn(() => []) });
+    const to = input(host, "to");
+    type(to, "x");
+    expect(press(to, "Enter").defaultPrevented).toBe(false);
+    expect(press(to, "Tab").defaultPrevented).toBe(false);
+    done();
   });
 });

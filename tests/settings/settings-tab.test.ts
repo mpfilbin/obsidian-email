@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { EmailSettingTab, handleConnect } from "../../src/settings/settings-tab";
+import { EmailSettingTab, handleClearCache, handleConnect } from "../../src/settings/settings-tab";
 import { resetSettingStubs, settingComponents, type StubComponent } from "../stubs/obsidian";
 import type { PluginContext } from "../../src/plugin-context";
 import type { SettingsStore } from "../../src/settings/settings-store";
@@ -37,7 +37,7 @@ function buildTab(addAccountFlow = vi.fn().mockResolvedValue({ email: "m@x.com" 
     addAccountFlow,
     sync: { getState: () => ({ accountId: "", status: "idle" }) },
     applyPollInterval: () => {},
-    cache: { clearAll: vi.fn() },
+    clearLocalCache: vi.fn().mockResolvedValue(undefined),
     reauthAccount: vi.fn(),
     removeAccountFlow: vi.fn(),
   } as unknown as PluginContext;
@@ -87,5 +87,22 @@ describe("EmailSettingTab — Add account", () => {
     resetSettingStubs();
     tab.display();
     expect(find((c) => c.kind === "text" && c.name === "Client ID").value).toBe("client-123");
+  });
+});
+
+describe("Clear local cache", () => {
+  beforeEach(() => resetSettingStubs());
+
+  it("handleClearCache clears mail and contacts through the context", async () => {
+    const ctx = { clearLocalCache: vi.fn().mockResolvedValue(undefined) };
+    await handleClearCache(ctx as never);
+    expect(ctx.clearLocalCache).toHaveBeenCalledOnce();
+  });
+
+  it("the button clears the local cache (mail and contacts) via the context", async () => {
+    const { tab, ctx } = buildTab();
+    tab.display();
+    await find((c) => c.kind === "button" && c.buttonText === "Clear cache").emitClick();
+    expect(ctx.clearLocalCache).toHaveBeenCalledOnce();
   });
 });

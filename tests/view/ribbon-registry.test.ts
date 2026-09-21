@@ -9,6 +9,7 @@ function actions(): RibbonActions {
     "newMessage", "reply", "replyAll", "forward", "editDraft", "archive", "deleteMessage", "move",
     "closePane", "refresh", "toggleSearch", "newFolder", "renameFolder", "deleteFolder", "saveToVault",
     "emailFromNote", "emailWithNoteAttached", "send", "saveDraft", "discardDraft", "attachNote",
+    "toggleContacts", "newContact", "editContact", "deleteContact", "emailContact", "refreshContacts",
   ] as const;
   return Object.fromEntries(names.map((n) => [n, vi.fn()])) as unknown as RibbonActions;
 }
@@ -17,7 +18,9 @@ function ctx(over: Partial<RibbonContext> = {}): RibbonContext {
   return {
     hasAccount: true, hasOpenThread: true, hasTargetMessage: true, mailboxKind: "inbox",
     otherMailboxes: [{ id: "ARCH", name: "Archive" }], readingPaneCollapsed: false, syncing: false, searchOpen: false,
-    composerMode: null, composerSending: false, actions: actions(), ...over,
+    composerMode: null, composerSending: false,
+    mode: "mail", hasSelectedContact: false, selectedContactHasEmail: false, contactEditing: false, contactsBlocked: false, contactsSyncing: false,
+    actions: actions(), ...over,
   };
 }
 
@@ -30,8 +33,8 @@ describe("ribbon registry — tabs", () => {
     expect(visibleTabs(ctx({ composerMode: "new" })).map((t) => t.id)).toEqual(["home", "folder", "vault", "message"]);
   });
 
-  it("groups Home commands as New, Respond, Manage, Sync, Search", () => {
-    expect(groupsForTab("home", ctx())).toEqual(["New", "Respond", "Manage", "Sync", "Search"]);
+  it("groups Home commands as New, Respond, Manage, Sync, Search, View", () => {
+    expect(groupsForTab("home", ctx())).toEqual(["New", "Respond", "Manage", "Sync", "Search", "View"]);
   });
 
   it("every command id is unique", () => {
@@ -102,8 +105,8 @@ describe("ribbon registry — Home enabled rules", () => {
     expect(c.actions.toggleSearch).toHaveBeenCalledOnce();
   });
 
-  it("only Search is a toggle-style (pressed) command", () => {
-    expect(COMMANDS.filter((c) => c.pressed).map((c) => c.id)).toEqual(["search"]);
+  it("only Search and Contacts are toggle-style (pressed) commands", () => {
+    expect(COMMANDS.filter((c) => c.pressed).map((c) => c.id)).toEqual(["search", "contacts"]);
   });
 
   it("New message needs an account", () => {
@@ -153,5 +156,73 @@ describe("ribbon registry — Message tab", () => {
     cmd("attach-note").run!(c);
     expect(c.actions.send).toHaveBeenCalledOnce();
     expect(c.actions.attachNote).toHaveBeenCalledOnce();
+  });
+});
+
+describe("ribbon registry — contacts", () => {
+  const inContacts = (over: Partial<RibbonContext> = {}) => ctx({ mode: "contacts", ...over });
+
+  it("shows the Contacts tab only in contacts mode", () => {
+    expect(visibleTabs(ctx()).map((t) => t.id)).not.toContain("contacts");
+    expect(visibleTabs(inContacts()).map((t) => t.id)).toEqual(["home", "folder", "vault", "contacts"]);
+  });
+
+  it("the Contacts toggle needs an account and reflects the mode as pressed", () => {
+    expect(enabled("contacts", ctx({ hasAccount: false }))).toBe(false);
+    expect(enabled("contacts", ctx())).toBe(true);
+    expect(cmd("contacts").pressed?.(ctx())).toBe(false);
+    expect(cmd("contacts").pressed?.(inContacts())).toBe(true);
+    const c = ctx();
+    cmd("contacts").run!(c);
+    expect(c.actions.toggleContacts).toHaveBeenCalledOnce();
+  });
+
+  it("mail-only commands are disabled in contacts mode; compose entry points stay enabled", () => {
+    const c = inContacts({ hasTargetMessage: true, hasOpenThread: true, mailboxKind: "custom" });
+    for (const id of ["reply", "reply-all", "forward", "archive", "delete", "move", "close-pane", "refresh", "search", "new-folder", "rename-folder", "delete-folder", "save-to-vault"]) {
+      expect(enabled(id, c), id).toBe(false);
+    }
+    for (const id of ["new-message", "email-from-note", "email-with-note-attached"]) {
+      expect(enabled(id, c), id).toBe(true);
+    }
+  });
+
+  it("mail commands are unchanged in mail mode", () => {
+    expect(enabled("reply", ctx())).toBe(true);
+    expect(enabled("search", ctx())).toBe(true);
+  });
+
+  it("New contact needs an account, contacts mode, and unblocked access", () => {
+    expect(enabled("new-contact", inContacts())).toBe(true);
+    expect(enabled("new-contact", inContacts({ contactsBlocked: true }))).toBe(false);
+    expect(enabled("new-contact", inContacts({ hasAccount: false }))).toBe(false);
+  });
+
+  it("Edit/Delete need a selected contact and no open form; Email needs an address", () => {
+    expect(enabled("edit-contact", inContacts())).toBe(false);
+    expect(enabled("edit-contact", inContacts({ hasSelectedContact: true }))).toBe(true);
+    expect(enabled("edit-contact", inContacts({ hasSelectedContact: true, contactEditing: true }))).toBe(false);
+    expect(enabled("delete-contact", inContacts({ hasSelectedContact: true }))).toBe(true);
+    expect(enabled("delete-contact", inContacts({ hasSelectedContact: true, contactEditing: true }))).toBe(false);
+    // Blocked access means writes would just fail — Edit/Delete go dead like New contact; Email (read-only) stays live.
+    expect(enabled("edit-contact", inContacts({ hasSelectedContact: true, contactsBlocked: true }))).toBe(false);
+    expect(enabled("delete-contact", inContacts({ hasSelectedContact: true, contactsBlocked: true }))).toBe(false);
+    expect(enabled("email-contact", inContacts({ hasSelectedContact: true, selectedContactHasEmail: true, contactsBlocked: true }))).toBe(true);
+    expect(enabled("email-contact", inContacts({ hasSelectedContact: true }))).toBe(false);
+    expect(enabled("email-contact", inContacts({ hasSelectedContact: true, selectedContactHasEmail: true }))).toBe(true);
+  });
+
+  it("Refresh contacts is disabled while syncing", () => {
+    expect(enabled("refresh-contacts", inContacts())).toBe(true);
+    expect(enabled("refresh-contacts", inContacts({ contactsSyncing: true }))).toBe(false);
+  });
+
+  it("the Contacts tab groups are View, Contact, Sync, and each command runs its action", () => {
+    const c = inContacts({ hasSelectedContact: true, selectedContactHasEmail: true });
+    expect(groupsForTab("contacts", c)).toEqual(["View", "Contact", "Sync"]);
+    for (const [id, action] of [["show-mail", "toggleContacts"], ["new-contact", "newContact"], ["edit-contact", "editContact"], ["delete-contact", "deleteContact"], ["email-contact", "emailContact"], ["refresh-contacts", "refreshContacts"]] as const) {
+      cmd(id).run!(c);
+      expect(c.actions[action], id).toHaveBeenCalledOnce();
+    }
   });
 });

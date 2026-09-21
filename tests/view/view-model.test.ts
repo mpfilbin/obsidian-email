@@ -6,7 +6,8 @@ import { SyncEngine } from "../../src/sync/sync-engine";
 import { SettingsStore } from "../../src/settings/settings-store";
 import { FakeProvider } from "../../src/providers/fake-provider";
 import { Logger } from "../../src/util/logger";
-import { AuthError } from "../../src/providers/types";
+import { AuthError, ContactsConsentRequired } from "../../src/providers/types";
+import { contactDeps } from "../helpers/contact-deps";
 import type { MessageSummary } from "../../src/providers/types";
 
 const logger = new Logger("t", { debug: () => false });
@@ -35,12 +36,14 @@ async function build() {
   const showNotice = vi.fn();
   const promptFolderRename = vi.fn();
   const pickNoteAttachment = vi.fn();
+  const contacts = contactDeps(() => provider);
   const vm = new ViewModel({
+    ...contacts,
     cache, sync, settings, getProvider: () => provider, isOnline: () => true,
     openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {},
     promptFolderName: () => {}, promptFolderRename, pickNoteAttachment, showNotice,
   });
-  return { cache, provider, sync, settings, vm, showNotice, promptFolderRename, pickNoteAttachment };
+  return { cache, provider, sync, settings, vm, showNotice, promptFolderRename, pickNoteAttachment, contacts };
 }
 
 /**
@@ -74,6 +77,7 @@ describe("ViewModel", () => {
 
   describe("ribbon prefs", () => {
     const depsFor = (c: Awaited<ReturnType<typeof build>>) => ({
+      ...contactDeps(() => c.provider),
       cache: c.cache, sync: c.sync, settings: c.settings, getProvider: () => c.provider, isOnline: () => true,
       openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {},
       promptFolderName: () => {}, promptFolderRename: vi.fn(), pickNoteAttachment: vi.fn(), showNotice: vi.fn(),
@@ -143,6 +147,7 @@ describe("ViewModel", () => {
   it("runSearch offline sets a notice and does not clear the list", async () => {
     const showNotice = vi.fn();
     const offlineVm = new ViewModel({
+      ...contactDeps(() => ctx.provider),
       cache: ctx.cache, sync: ctx.sync, settings: (ctx as never as { settings: SettingsStore }).settings ?? await SettingsStore.load({ loadData: async () => ({ accounts: [{ id: "a1", email: "e", provider: "ms-graph", clientId: "c", addedAt: 0 }] }), saveData: async () => {} }),
       getProvider: () => ctx.provider, isOnline: () => false,
       openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {},
@@ -258,6 +263,272 @@ describe("ViewModel", () => {
     ctx.sync.changes.emit({ accountId: "a1", mailboxIds: ["INBOX"], reason: "incremental" });
     await new Promise((resolve) => setTimeout(resolve));
     expect(ctx.vm.getState().threads.map((t) => t.threadId)).toEqual(["t2", "t1"]);
+  });
+
+  describe("contacts", () => {
+    const ada = { id: "C1", displayName: "Ada Lovelace", emails: [{ email: "ada@x.com" }], businessPhones: [], homePhones: [], companyName: "Engines" };
+
+    async function start() {
+      await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+      await ctx.contacts.contactStore.put("a1", ada);
+      await ctx.vm.init();
+      return ctx.vm;
+    }
+
+    it("loads the active account's cached contacts on init and starts in mail mode", async () => {
+      const vm = await start();
+      expect(vm.getState().mode).toBe("mail");
+      expect(vm.getState().contacts.map((c) => c.id)).toEqual(["C1"]);
+      expect(vm.getState().contactsStatus).toBe("idle");
+    });
+
+    it("reloads contacts when ContactSync reports a change, and mirrors its status", async () => {
+      const vm = await start();
+      ctx.provider.seedContacts([ada, { ...ada, id: "C2", displayName: "Bob" }]);
+      await ctx.contacts.contactSync.syncAccount("a1", { force: true });
+      await vi.waitFor(() => expect(vm.getState().contacts.map((c) => c.id)).toEqual(["C1", "C2"]));
+      ctx.contacts.contactSync.markNeedsConsent("a1");
+      expect(vm.getState().contactsStatus).toBe("needs-consent");
+    });
+
+    it("setMode('contacts') drops the composer and force-syncs; setMode('mail') returns", async () => {
+      const vm = await start();
+      const spy = vi.spyOn(ctx.provider, "listContacts");
+      vm.openNewMessage();
+      vm.setMode("contacts");
+      expect(vm.getState().mode).toBe("contacts");
+      expect(vm.getState().composer).toBeNull();
+      await vi.waitFor(() => expect(spy).toHaveBeenCalled());
+      vm.setMode("mail");
+      expect(vm.getState().mode).toBe("mail");
+    });
+
+    it("selectContact selects and clears any edit; searchContacts stores the query", async () => {
+      const vm = await start();
+      vm.selectContact("C1");
+      expect(vm.getState().selectedContactId).toBe("C1");
+      vm.searchContacts("ada");
+      expect(vm.getState().contactSearch).toBe("ada");
+    });
+
+    it("newContact opens a blank edit; hasUnsavedContactEdit tracks changes", async () => {
+      const vm = await start();
+      vm.newContact();
+      expect(vm.getState().contactEdit).toMatchObject({ mode: "new", error: null, saving: false });
+      expect(vm.hasUnsavedContactEdit()).toBe(false);
+      vm.updateContactDraft({ givenName: "Zed" });
+      expect(vm.hasUnsavedContactEdit()).toBe(true);
+      vm.cancelContactEdit();
+      expect(vm.getState().contactEdit).toBeNull();
+      expect(vm.hasUnsavedContactEdit()).toBe(false);
+    });
+
+    it("every newContact/editContact gets a fresh seq so the form remounts", async () => {
+      const vm = await start();
+      vm.newContact();
+      const first = vm.getState().contactEdit!.seq;
+      vm.cancelContactEdit();
+      vm.newContact();
+      const second = vm.getState().contactEdit!.seq;
+      expect(second).not.toBe(first);
+      vm.editContact("C1");
+      expect(vm.getState().contactEdit!.seq).not.toBe(second);
+    });
+
+    it("saving a new contact creates it server-first, caches it, and selects it", async () => {
+      const vm = await start();
+      vm.newContact();
+      vm.updateContactDraft({ givenName: "Grace", surname: "Hopper", emails: [{ email: "grace@x.com" }] });
+      await vm.saveContact();
+      const created = vm.getState().contacts.find((c) => c.displayName === "Grace Hopper")!;
+      expect(created).toBeTruthy();
+      expect(vm.getState().selectedContactId).toBe(created.id);
+      expect(vm.getState().contactEdit).toBeNull();
+      expect((await ctx.contacts.contactStore.list("a1")).map((c) => c.id)).toContain(created.id);
+      expect((await ctx.provider.listContacts()).map((c) => c.id)).toContain(created.id);
+    });
+
+    it("saving an edit sends only the changed fields", async () => {
+      const vm = await start();
+      ctx.provider.seedContacts([ada]);
+      const spy = vi.spyOn(ctx.provider, "updateContact");
+      vm.editContact("C1");
+      vm.updateContactDraft({ jobTitle: "Countess" });
+      await vm.saveContact();
+      expect(spy).toHaveBeenCalledWith("C1", { jobTitle: "Countess" });
+      expect(vm.getState().contacts.find((c) => c.id === "C1")?.jobTitle).toBe("Countess");
+      expect(vm.getState().contactEdit).toBeNull();
+    });
+
+    it("a cache write that fails after a successful create doesn't duplicate the contact", async () => {
+      const vm = await start();
+      const create = vi.spyOn(ctx.provider, "createContact");
+      vi.spyOn(ctx.contacts.contactStore, "put").mockRejectedValue(new Error("QuotaExceededError"));
+      vm.newContact();
+      vm.updateContactDraft({ givenName: "Grace", surname: "Hopper" });
+      await vm.saveContact();
+
+      // The server write succeeded, so the form must close and the contact
+      // must appear — a re-Save here would create a second one server-side.
+      expect(create).toHaveBeenCalledOnce();
+      expect(vm.getState().contactEdit).toBeNull();
+      expect(vm.getState().contacts.map((c) => c.displayName)).toContain("Grace Hopper");
+      expect(ctx.showNotice).not.toHaveBeenCalled();
+    });
+
+    it("a cache removal that fails after a successful delete still drops the contact", async () => {
+      const vm = await start();
+      ctx.provider.seedContacts([ada]);
+      const del = vi.spyOn(ctx.provider, "deleteContact");
+      vi.spyOn(ctx.contacts.contactStore, "remove").mockRejectedValue(new Error("QuotaExceededError"));
+      vm.selectContact("C1");
+      await vm.deleteContact("C1");
+
+      expect(del).toHaveBeenCalledOnce();
+      expect(vm.getState().contacts).toEqual([]);
+      expect(vm.getState().selectedContactId).toBeNull();
+      expect(ctx.showNotice).not.toHaveBeenCalled();
+    });
+
+    it("the update patch is diffed against what the form was seeded from, not the live cache", async () => {
+      const vm = await start();
+      ctx.provider.seedContacts([{ ...ada, jobTitle: "Dev" }]);
+      await ctx.contacts.contactSync.syncAccount("a1", { force: true });
+      await vi.waitFor(() => expect(vm.getState().contacts[0].jobTitle).toBe("Dev"));
+
+      vm.editContact("C1");
+
+      // A remote edit lands mid-edit and replaces state.contacts.
+      ctx.provider.seedContacts([{ ...ada, jobTitle: "Lead" }]);
+      await ctx.contacts.contactSync.syncAccount("a1", { force: true });
+      await vi.waitFor(() => expect(vm.getState().contacts[0].jobTitle).toBe("Lead"));
+
+      const spy = vi.spyOn(ctx.provider, "updateContact");
+      vm.updateContactDraft({ notes: "n" });
+      await vm.saveContact();
+
+      // Only the field the user touched — the stale "Dev" must not revert "Lead".
+      expect(spy).toHaveBeenCalledWith("C1", { notes: "n" });
+    });
+
+    it("saving with no changes makes no server call", async () => {
+      const vm = await start();
+      const spy = vi.spyOn(ctx.provider, "updateContact");
+      vm.editContact("C1");
+      await vm.saveContact();
+      expect(spy).not.toHaveBeenCalled();
+      expect(vm.getState().contactEdit).toBeNull();
+    });
+
+    it("an invalid draft stays open with a message and makes no server call", async () => {
+      const vm = await start();
+      const spy = vi.spyOn(ctx.provider, "createContact");
+      vm.newContact();
+      await vm.saveContact();
+      expect(spy).not.toHaveBeenCalled();
+      expect(vm.getState().contactEdit?.error).toMatch(/name or an email/i);
+    });
+
+    it("a failed save toasts and keeps the form and its input", async () => {
+      const vm = await start();
+      ctx.provider.contactsError = new Error("network down");
+      vm.newContact();
+      vm.updateContactDraft({ givenName: "Grace" });
+      await vm.saveContact();
+      expect(ctx.showNotice).toHaveBeenCalledWith("network down");
+      expect(vm.getState().contactEdit).toMatchObject({ saving: false, draft: { givenName: "Grace" } });
+    });
+
+    it("a consent failure marks the account needs-consent and toasts a grant hint", async () => {
+      const vm = await start();
+      ctx.provider.contactsError = new ContactsConsentRequired();
+      vm.newContact();
+      vm.updateContactDraft({ givenName: "Grace" });
+      await vm.saveContact();
+      expect(vm.getState().contactsStatus).toBe("needs-consent");
+      expect(ctx.showNotice).toHaveBeenCalledWith(expect.stringMatching(/grant contacts access/i));
+    });
+
+    it("deleteContact removes it server-side and locally, clearing the selection", async () => {
+      const vm = await start();
+      ctx.provider.seedContacts([ada]);
+      vm.selectContact("C1");
+      await vm.deleteContact("C1");
+      expect(vm.getState().contacts).toEqual([]);
+      expect(vm.getState().selectedContactId).toBeNull();
+      expect(await ctx.contacts.contactStore.list("a1")).toEqual([]);
+      expect(await ctx.provider.listContacts()).toEqual([]);
+    });
+
+    it("emailContact opens a new composer addressed to the contact and returns to mail mode", async () => {
+      const vm = await start();
+      vm.setMode("contacts");
+      vm.emailContact("C1");
+      expect(vm.getState().mode).toBe("mail");
+      expect(vm.getState().composer).toMatchObject({ mode: "new", to: [{ name: "Ada Lovelace", email: "ada@x.com" }] });
+    });
+
+    it("a contact-addressed composer isn't unsaved until the user changes something", async () => {
+      const vm = await start();
+      vm.setMode("contacts");
+      vm.emailContact("C1");
+      expect(vm.hasUnsavedComposerContent()).toBe(false);
+      vm.updateComposerBody("<p>hello</p>");
+      expect(vm.hasUnsavedComposerContent()).toBe(true);
+    });
+
+    it("emailContact uses a specific address when given, and toasts if the contact has none", async () => {
+      const vm = await start();
+      await ctx.contacts.contactStore.put("a1", { ...ada, id: "C3", displayName: "Nomail", emails: [] });
+      await vm.selectAccount("a1");
+      vm.emailContact("C1", "other@x.com");
+      expect(vm.getState().composer?.to).toEqual([{ name: "Ada Lovelace", email: "other@x.com" }]);
+      vm.closeComposer();
+      vm.emailContact("C3");
+      expect(ctx.showNotice).toHaveBeenCalledWith(expect.stringMatching(/no email/i));
+      expect(vm.getState().composer).toBeNull();
+    });
+
+    it("suggestRecipients ranks the active account's contacts", async () => {
+      const vm = await start();
+      expect(vm.suggestRecipients("ada")).toEqual([{ name: "Ada Lovelace", email: "ada@x.com" }]);
+      expect(vm.suggestRecipients("ada", ["ada@x.com"])).toEqual([]);
+    });
+
+    it("refreshContacts force-syncs and toasts on failure", async () => {
+      const vm = await start();
+      ctx.provider.contactsError = new Error("offline");
+      await vm.refreshContacts();
+      expect(ctx.showNotice).toHaveBeenCalledWith(expect.stringContaining("offline"));
+    });
+
+    it("refreshContacts isn't a silent no-op when access hasn't been granted", async () => {
+      const vm = await start();
+      ctx.provider.contactsError = new ContactsConsentRequired();
+      await vm.refreshContacts();
+      expect(ctx.showNotice).toHaveBeenCalledWith(expect.stringMatching(/grant contacts access/i));
+
+      ctx.showNotice.mockClear();
+      ctx.provider.contactsError = new AuthError("Graph 401");
+      await vm.refreshContacts();
+      // A failed sign-in is not a missing grant — point at re-authentication, not "grant".
+      expect(ctx.showNotice).toHaveBeenCalledWith(expect.stringMatching(/re-authenticate/i));
+      expect(ctx.showNotice).not.toHaveBeenCalledWith(expect.stringMatching(/hasn't been granted/i));
+    });
+
+    it("grantContactsAccess delegates to the host with the active account", async () => {
+      const vm = await start();
+      await vm.grantContactsAccess();
+      expect(ctx.contacts.grantContactsAccess).toHaveBeenCalledWith("a1");
+    });
+
+    it("switching accounts clears the selection, edit and search", async () => {
+      const vm = await start();
+      vm.selectContact("C1");
+      vm.searchContacts("x");
+      await vm.selectAccount("a1");
+      expect(vm.getState()).toMatchObject({ selectedContactId: null, contactEdit: null, contactSearch: "" });
+    });
   });
 });
 
@@ -396,6 +667,15 @@ describe("ViewModel — composer", () => {
     // Quill re-emits its own serialization of the loaded body on mount.
     ctx.vm.updateComposerBody("<p>draft body</p>");
     expect(ctx.vm.hasUnsavedComposerContent()).toBe(false);
+  });
+
+  it("openDraftForEdit leaves contacts mode", async () => {
+    const ctx = await build();
+    const id = await openDraftInReadingPane(ctx);
+    ctx.vm.setMode("contacts");
+    await ctx.vm.openDraftForEdit(id);
+    expect(ctx.vm.getState().mode).toBe("mail");
+    expect(ctx.vm.getState().composer?.mode).toBe("editDraft");
   });
 
   it("hasUnsavedComposerContent is true when only the subject of an open draft changed", async () => {
@@ -835,6 +1115,7 @@ describe("ViewModel — saveMessageToVault", () => {
     const saveNote = vi.fn();
     const ctx = await build();
     const vm = new ViewModel({
+      ...contactDeps(() => ctx.provider),
       cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
       isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote,
       promptFolderName: () => {}, promptFolderRename: () => {}, pickNoteAttachment: async () => undefined, showNotice: vi.fn(),
@@ -867,6 +1148,7 @@ describe("ViewModel — saveMessageToVault", () => {
     const showNotice = vi.fn();
     const ctx = await build();
     const vm = new ViewModel({
+      ...contactDeps(() => ctx.provider),
       cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
       isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote,
       promptFolderName: () => {}, promptFolderRename: () => {}, pickNoteAttachment: async () => undefined, showNotice,
@@ -887,6 +1169,7 @@ describe("ViewModel — saveMessageToVault", () => {
     const saveNote = vi.fn();
     const ctx = await build();
     const vm = new ViewModel({
+      ...contactDeps(() => ctx.provider),
       cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
       isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote,
       promptFolderName: () => {}, promptFolderRename: () => {}, pickNoteAttachment: async () => undefined, showNotice: vi.fn(),
@@ -957,6 +1240,7 @@ describe("ViewModel — requestCreateMailbox", () => {
     const ctx = await build();
     let submit: ((name: string) => void) | undefined;
     const vm = new ViewModel({
+      ...contactDeps(() => ctx.provider),
       cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
       isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {},
       promptFolderName: (onSubmit) => { submit = onSubmit; }, promptFolderRename: () => {}, pickNoteAttachment: async () => undefined, showNotice: vi.fn(),
@@ -982,6 +1266,7 @@ describe("ViewModel — requestCreateMailbox", () => {
     let submit: ((name: string) => void) | undefined;
     const showNotice = vi.fn();
     const vm = new ViewModel({
+      ...contactDeps(() => ctx.provider),
       cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
       isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {},
       promptFolderName: (onSubmit) => { submit = onSubmit; }, promptFolderRename: () => {}, pickNoteAttachment: async () => undefined, showNotice,

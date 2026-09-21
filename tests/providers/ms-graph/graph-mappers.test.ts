@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { mapGraphSummary, mapGraphSummaryPatch, mapGraphBody, mapGraphFolders, toGraphRecipients } from "../../../src/providers/ms-graph/graph-mappers";
+import { mapGraphSummary, mapGraphSummaryPatch, mapGraphBody, mapGraphFolders, toGraphRecipients, mapGraphContact, toGraphContact } from "../../../src/providers/ms-graph/graph-mappers";
 
 const fx = (p: string) => JSON.parse(readFileSync(`tests/fixtures/graph/${p}`, "utf8"));
 
@@ -99,5 +99,39 @@ describe("toGraphRecipients", () => {
 
   it("maps an empty list to an empty array", () => {
     expect(toGraphRecipients([])).toEqual([]);
+  });
+});
+
+describe("contact mappers", () => {
+  it("maps a Graph contact to a Contact", () => {
+    const c = mapGraphContact({
+      id: "C1", displayName: "Ada Lovelace", givenName: "Ada", surname: "Lovelace",
+      emailAddresses: [{ name: "Ada L", address: "ada@x.com" }, { name: "b@x.com", address: "b@x.com" }],
+      mobilePhone: "555-0100", businessPhones: ["555-0101"], homePhones: [],
+      companyName: "Analytical Engines", jobTitle: "Countess", personalNotes: "hi",
+    });
+    expect(c).toEqual({
+      id: "C1", displayName: "Ada Lovelace", givenName: "Ada", surname: "Lovelace",
+      emails: [{ name: "Ada L", email: "ada@x.com" }, { email: "b@x.com" }],
+      mobilePhone: "555-0100", businessPhones: ["555-0101"], homePhones: [],
+      companyName: "Analytical Engines", jobTitle: "Countess", notes: "hi",
+    });
+  });
+
+  it("tolerates nulls/missing fields and falls back for displayName", () => {
+    const c = mapGraphContact({ id: "C2", displayName: "", givenName: null, surname: null, emailAddresses: [{ address: "z@x.com" }] });
+    expect(c.displayName).toBe("z@x.com");
+    expect(c.emails).toEqual([{ email: "z@x.com" }]);
+    expect(c.businessPhones).toEqual([]);
+    expect(c.givenName).toBeUndefined();
+  });
+
+  it("toGraphContact includes only the keys present", () => {
+    expect(toGraphContact({ jobTitle: "CTO" })).toEqual({ jobTitle: "CTO" });
+    expect(toGraphContact({ jobTitle: "" })).toEqual({ jobTitle: "" });
+    expect(toGraphContact({ notes: "n", emails: [{ email: "a@x.com" }, { name: "Bo", email: "b@x.com" }] })).toEqual({
+      personalNotes: "n",
+      emailAddresses: [{ address: "a@x.com", name: "a@x.com" }, { address: "b@x.com", name: "Bo" }],
+    });
   });
 });

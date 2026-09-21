@@ -227,4 +227,10 @@ export class MailCache {
       await this.db.clear(storeName);
     }
   }
+
+  /** Releases the IndexedDB connection. A connection left open after the
+   *  plugin unloads blocks the next version's upgrade (see openMailDb). */
+  close(): void {
+    this.db.close();
+  }
 }

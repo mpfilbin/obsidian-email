@@ -36,7 +36,8 @@ function fakeVm(state: Partial<ViewState> = {}): ViewModel {
     hasMore: false, loadingList: false, autoLoadImages: false,
     search: { query: "", active: false },
     openThreadId: null, openMessages: [],
-    composer: null,
+    composer: null, mode: "mail",
+    contacts: [], contactsStatus: "idle", contactSearch: "", selectedContactId: null, contactEdit: null,
     ribbonEnabled: true, ribbonCollapsedByDefault: false,
     ...state,
   };
@@ -71,6 +72,11 @@ function fakeVm(state: Partial<ViewState> = {}): ViewModel {
     moveThread: vi.fn(), requestCreateMailbox: vi.fn(), renameMailbox: vi.fn(), deleteMailbox: vi.fn(),
     requestRenameMailbox: vi.fn(), requestAttachNote: vi.fn(), saveMessageToVault: vi.fn(),
     removeComposerAttachment: vi.fn(),
+    setMode: vi.fn(), searchContacts: vi.fn(), selectContact: vi.fn(), newContact: vi.fn(), editContact: vi.fn(),
+    updateContactDraft: vi.fn(), saveContact: vi.fn(), cancelContactEdit: vi.fn(), deleteContact: vi.fn(),
+    emailContact: vi.fn(), refreshContacts: vi.fn(), grantContactsAccess: vi.fn(),
+    suggestRecipients: vi.fn().mockReturnValue([]),
+    hasUnsavedContactEdit: vi.fn().mockReturnValue(false),
     // Test-only escape hatch, so an overridden method can push state the way
     // the real ViewModel would (e.g. a saveDraft that sets composer.error).
     __setState: set,
@@ -1146,5 +1152,175 @@ describe("App.svelte — ribbon", () => {
     clickRibbon(host, "folder", "delete-folder");
     expect(host.querySelector(".oe-delete-confirm")).not.toBeNull();
     unmount(app);
+  });
+});
+
+describe("App — contacts mode", () => {
+  const ada = { id: "C1", displayName: "Ada Lovelace", emails: [{ email: "ada@x.com" }], businessPhones: [], homePhones: [] };
+  const bob = { id: "C2", displayName: "Bob", emails: [], businessPhones: [], homePhones: [] };
+  const mountApp = (vm: ViewModel) => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const app = mount(App, { target: host, props: appProps(vm) });
+    flushSync();
+    return { host, done: () => { unmount(app); host.remove(); } };
+  };
+  const click = (el: Element | null) => { (el as HTMLElement).click(); flushSync(); };
+  const q = (host: HTMLElement, sel: string) => host.querySelector<HTMLElement>(sel);
+
+  it("mail mode shows mailboxes and messages, not contacts", () => {
+    const { host, done } = mountApp(fakeVm());
+    expect(q(host, ".oe-mailbox")).not.toBeNull();
+    expect(q(host, ".oe-contact-row")).toBeNull();
+    done();
+  });
+
+  it("the ribbon Contacts button switches to contacts mode", () => {
+    const vm = fakeVm();
+    const { host, done } = mountApp(vm);
+    click(q(host, '[data-action="contacts"]'));
+    expect(vm.setMode).toHaveBeenCalledWith("contacts");
+    done();
+  });
+
+  it("in contacts mode the columns become address book / contact list / contact pane", () => {
+    const { host, done } = mountApp(fakeVm({ mode: "contacts", contacts: [ada, bob] }));
+    expect(host.textContent).toContain("All contacts");
+    expect(host.querySelectorAll(".oe-contact-row")).toHaveLength(2);
+    expect(host.textContent).toContain("Select a contact");
+    expect(q(host, ".oe-thread-row")).toBeNull();
+    expect(q(host, '.oe-ribbon-tab[data-tab="contacts"]')!.classList.contains("active")).toBe(true);
+    done();
+  });
+
+  it("the contact search filters the list client-side and reports the query to the view-model", () => {
+    const vm = fakeVm({ mode: "contacts", contacts: [ada, bob], contactSearch: "ada" });
+    const { host, done } = mountApp(vm);
+    expect([...host.querySelectorAll(".oe-contact-name")].map((e) => e.textContent)).toEqual(["Ada Lovelace"]);
+    const input = q(host, 'input[data-field="contact-search"]') as HTMLInputElement;
+    input.value = "b";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(vm.searchContacts).toHaveBeenCalledWith("b");
+    done();
+  });
+
+  it("selecting a contact shows its detail; Edit and Email route through the view-model", () => {
+    const vm = fakeVm({ mode: "contacts", contacts: [ada], selectedContactId: "C1" });
+    const { host, done } = mountApp(vm);
+    expect(q(host, ".oe-contact-detail")!.textContent).toContain("Ada Lovelace");
+    click(host.querySelectorAll(".oe-contact-row")[0]);
+    expect(vm.selectContact).toHaveBeenCalledWith("C1");
+    click(q(host, ".oe-contact-edit"));
+    expect(vm.editContact).toHaveBeenCalledWith("C1");
+    click(q(host, ".oe-contact-email"));
+    expect(vm.emailContact).toHaveBeenCalledWith("C1", "ada@x.com");
+    done();
+  });
+
+  it("ribbon New/Edit/Email/Refresh contact commands call the view-model", () => {
+    const vm = fakeVm({ mode: "contacts", contacts: [ada], selectedContactId: "C1" });
+    const { host, done } = mountApp(vm);
+    click(q(host, '[data-action="new-contact"]'));
+    expect(vm.newContact).toHaveBeenCalledOnce();
+    click(q(host, '[data-action="edit-contact"]'));
+    expect(vm.editContact).toHaveBeenCalledWith("C1");
+    click(q(host, '[data-action="email-contact"]'));
+    expect(vm.emailContact).toHaveBeenCalledWith("C1");
+    click(q(host, '[data-action="refresh-contacts"]'));
+    expect(vm.refreshContacts).toHaveBeenCalledOnce();
+    done();
+  });
+
+  it("deleting a contact asks for confirmation first", () => {
+    const vm = fakeVm({ mode: "contacts", contacts: [ada], selectedContactId: "C1" });
+    const { host, done } = mountApp(vm);
+    click(q(host, ".oe-contact-delete"));
+    expect(vm.deleteContact).not.toHaveBeenCalled();
+    expect(q(host, ".oe-composer-prompt")!.textContent).toMatch(/delete this contact/i);
+    click(q(host, ".oe-delete-cancel"));
+    expect(vm.deleteContact).not.toHaveBeenCalled();
+    click(q(host, '[data-action="delete-contact"]'));
+    click(q(host, ".oe-delete-confirm"));
+    expect(vm.deleteContact).toHaveBeenCalledWith("C1");
+    done();
+  });
+
+  for (const [label, sel] of [["the detail's Edit", ".oe-contact-edit"], ["the ribbon Edit", '[data-action="edit-contact"]']] as const) {
+    it(`${label} clears a pending delete confirmation`, () => {
+      const vm = fakeVm({ mode: "contacts", contacts: [ada], selectedContactId: "C1" });
+      const { host, done } = mountApp(vm);
+      click(q(host, ".oe-contact-delete"));
+      expect(q(host, ".oe-composer-prompt")).not.toBeNull();
+
+      click(q(host, sel));
+
+      expect(vm.editContact).toHaveBeenCalledWith("C1");
+      // A confirmation left standing would delete the contact being edited.
+      expect(q(host, ".oe-composer-prompt")).toBeNull();
+      expect(vm.deleteContact).not.toHaveBeenCalled();
+      done();
+    });
+  }
+
+  it("the form's Save/Cancel and the grant button call the view-model", () => {
+    const edit = { mode: "new" as const, seq: 1, draft: { displayName: "", emails: [], businessPhones: [], homePhones: [] }, saved: { displayName: "", emails: [], businessPhones: [], homePhones: [] }, error: null, saving: false };
+    const vm = fakeVm({ mode: "contacts", contacts: [], contactEdit: edit, contactsStatus: "needs-consent" });
+    const { host, done } = mountApp(vm);
+    click(q(host, ".oe-contact-save"));
+    expect(vm.saveContact).toHaveBeenCalledOnce();
+    click(q(host, ".oe-contact-cancel"));
+    expect(vm.cancelContactEdit).toHaveBeenCalledOnce();
+    click(q(host, ".oe-grant-contacts"));
+    expect(vm.grantContactsAccess).toHaveBeenCalledOnce();
+    done();
+  });
+
+  it("Edit and Delete are disabled (ribbon and inline) while access is blocked", () => {
+    const vm = fakeVm({ mode: "contacts", contacts: [ada], selectedContactId: "C1", contactsStatus: "needs-reauth" });
+    const { host, done } = mountApp(vm);
+    for (const sel of ['[data-action="edit-contact"]', '[data-action="delete-contact"]', ".oe-contact-edit", ".oe-contact-delete"]) {
+      expect(q(host, sel)!.hasAttribute("disabled"), sel).toBe(true);
+    }
+    expect(q(host, '[data-action="email-contact"]')!.hasAttribute("disabled")).toBe(false);
+    done();
+  });
+
+  it("New contact is disabled while access is blocked", () => {
+    const { host, done } = mountApp(fakeVm({ mode: "contacts", contactsStatus: "needs-consent" }));
+    expect(q(host, '[data-action="new-contact"]')!.hasAttribute("disabled")).toBe(true);
+    done();
+  });
+
+  it("leaving contacts mode, selecting a contact, or switching account with an unsaved form prompts first", () => {
+    const vm = fakeVm({ mode: "contacts", contacts: [ada, bob] });
+    (vm.hasUnsavedContactEdit as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    const { host, done } = mountApp(vm);
+    click(host.querySelectorAll(".oe-contact-row")[1]);
+    expect(vm.selectContact).not.toHaveBeenCalled();
+    expect(q(host, ".oe-composer-prompt")!.textContent).toMatch(/unsaved contact/i);
+    click(q(host, ".oe-contact-keep"));
+    expect(q(host, ".oe-composer-prompt")).toBeNull();
+    click(q(host, '[data-action="show-mail"]'));
+    expect(vm.setMode).not.toHaveBeenCalled();
+    click(q(host, ".oe-contact-discard"));
+    expect(vm.cancelContactEdit).toHaveBeenCalledOnce();
+    expect(vm.setMode).toHaveBeenCalledWith("mail");
+    click(q(host, ".oe-account")); // account switch is guarded too
+    expect(vm.selectAccount).not.toHaveBeenCalled();
+    done();
+  });
+
+  it("wires composer autocomplete to the view-model", () => {
+    const vm = fakeVm();
+    (vm.suggestRecipients as ReturnType<typeof vi.fn>).mockReturnValue([{ name: "Ada", email: "ada@x.com" }]);
+    const { host, done } = mountApp(vm);
+    click(q(host, '[data-action="new-message"]'));
+    const to = q(host, 'input[data-field="to"]') as HTMLInputElement;
+    to.value = "a";
+    to.dispatchEvent(new Event("input", { bubbles: true }));
+    flushSync();
+    expect(vm.suggestRecipients).toHaveBeenCalledWith("a", []);
+    expect(host.querySelectorAll(".oe-suggest-item")).toHaveLength(1);
+    done();
   });
 });

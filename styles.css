@@ -227,6 +227,16 @@
 .oe-composer .ql-snow .ql-tooltip.ql-editing a.ql-remove { display: none; }
 .oe-composer .ql-snow .ql-tooltip.ql-editing a.ql-action::after { border-right: 0; content: "Save"; padding-right: 0; }
 
+/* Recipient autocomplete */
+.oe-recipient { position: relative; flex: 1; display: flex; }
+.oe-recipient input { flex: 1; }
+.oe-suggest { position: absolute; top: 100%; left: 0; right: 0; z-index: 20; margin: 2px 0 0; padding: 4px; list-style: none; max-height: 220px; overflow-y: auto; background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 6px; box-shadow: var(--shadow-s); }
+.oe-suggest-item { display: flex; gap: 8px; align-items: baseline; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 13px; color: var(--text-normal); }
+.oe-suggest-item.is-active, .oe-suggest-item:hover { background: var(--background-modifier-hover); }
+.oe-suggest-email { color: var(--text-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The dropdown lives inside .oe-composer-field, whose label-span rule (fixed 44px) must not size these. */
+.oe-composer-field .oe-suggest-item span { width: auto; flex-shrink: 1; }
+
 /* --- Ribbon --- */
 .oe-shell { display: flex; flex-direction: column; height: 100%; }
 .oe-ribbon { flex: 0 0 auto; border-bottom: 1px solid var(--background-modifier-border); background-color: var(--background-secondary); font-size: var(--font-ui-small); user-select: none; }
@@ -250,3 +260,32 @@
 .oe-ribbon-menu { position: fixed; z-index: var(--layer-popover, 50); min-width: 160px; max-height: 260px; overflow-y: auto; padding: 4px; background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 6px; box-shadow: var(--shadow-s); display: flex; flex-direction: column; }
 .oe-ribbon-menu-item { height: auto; text-align: left; background: transparent; border: none; box-shadow: none; padding: 4px 8px; border-radius: 4px; color: var(--text-normal); cursor: pointer; font: inherit; }
 .oe-ribbon-menu-item:hover { background-color: var(--background-modifier-hover); }
+
+/* --- Contacts --- */
+.oe-contacts-consent { display: flex; flex-direction: column; gap: 8px; padding: 8px; font-size: 12px; color: var(--text-muted); }
+.oe-contacts-consent p { margin: 0; }
+.oe-contact-row { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; height: auto; padding: 8px 12px; text-align: left; background: transparent; border: none; border-bottom: 1px solid var(--background-modifier-border); border-radius: 0; color: var(--text-normal); cursor: pointer; }
+.oe-contact-row:hover { background: var(--background-modifier-hover); }
+.oe-contact-row.is-active { background: var(--background-modifier-hover); }
+.oe-contact-name { font-weight: 600; }
+.oe-contact-email-line { font-size: 12px; color: var(--text-muted); }
+.oe-contact-detail-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+.oe-contact-detail-head h3 { flex: 1; margin: 0; font-size: 16px; }
+.oe-contact-edit, .oe-contact-delete, .oe-contact-cancel { height: auto; background: transparent; border: 1px solid var(--background-modifier-border); border-radius: 4px; padding: 3px 8px; font-size: 12px; color: var(--text-muted); cursor: pointer; }
+.oe-contact-edit:hover, .oe-contact-delete:hover, .oe-contact-cancel:hover { color: var(--text-normal); }
+.oe-contact-delete:hover { color: var(--text-error); }
+.oe-contact-work { margin: 0 0 12px; color: var(--text-muted); }
+.oe-contact-fields { display: grid; grid-template-columns: 64px 1fr; gap: 4px 8px; margin: 0 0 12px; font-size: 13px; }
+.oe-contact-fields dt { color: var(--text-muted); }
+.oe-contact-fields dd { margin: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.oe-contact-email { height: auto; padding: 0; background: none; border: none; color: var(--text-accent); cursor: pointer; font-size: 13px; }
+.oe-contact-email:hover { text-decoration: underline; }
+.oe-contact-notes { white-space: pre-wrap; padding: 8px; border-radius: 6px; background: var(--background-secondary); font-size: 13px; }
+.oe-contact-form { display: flex; flex-direction: column; gap: 8px; }
+.oe-contact-form-title { margin: 0 0 4px; font-size: 15px; }
+/* The composer's label column is 44px — too narrow for "Company"/"Mobile", which pushed those inputs out of line. One shared width keeps every input's left edge aligned. */
+.oe-contact-form .oe-composer-field span { width: 72px; }
+.oe-contact-notes-field { align-items: flex-start; }
+.oe-contact-notes-field span { padding-top: 6px; }
+.oe-contact-notes-field textarea { flex: 1; resize: vertical; }
+.oe-contact-form-actions { display: flex; gap: 8px; margin-top: 4px; }
