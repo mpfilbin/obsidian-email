@@ -2,7 +2,7 @@
   import type { ThreadView } from "../view-model";
   import ThreadRow from "./ThreadRow.svelte";
 
-  let { threads, openThreadId, hasMore, loading, onOpen, onLoadMore, isDraftsMailbox, isArchiveMailbox, isTrashMailbox, onArchiveThread, onDeleteThread, onToggleFlag, onTogglePin, onThreadContextMenu }: {
+  let { threads, openThreadId, hasMore, loading, onOpen, onLoadMore, isDraftsMailbox, isArchiveMailbox, isTrashMailbox, onArchiveThread, onDeleteThread, onToggleFlag, onTogglePin, onThreadContextMenu, emptyText = "No messages" }: {
     threads: ThreadView[];
     openThreadId: string | null;
     hasMore: boolean;
@@ -17,6 +17,7 @@
     onToggleFlag: (threadId: string) => void;
     onTogglePin: (threadId: string) => void;
     onThreadContextMenu: (evt: MouseEvent, threadId: string) => void;
+    emptyText?: string;
   } = $props();
 
   let sentinel = $state<HTMLElement | null>(null);
@@ -33,7 +34,7 @@
 
 <div class="oe-message-list">
   {#if threads.length === 0 && !loading}
-    <p class="oe-empty">No messages</p>
+    <p class="oe-empty">{emptyText}</p>
   {/if}
   {#each threads as t (t.threadId)}
     <ThreadRow

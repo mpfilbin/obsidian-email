@@ -25,7 +25,7 @@ describe("MailboxList smoke", () => {
       props: { mailboxes, activeId: "INBOX", onSelect: vi.fn(), onDropThread: vi.fn() },
     });
     flushSync();
-    const icons = [...host.querySelectorAll(".oe-mailbox-icon")].map((el) => el.getAttribute("data-icon"));
+    const icons = [...host.querySelectorAll(".oe-mailbox:not(.oe-mailbox-flagged) .oe-mailbox-icon")].map((el) => el.getAttribute("data-icon"));
     expect(icons).toEqual(["inbox", "send", "trash-2", "folder"]);
     unmount(app);
   });
@@ -34,7 +34,7 @@ describe("MailboxList smoke", () => {
     const onSelect = vi.fn();
     const host = document.createElement("div");
     const app = mount(MailboxList, { target: host, props: { mailboxes, activeId: "INBOX", onSelect, onDropThread: vi.fn() } });
-    [...host.querySelectorAll(".oe-mailbox")][1].dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    [...host.querySelectorAll(".oe-mailbox:not(.oe-mailbox-flagged)")][1].dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(onSelect).toHaveBeenCalledWith("SENT");
     unmount(app);
   });
@@ -43,7 +43,7 @@ describe("MailboxList smoke", () => {
     const host = document.createElement("div");
     const app = mount(MailboxList, { target: host, props: { mailboxes, activeId: "INBOX", onSelect: vi.fn(), onDropThread: vi.fn() } });
     flushSync();
-    const sentRow = [...host.querySelectorAll<HTMLElement>(".oe-mailbox")][1];
+    const sentRow = [...host.querySelectorAll<HTMLElement>(".oe-mailbox:not(.oe-mailbox-flagged)")][1];
     const event = dragEvent("dragover", { types: [THREAD_DRAG_TYPE] });
     const preventSpy = vi.spyOn(event, "preventDefault");
     sentRow.dispatchEvent(event);
@@ -57,7 +57,7 @@ describe("MailboxList smoke", () => {
     const host = document.createElement("div");
     const app = mount(MailboxList, { target: host, props: { mailboxes, activeId: "INBOX", onSelect: vi.fn(), onDropThread: vi.fn() } });
     flushSync();
-    const inboxRow = [...host.querySelectorAll<HTMLElement>(".oe-mailbox")][0];
+    const inboxRow = [...host.querySelectorAll<HTMLElement>(".oe-mailbox:not(.oe-mailbox-flagged)")][0];
     const event = dragEvent("dragover", { types: [THREAD_DRAG_TYPE] });
     const preventSpy = vi.spyOn(event, "preventDefault");
     inboxRow.dispatchEvent(event);
@@ -69,7 +69,7 @@ describe("MailboxList smoke", () => {
     const host = document.createElement("div");
     const app = mount(MailboxList, { target: host, props: { mailboxes, activeId: "INBOX", onSelect: vi.fn(), onDropThread: vi.fn() } });
     flushSync();
-    const sentRow = [...host.querySelectorAll<HTMLElement>(".oe-mailbox")][1];
+    const sentRow = [...host.querySelectorAll<HTMLElement>(".oe-mailbox:not(.oe-mailbox-flagged)")][1];
     const event = dragEvent("dragover", { types: ["Files"] });
     const preventSpy = vi.spyOn(event, "preventDefault");
     sentRow.dispatchEvent(event);
@@ -82,7 +82,7 @@ describe("MailboxList smoke", () => {
     const host = document.createElement("div");
     const app = mount(MailboxList, { target: host, props: { mailboxes, activeId: "INBOX", onSelect: vi.fn(), onDropThread } });
     flushSync();
-    const sentRow = [...host.querySelectorAll<HTMLElement>(".oe-mailbox")][1];
+    const sentRow = [...host.querySelectorAll<HTMLElement>(".oe-mailbox:not(.oe-mailbox-flagged)")][1];
     const event = dragEvent("drop", { types: [THREAD_DRAG_TYPE], getData: () => "t1" });
     sentRow.dispatchEvent(event);
     expect(onDropThread).toHaveBeenCalledWith("t1", "SENT");
@@ -94,7 +94,7 @@ describe("MailboxList smoke", () => {
     const host = document.createElement("div");
     const app = mount(MailboxList, { target: host, props: { mailboxes, activeId: "INBOX", onSelect: vi.fn(), onDropThread } });
     flushSync();
-    const inboxRow = [...host.querySelectorAll<HTMLElement>(".oe-mailbox")][0];
+    const inboxRow = [...host.querySelectorAll<HTMLElement>(".oe-mailbox:not(.oe-mailbox-flagged)")][0];
     const event = dragEvent("drop", { types: [THREAD_DRAG_TYPE], getData: () => "t1" });
     inboxRow.dispatchEvent(event);
     expect(onDropThread).not.toHaveBeenCalled();
@@ -109,7 +109,7 @@ describe("MailboxList smoke", () => {
       props: { mailboxes, activeId: "INBOX", onSelect: vi.fn(), onDropThread: vi.fn(), onContextMenu },
     });
     flushSync();
-    const projectsRow = [...host.querySelectorAll<HTMLElement>(".oe-mailbox")][3]; // LBL1, kind: custom
+    const projectsRow = [...host.querySelectorAll<HTMLElement>(".oe-mailbox:not(.oe-mailbox-flagged)")][3]; // LBL1, kind: custom
     const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
     const preventSpy = vi.spyOn(event, "preventDefault");
     projectsRow.dispatchEvent(event);
@@ -126,9 +126,53 @@ describe("MailboxList smoke", () => {
       props: { mailboxes, activeId: "INBOX", onSelect: vi.fn(), onDropThread: vi.fn(), onContextMenu },
     });
     flushSync();
-    const inboxRow = [...host.querySelectorAll<HTMLElement>(".oe-mailbox")][0];
+    const inboxRow = [...host.querySelectorAll<HTMLElement>(".oe-mailbox:not(.oe-mailbox-flagged)")][0];
     inboxRow.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
     expect(onContextMenu).not.toHaveBeenCalled();
+    unmount(app);
+  });
+});
+
+describe("MailboxList Flagged entry", () => {
+  const props = (over: Record<string, unknown> = {}) => ({
+    mailboxes, activeId: "INBOX", flaggedActive: false,
+    onSelect: vi.fn(), onSelectFlagged: vi.fn(), onDropThread: vi.fn(), ...over,
+  });
+
+  it("renders Flagged first, with the flag icon, and reports a click", () => {
+    const onSelectFlagged = vi.fn();
+    const host = document.createElement("div");
+    const app = mount(MailboxList, { target: host, props: props({ onSelectFlagged }) });
+    flushSync();
+    const first = host.querySelector<HTMLElement>(".oe-mailbox")!;
+    expect(first.classList.contains("oe-mailbox-flagged")).toBe(true);
+    expect(first.textContent).toContain("Flagged");
+    expect(first.querySelector(".oe-mailbox-icon")!.getAttribute("data-icon")).toBe("flag");
+    first.click();
+    expect(onSelectFlagged).toHaveBeenCalledOnce();
+    unmount(app);
+  });
+
+  it("is active only while flaggedActive (the page passes no active mailbox then)", () => {
+    const host = document.createElement("div");
+    const app = mount(MailboxList, { target: host, props: props({ flaggedActive: true, activeId: null }) });
+    flushSync();
+    expect(host.querySelector(".oe-mailbox-flagged")!.classList.contains("is-active")).toBe(true);
+    expect(host.querySelectorAll(".oe-mailbox.is-active")).toHaveLength(1);
+    unmount(app);
+  });
+
+  it("is not a drop target for dragged threads", () => {
+    const onDropThread = vi.fn();
+    const host = document.createElement("div");
+    const app = mount(MailboxList, { target: host, props: props({ onDropThread }) });
+    flushSync();
+    const flagged = host.querySelector(".oe-mailbox-flagged")!;
+    const over = dragEvent("dragover", { types: [THREAD_DRAG_TYPE], getData: () => "t1" });
+    flagged.dispatchEvent(over);
+    expect(over.defaultPrevented).toBe(false);
+    flagged.dispatchEvent(dragEvent("drop", { types: [THREAD_DRAG_TYPE], getData: () => "t1" }));
+    expect(onDropThread).not.toHaveBeenCalled();
     unmount(app);
   });
 });

@@ -86,4 +86,14 @@ describe("MessageList smoke", () => {
     expect(onTogglePin).toHaveBeenCalledWith("t1");
     unmount(app);
   });
+
+  it("uses the given empty text", () => {
+    const host = document.createElement("div");
+    const app = mount(MessageList, {
+      target: host,
+      props: { threads: [], openThreadId: null, hasMore: false, loading: false, onOpen: () => {}, onLoadMore: () => {}, emptyText: "No flagged messages" },
+    });
+    expect(host.textContent).toContain("No flagged messages");
+    unmount(app);
+  });
 });

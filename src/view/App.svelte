@@ -53,16 +53,16 @@
     return () => toast.hide();
   });
 
-  const isDraftsMailbox = $derived(
-    state.mailboxes.find((m) => m.id === state.activeMailboxId)?.kind === "drafts",
+  const activeMailbox = $derived(
+    state.flaggedActive ? null : (state.mailboxes.find((m) => m.id === state.activeMailboxId) ?? null),
   );
-  const isArchiveMailbox = $derived(
-    state.mailboxes.find((m) => m.id === state.activeMailboxId)?.kind === "archive",
+  const isDraftsMailbox = $derived(activeMailbox?.kind === "drafts");
+  const isArchiveMailbox = $derived(activeMailbox?.kind === "archive");
+  const isTrashMailbox = $derived(activeMailbox?.kind === "trash");
+  // Move destinations: every folder while the Flagged view is showing.
+  const moveTargets = $derived(
+    state.flaggedActive ? state.mailboxes : state.mailboxes.filter((m) => m.id !== state.activeMailboxId),
   );
-  const isTrashMailbox = $derived(
-    state.mailboxes.find((m) => m.id === state.activeMailboxId)?.kind === "trash",
-  );
-  const activeMailbox = $derived(state.mailboxes.find((m) => m.id === state.activeMailboxId) ?? null);
   const inContacts = $derived(state.mode === "contacts");
   const selectedContact = $derived(state.contacts.find((c) => c.id === state.selectedContactId) ?? null);
   const visibleContacts = $derived(filterContacts(state.contacts, state.contactSearch));
@@ -258,9 +258,7 @@
     openThreadFlagged: state.openMessages.some((m) => m.summary.flagged),
     openThreadPinned: state.openThreadId !== null && state.pinnedThreadIds.includes(state.openThreadId),
     mailboxKind: activeMailbox?.kind ?? null,
-    otherMailboxes: state.mailboxes
-      .filter((m) => m.id !== state.activeMailboxId)
-      .map((m) => ({ id: m.id, name: m.name })),
+    otherMailboxes: moveTargets.map((m) => ({ id: m.id, name: m.name })),
     readingPaneCollapsed,
     syncing: activeSyncing,
     searchOpen,
@@ -398,7 +396,9 @@
     {:else}
       <MailboxList
         mailboxes={state.mailboxes}
-        activeId={state.activeMailboxId}
+        activeId={state.flaggedActive ? null : state.activeMailboxId}
+        flaggedActive={state.flaggedActive}
+        onSelectFlagged={() => requestSwitch(() => vm.selectFlagged())}
         onSelect={(id) => requestSwitch(() => vm.selectMailbox(id))}
         onDropThread={(threadId, destinationId) => moveThread(threadId, destinationId)}
         onContextMenu={(evt, id) => {
@@ -439,6 +439,7 @@
         openThreadId={state.openThreadId}
         hasMore={state.hasMore}
         loading={state.loadingList}
+        emptyText={state.flaggedActive ? "No flagged messages" : undefined}
         onOpen={(id) => requestSwitch(() => { vm.openThread(id); setReadingPaneCollapsed(false); })}
         onLoadMore={() => vm.loadMore()}
         {isDraftsMailbox}
@@ -448,7 +449,7 @@
         onDeleteThread={(id) => requestRowAction(() => requestDelete("thread", () => { const closes = closesOpenThread(id); vm.deleteThread(id); if (closes) setReadingPaneCollapsed(true); }))}
         onThreadContextMenu={(evt, id) =>
           onThreadContextMenu(evt, {
-            candidates: state.mailboxes.filter((m) => m.id !== state.activeMailboxId),
+            candidates: moveTargets,
             onMove: (destinationId) => moveThread(id, destinationId),
             flagged: state.threads.find((t) => t.threadId === id)?.messages.some((m) => m.flagged) ?? false,
             onToggleFlag: () => { void vm.toggleThreadFlag(id); },
