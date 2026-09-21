@@ -283,6 +283,9 @@
 .oe-contact-notes { white-space: pre-wrap; padding: 8px; border-radius: 6px; background: var(--background-secondary); font-size: 13px; }
 .oe-contact-form { display: flex; flex-direction: column; gap: 8px; }
 .oe-contact-form-title { margin: 0 0 4px; font-size: 15px; }
+/* The composer's label column is 44px — too narrow for "Company"/"Mobile", which pushed those inputs out of line. One shared width keeps every input's left edge aligned. */
+.oe-contact-form .oe-composer-field span { width: 72px; }
 .oe-contact-notes-field { align-items: flex-start; }
+.oe-contact-notes-field span { padding-top: 6px; }
 .oe-contact-notes-field textarea { flex: 1; resize: vertical; }
 .oe-contact-form-actions { display: flex; gap: 8px; margin-top: 4px; }
