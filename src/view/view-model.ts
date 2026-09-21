@@ -68,6 +68,8 @@ export interface ViewState {
   activeAccountId: string | null;
   mailboxes: Mailbox[];
   activeMailboxId: string | null;
+  /** The virtual Flagged view is showing (not a mailbox). */
+  flaggedActive: boolean;
   threads: ThreadView[];
   /** The active account's pinned conversation ids. */
   pinnedThreadIds: string[];
@@ -188,7 +190,7 @@ function sameSnapshot(a: ComposerSnapshot, b: ComposerSnapshot): boolean {
 
 export class ViewModel {
   private state: ViewState = {
-    accounts: [], activeAccountId: null, mailboxes: [], activeMailboxId: null,
+    accounts: [], activeAccountId: null, mailboxes: [], activeMailboxId: null, flaggedActive: false,
     threads: [], pinnedThreadIds: [], hasMore: false, loadingList: false, autoLoadImages: false,
     search: { query: "", active: false },
     openThreadId: null, openMessages: [],
@@ -199,6 +201,7 @@ export class ViewModel {
   private listeners = new Set<(s: ViewState) => void>();
   private unsubSync: Array<() => void> = [];
   private providerListToken: string | undefined;
+  private flaggedToken: string | undefined;
   private providerListExhausted = false;
   /** Monotonic guard so a slow cache read can't paint over a newer one. */
   private reloadSeq = 0;
@@ -299,8 +302,10 @@ export class ViewModel {
     this.syncPrefs();
     const mailboxes = await this.deps.cache.getMailboxes(id);
     const inbox = mailboxes.find((m) => m.kind === "inbox") ?? mailboxes[0];
+    this.flaggedToken = undefined;
     this.set({
       activeAccountId: id,
+      flaggedActive: false,
       mailboxes: sortMailboxes(mailboxes),
       activeMailboxId: inbox?.id ?? null,
       search: { query: "", active: false },
@@ -324,7 +329,8 @@ export class ViewModel {
     if (accountId !== this.state.activeAccountId) return; // stale by the time this resolved
     const sorted = sortMailboxes(mailboxes);
     this.set({ mailboxes: sorted });
-    if (sorted.length === 0 || sorted.some((m) => m.id === this.state.activeMailboxId)) return;
+    // The Flagged view has no active mailbox to fall back from.
+    if (sorted.length === 0 || this.state.flaggedActive || sorted.some((m) => m.id === this.state.activeMailboxId)) return;
     const fallback = sorted.find((m) => m.kind === "inbox") ?? sorted[0];
     if (this.state.search.active) {
       // selectMailbox clears the search — appropriate for a user-initiated
@@ -341,9 +347,38 @@ export class ViewModel {
   }
 
   async selectMailbox(id: string): Promise<void> {
-    this.set({ activeMailboxId: id, search: { query: "", active: false }, composer: null });
+    this.flaggedToken = undefined;
+    this.set({ activeMailboxId: id, flaggedActive: false, search: { query: "", active: false }, composer: null });
     this.providerListToken = undefined;
     this.providerListExhausted = false;
+    await this.reloadList();
+  }
+
+  /** The virtual Flagged view: cached flagged threads appear immediately, then
+   *  the rest is fetched from the server (old flagged mail may never have been
+   *  backfilled into the cache). */
+  async selectFlagged(): Promise<void> {
+    this.flaggedToken = undefined;
+    this.set({ flaggedActive: true, search: { query: "", active: false }, composer: null });
+    await this.reloadList();
+    await this.fetchFlagged(false);
+  }
+
+  private async fetchFlagged(more: boolean): Promise<void> {
+    const acct = this.state.activeAccountId;
+    const provider = acct ? this.deps.getProvider(acct) : undefined;
+    if (!acct || !provider) return;
+    if (!this.deps.isOnline()) return; // cached list only; offline is not an error
+    if (more && this.flaggedToken === undefined) return;
+    this.set({ loadingList: true });
+    try {
+      const page = await provider.listFlaggedMessages(more ? this.flaggedToken : undefined);
+      if (page.items.length) await this.deps.cache.upsertMessages(acct, page.items);
+      if (acct !== this.state.activeAccountId || !this.state.flaggedActive) return; // navigated away
+      this.flaggedToken = page.nextPageToken;
+    } catch {
+      this.deps.showNotice("Couldn't load flagged messages.");
+    }
     await this.reloadList();
   }
 
@@ -414,12 +449,27 @@ export class ViewModel {
   private async reloadList(): Promise<void> {
     const acct = this.state.activeAccountId;
     const mb = this.state.activeMailboxId;
-    if (!acct || !mb) return;
+    const flaggedView = this.state.flaggedActive;
+    if (!acct || (!mb && !flaggedView)) return;
     // Switching mailbox A -> B fires two overlapping reads; without this guard
     // a slow read for A that lands after B's would paint A's rows under B's
     // header.
     const seq = ++this.reloadSeq;
     this.set({ loadingList: true });
+    if (flaggedView) {
+      const rows = await this.deps.cache.listFlaggedMessages(acct);
+      const pinned = this.deps.settings.pinnedThreadIds(acct);
+      if (seq !== this.reloadSeq) return;
+      this.set({
+        threads: groupThreads(rows, pinned),
+        pinnedThreadIds: [...pinned],
+        // Another server page exists only once a fetch returned a token.
+        hasMore: this.flaggedToken !== undefined,
+        loadingList: false,
+      });
+      return;
+    }
+    if (!mb) return;
     const limit = PAGE * 4;
     const rows = await this.deps.cache.listMailboxMessages(acct, mb, { limit });
     // A pinned thread must show even if it is older than the loaded page:
@@ -449,6 +499,10 @@ export class ViewModel {
   }
 
   async loadMore(): Promise<void> {
+    if (this.state.flaggedActive) {
+      if (!this.state.search.active) await this.fetchFlagged(true);
+      return;
+    }
     const acct = this.state.activeAccountId;
     const mb = this.state.activeMailboxId;
     const provider = acct ? this.deps.getProvider(acct) : undefined;
@@ -862,12 +916,12 @@ export class ViewModel {
       );
     try {
       await write(flagged, messages);
-      this.applyFlagChange(acct, messages.map((m) => m.id), flagged);
+      await this.applyFlagChange(acct, messages.map((m) => m.id), flagged);
       const results = await Promise.allSettled(messages.map((m) => provider.setMessageFlag(m.id, flagged)));
       const failed = messages.filter((_, i) => results[i].status === "rejected");
       if (failed.length === 0) return;
       await write(!flagged, failed);
-      this.applyFlagChange(acct, failed.map((m) => m.id), !flagged);
+      await this.applyFlagChange(acct, failed.map((m) => m.id), !flagged);
       const firstError = (results.find((r) => r.status === "rejected") as PromiseRejectedResult).reason;
       this.deps.showNotice(
         failed.length === messages.length
@@ -881,7 +935,7 @@ export class ViewModel {
 
   /** Mirrors a flag change into the rows already on screen (search results
    *  aren't derived from the cache, so they can't just be reloaded). */
-  private applyFlagChange(acct: string, ids: string[], flagged: boolean): void {
+  private async applyFlagChange(acct: string, ids: string[], flagged: boolean): Promise<void> {
     if (acct !== this.state.activeAccountId) return; // the user switched accounts mid-flight
     const hit = new Set(ids);
     const patch = (m: MessageSummary): MessageSummary => (hit.has(m.id) ? { ...m, flagged } : m);
@@ -895,6 +949,9 @@ export class ViewModel {
         hit.has(o.summary.id) ? { ...o, summary: patch(o.summary) } : o,
       ),
     });
+    // The Flagged list is derived from the cache: unflagging drops the row and
+    // a rollback brings it back.
+    if (this.state.flaggedActive) await this.reloadList();
   }
 
   async openDraftForEdit(messageId: string): Promise<void> {
@@ -980,6 +1037,7 @@ export class ViewModel {
   async refresh(): Promise<void> {
     this.syncPrefs();
     if (this.state.activeAccountId) await this.deps.sync.syncAccount(this.state.activeAccountId);
+    if (this.state.flaggedActive) await this.fetchFlagged(false);
   }
 
   async runSearch(query: string): Promise<void> {
