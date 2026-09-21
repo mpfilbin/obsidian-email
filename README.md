@@ -4,8 +4,10 @@ A full **Microsoft 365** email client inside an Obsidian view. Desktop only.
 
 Sub-project 1 shipped reading and search. Sub-project 2 (this) adds **reply,
 reply-all, forward, new messages, and drafts** — composed with a rich-text
-editor, sent through Microsoft Graph. Other mailbox actions (archive,
-delete, mark read/unread, move, flag, unified inbox) are still not
+editor, sent through Microsoft Graph. **Flagging** (synced to Outlook) and
+**pinning** (local to the plugin, not visible in Outlook) are supported, with
+a virtual Flagged view in the folder list. Other mailbox actions (archive,
+delete, mark read/unread, move, unified inbox) are still not
 supported — see the [Roadmap](#roadmap).
 
 ## What it is
@@ -146,5 +148,5 @@ Design spec and implementation plan:
 
 ## Roadmap
 
-- **SP3** — mark read/unread, flag, move to custom folders, bulk selection, and a unified inbox across accounts.
+- **SP3** — mark read/unread, move to custom folders, bulk selection, and a unified inbox across accounts.
 - **SP4** — polish: keyboard navigation, notifications, performance, settings UX.
