@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { FakeProvider } from "../../src/providers/fake-provider";
 import { runMailProviderContract } from "../../src/providers/provider-contract";
 import { runContactsProviderContract } from "../../src/providers/contacts-contract";
-import type { OutgoingMessage } from "../../src/providers/types";
+import type { MessageSummary, OutgoingMessage } from "../../src/providers/types";
 
 runMailProviderContract("FakeProvider", async () => {
   const provider = new FakeProvider({
@@ -178,5 +178,41 @@ describe("FakeProvider contacts hooks", () => {
     p.contactsError = new Error("nope");
     await expect(p.listContacts()).rejects.toThrow("nope");
     await expect(p.createContact({ displayName: "x", emails: [], businessPhones: [], homePhones: [] })).rejects.toThrow("nope");
+  });
+});
+
+describe("FakeProvider flags", () => {
+  const msg = (id: string, date: number, flagged = false): MessageSummary => ({
+    id, threadId: id, mailboxIds: ["INBOX"], from: { email: "s@x.com" }, to: [], cc: [],
+    subject: id, snippet: "", date, unread: false, hasAttachments: false, flagged,
+  });
+
+  it("setMessageFlag flips the flag and syncSince reports it as an upsert", async () => {
+    const p = new FakeProvider({ mailboxes: [{ id: "INBOX", name: "Inbox", kind: "inbox" }] });
+    p.addMessage(msg("m1", 1));
+    const cursor = await p.initialCursor();
+    await p.setMessageFlag("m1", true);
+    const result = await p.syncSince(cursor);
+    expect(result.upserts.find((u) => u.id === "m1")).toMatchObject({ flagged: true });
+    await p.setMessageFlag("m1", false);
+    expect((await p.listFlaggedMessages()).items).toEqual([]);
+  });
+
+  it("setMessageFlag rejects for an unknown message", async () => {
+    await expect(new FakeProvider().setMessageFlag("nope", true)).rejects.toThrow(/no such message/);
+  });
+
+  it("listFlaggedMessages returns only flagged messages, newest first, paged", async () => {
+    const p = new FakeProvider();
+    p.pageSize = 2;
+    p.addMessage(msg("a", 1, true));
+    p.addMessage(msg("b", 2, false));
+    p.addMessage(msg("c", 3, true));
+    p.addMessage(msg("d", 4, true));
+    const first = await p.listFlaggedMessages();
+    expect(first.items.map((m) => m.id)).toEqual(["d", "c"]);
+    const second = await p.listFlaggedMessages(first.nextPageToken);
+    expect(second.items.map((m) => m.id)).toEqual(["a"]);
+    expect(second.nextPageToken).toBeUndefined();
   });
 });

@@ -422,3 +422,47 @@ describe("GraphProvider contacts", () => {
     await expect(make(gone).deleteContact("C1")).resolves.toBeUndefined();
   });
 });
+
+describe("GraphProvider flags", () => {
+  const make = (req: ReturnType<typeof vi.fn>) =>
+    new GraphProvider({ http: { request: req }, getAccessToken: async () => "at" });
+
+  it("setMessageFlag PATCHes the follow-up flag on the message", async () => {
+    const req = vi.fn(async () => resp({}));
+    const p = make(req);
+    await p.setMessageFlag("M1", true);
+    await p.setMessageFlag("M1", false);
+    expect(req.mock.calls[0][0].url).toBe("https://graph.microsoft.com/v1.0/me/messages/M1");
+    expect(req.mock.calls[0][0].method).toBe("PATCH");
+    expect(JSON.parse(req.mock.calls[0][0].body)).toEqual({ flag: { flagStatus: "flagged" } });
+    expect(JSON.parse(req.mock.calls[1][0].body)).toEqual({ flag: { flagStatus: "notFlagged" } });
+  });
+
+  it("a 403 on setMessageFlag is an AuthError (mail semantics, not contacts)", async () => {
+    const req = vi.fn(async () => resp({}, 403));
+    await expect(make(req).setMessageFlag("M1", true)).rejects.toBeInstanceOf(AuthError);
+  });
+
+  it("listFlaggedMessages filters server-side, selects parentFolderId, and maps real mailbox ids", async () => {
+    const req = vi.fn(async () => resp({
+      value: [{
+        id: "F1", conversationId: "c1", subject: "Follow up", parentFolderId: "AAAArchive",
+        receivedDateTime: "2026-01-01T00:00:00Z", isRead: true, flag: { flagStatus: "flagged" },
+      }],
+      "@odata.nextLink": "https://graph.microsoft.com/v1.0/me/messages?$skiptoken=P2",
+    }));
+    const page = await make(req).listFlaggedMessages();
+    const url: string = req.mock.calls[0][0].url;
+    expect(url).toContain("/me/messages?$filter=flag/flagStatus%20eq%20'flagged'");
+    expect(url).toContain("parentFolderId");
+    expect(page.items).toHaveLength(1);
+    expect(page.items[0]).toMatchObject({ id: "F1", threadId: "c1", mailboxIds: ["AAAArchive"], flagged: true });
+    expect(page.nextPageToken).toBe("https://graph.microsoft.com/v1.0/me/messages?$skiptoken=P2");
+  });
+
+  it("listFlaggedMessages follows a page token URL verbatim", async () => {
+    const req = vi.fn(async () => resp({ value: [] }));
+    await make(req).listFlaggedMessages("https://graph.microsoft.com/v1.0/me/messages?$skiptoken=P2");
+    expect(req.mock.calls[0][0].url).toBe("https://graph.microsoft.com/v1.0/me/messages?$skiptoken=P2");
+  });
+});
