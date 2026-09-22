@@ -265,6 +265,604 @@ describe("ViewModel", () => {
     expect(ctx.vm.getState().threads.map((t) => t.threadId)).toEqual(["t2", "t1"]);
   });
 
+  describe("flagging", () => {
+    type Ctx = Awaited<ReturnType<typeof build>>;
+    async function seed(c: Ctx, msgs: Array<[string, string, number]>) {
+      await c.cache.putMailboxes("a1", await c.provider.listMailboxes());
+      await c.cache.upsertMessages("a1", msgs.map(([id, t, d]) => sum(id, t, d)));
+      for (const [id, t, d] of msgs) c.provider.addMessage(sum(id, t, d));
+      await c.vm.init();
+    }
+    const flaggedInCache = async (c: Ctx, thread: string) =>
+      (await c.cache.getThreadMessages("a1", thread)).map((m) => m.flagged);
+
+    it("a thread row is flagged when any of its messages is", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1], ["m2", "t1", 2]]);
+      expect(c.vm.getState().threads[0].flagged).toBe(false);
+      await c.cache.patchMessages("a1", [{ id: "m1", mailboxIds: ["INBOX"], flagged: true }]);
+      await c.vm.selectMailbox("INBOX");
+      expect(c.vm.getState().threads[0].flagged).toBe(true);
+    });
+
+    it("toggleMessageFlag flags optimistically — before the server answers — then confirms", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1]]);
+      await c.vm.openThread("t1");
+      let release!: () => void;
+      const spy = vi.spyOn(c.provider, "setMessageFlag").mockImplementation(
+        () => new Promise<void>((res) => { release = res; }),
+      );
+      const pending = c.vm.toggleMessageFlag("m1");
+      await vi.waitFor(() => expect(c.vm.getState().openMessages[0].summary.flagged).toBe(true));
+      expect(c.vm.getState().threads[0].flagged).toBe(true);
+      expect(await flaggedInCache(c, "t1")).toEqual([true]);
+      expect(spy).toHaveBeenCalledWith("m1", true);
+      release();
+      await pending;
+      expect(c.vm.getState().openMessages[0].summary.flagged).toBe(true);
+      expect(c.showNotice).not.toHaveBeenCalled();
+    });
+
+    it("toggleMessageFlag clears an already-flagged message", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1]]);
+      await c.provider.setMessageFlag("m1", true);
+      await c.cache.patchMessages("a1", [{ id: "m1", mailboxIds: ["INBOX"], flagged: true }]);
+      await c.vm.openThread("t1");
+      const spy = vi.spyOn(c.provider, "setMessageFlag");
+      await c.vm.toggleMessageFlag("m1");
+      expect(spy).toHaveBeenCalledWith("m1", false);
+      expect(c.vm.getState().openMessages[0].summary.flagged).toBe(false);
+      expect(await flaggedInCache(c, "t1")).toEqual([false]);
+    });
+
+    it("rolls back the cache and the view and toasts when the server rejects", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1]]);
+      await c.vm.openThread("t1");
+      vi.spyOn(c.provider, "setMessageFlag").mockRejectedValue(new Error("boom"));
+      await c.vm.toggleMessageFlag("m1");
+      expect(c.vm.getState().openMessages[0].summary.flagged).toBe(false);
+      expect(c.vm.getState().threads[0].flagged).toBe(false);
+      expect(await flaggedInCache(c, "t1")).toEqual([false]);
+      expect(c.showNotice).toHaveBeenCalledWith("boom");
+    });
+
+    it("toggleThreadFlag clears the flagged ones when only some are flagged (matching the row's label)", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1], ["m2", "t1", 2]]);
+      await c.cache.patchMessages("a1", [{ id: "m1", mailboxIds: ["INBOX"], flagged: true }]);
+      await c.vm.selectMailbox("INBOX");
+      // The row says "flagged" (any message flagged), so the click must UNFLAG.
+      expect(c.vm.getState().threads[0].flagged).toBe(true);
+      const spy = vi.spyOn(c.provider, "setMessageFlag");
+      await c.vm.toggleThreadFlag("t1");
+      expect(spy.mock.calls).toEqual([["m1", false]]);
+      expect(await flaggedInCache(c, "t1")).toEqual([false, false]);
+      expect(c.vm.getState().threads[0].flagged).toBe(false);
+    });
+
+    it("toggleThreadFlag flags every message when none is flagged", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1], ["m2", "t1", 2]]);
+      expect(c.vm.getState().threads[0].flagged).toBe(false);
+      const spy = vi.spyOn(c.provider, "setMessageFlag");
+      await c.vm.toggleThreadFlag("t1");
+      expect(spy.mock.calls).toEqual([["m1", true], ["m2", true]]);
+      expect(await flaggedInCache(c, "t1")).toEqual([true, true]);
+      expect(c.vm.getState().threads[0].flagged).toBe(true);
+    });
+
+    it("toggleThreadFlag clears every message when they are all flagged", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1], ["m2", "t1", 2]]);
+      await c.cache.patchMessages("a1", [
+        { id: "m1", mailboxIds: ["INBOX"], flagged: true }, { id: "m2", mailboxIds: ["INBOX"], flagged: true },
+      ]);
+      await c.vm.selectMailbox("INBOX");
+      const spy = vi.spyOn(c.provider, "setMessageFlag");
+      await c.vm.toggleThreadFlag("t1");
+      expect(spy.mock.calls.map((a) => a[1])).toEqual([false, false]);
+      expect(await flaggedInCache(c, "t1")).toEqual([false, false]);
+      expect(c.vm.getState().threads[0].flagged).toBe(false);
+    });
+
+    it("a partial thread failure rolls back only the failed messages and reports N of M", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1], ["m2", "t1", 2]]);
+      vi.spyOn(c.provider, "setMessageFlag").mockImplementation(async (id: string) => {
+        if (id === "m2") throw new Error("boom");
+      });
+      await c.vm.toggleThreadFlag("t1");
+      expect(await flaggedInCache(c, "t1")).toEqual([true, false]);
+      expect(c.showNotice).toHaveBeenCalledWith(expect.stringMatching(/1 of 2/));
+    });
+
+    it("a total thread failure rolls everything back and toasts the reason", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1], ["m2", "t1", 2]]);
+      vi.spyOn(c.provider, "setMessageFlag").mockRejectedValue(new AuthError("expired"));
+      await c.vm.toggleThreadFlag("t1");
+      expect(await flaggedInCache(c, "t1")).toEqual([false, false]);
+      expect(c.vm.getState().threads[0].flagged).toBe(false);
+      expect(c.showNotice).toHaveBeenCalledWith(expect.stringMatching(/reauthentication/i));
+    });
+
+    it("a rollback never resurrects a message deleted while the PATCH was in flight", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1]]);
+      await c.vm.openThread("t1");
+      // The user archives/deletes the thread (or another client does) between
+      // the optimistic cache write and the server's rejection.
+      vi.spyOn(c.provider, "setMessageFlag").mockImplementation(async (id: string) => {
+        await c.cache.deleteMessages("a1", [id]);
+        throw new Error("boom");
+      });
+      await c.vm.toggleThreadFlag("t1");
+      expect(await c.cache.getThreadMessages("a1", "t1")).toEqual([]);
+      // ...and not under a fabricated thread either: `patchMessages`' placeholder
+      // branch would re-create it as a blank row (threadId = its own id, subject
+      // "(no subject)", date = now) that sorts to the top of the Inbox.
+      expect(await c.cache.getThreadMessages("a1", "m1")).toEqual([]);
+      expect(await c.cache.listMailboxMessages("a1", "INBOX", { limit: 100 })).toEqual([]);
+      expect(c.showNotice).toHaveBeenCalledWith("boom");
+    });
+
+    it("a rollback doesn't undo a move that landed while the PATCH was in flight", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1]]);
+      await c.vm.openThread("t1");
+      vi.spyOn(c.provider, "setMessageFlag").mockImplementation(async (id: string) => {
+        // A sync delta (or a concurrent move) relocates the message mid-flight.
+        await c.cache.patchMessages("a1", [{ id, mailboxIds: ["SENT"] }]);
+        throw new Error("boom");
+      });
+      await c.vm.toggleThreadFlag("t1");
+      const [stored] = await c.cache.getThreadMessages("a1", "t1");
+      expect(stored.mailboxIds).toEqual(["SENT"]);
+      expect(stored.flagged).toBe(false); // the flag itself still rolled back
+    });
+
+    it("updates a search-result row in place (search results aren't cache-derived)", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1]]);
+      c.provider.setSearchResults("q", [sum("m1", "t1", 1)]);
+      await c.vm.runSearch("q");
+      await c.vm.toggleThreadFlag("t1");
+      expect(c.vm.getState().search.active).toBe(true);
+      expect(c.vm.getState().threads[0].flagged).toBe(true);
+    });
+
+    it("toggleMessageFlag for a message that isn't open toasts instead of throwing", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1]]);
+      await c.vm.toggleMessageFlag("nope");
+      expect(c.showNotice).toHaveBeenCalledWith(expect.stringMatching(/couldn't find/i));
+    });
+
+    it("toggleThreadFlag for an unknown thread toasts instead of throwing", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1]]);
+      await c.vm.toggleThreadFlag("nope");
+      expect(c.showNotice).toHaveBeenCalledWith(expect.stringMatching(/couldn't find/i));
+    });
+  });
+
+  describe("pinning", () => {
+    type Ctx = Awaited<ReturnType<typeof build>>;
+    async function seed(c: Ctx, msgs: Array<[string, string, number]>) {
+      await c.cache.putMailboxes("a1", await c.provider.listMailboxes());
+      await c.cache.upsertMessages("a1", msgs.map(([id, t, d]) => sum(id, t, d)));
+      for (const [id, t, d] of msgs) c.provider.addMessage(sum(id, t, d));
+    }
+
+    it("a pinned thread sorts first even when older, and is marked pinned", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1], ["m2", "t2", 2], ["m3", "t3", 3]]);
+      await c.settings.pin("a1", "t1");
+      await c.vm.init();
+      const threads = c.vm.getState().threads;
+      expect(threads.map((t) => t.threadId)).toEqual(["t1", "t3", "t2"]);
+      expect(threads.map((t) => t.pinned)).toEqual([true, false, false]);
+      expect(c.vm.getState().pinnedThreadIds).toEqual(["t1"]);
+    });
+
+    it("several pinned threads keep newest-activity order among themselves", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1], ["m2", "t2", 2], ["m3", "t3", 3]]);
+      await c.settings.pin("a1", "t1");
+      await c.settings.pin("a1", "t2");
+      await c.vm.init();
+      expect(c.vm.getState().threads.map((t) => t.threadId)).toEqual(["t2", "t1", "t3"]);
+    });
+
+    it("toggleThreadPin pins and unpins, persists, and re-sorts the list", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1], ["m2", "t2", 2]]);
+      await c.vm.init();
+      expect(c.vm.getState().threads.map((t) => t.threadId)).toEqual(["t2", "t1"]);
+      await c.vm.toggleThreadPin("t1");
+      expect(c.settings.isPinned("a1", "t1")).toBe(true);
+      expect(c.vm.getState().threads.map((t) => t.threadId)).toEqual(["t1", "t2"]);
+      expect(c.vm.getState().pinnedThreadIds).toEqual(["t1"]);
+      await c.vm.toggleThreadPin("t1");
+      expect(c.settings.isPinned("a1", "t1")).toBe(false);
+      expect(c.vm.getState().threads.map((t) => t.threadId)).toEqual(["t2", "t1"]);
+      expect(c.vm.getState().pinnedThreadIds).toEqual([]);
+    });
+
+    it("a pinned thread older than the loaded page still appears, at the top", async () => {
+      const c = await build();
+      const many: Array<[string, string, number]> = Array.from({ length: 205 }, (_, i) => [`n${i}`, `tn${i}`, 1000 + i]);
+      await seed(c, [["old", "t-old", 1], ...many]);
+      await c.settings.pin("a1", "t-old");
+      await c.vm.init();
+      const threads = c.vm.getState().threads;
+      expect(threads[0].threadId).toBe("t-old");
+      expect(threads).toHaveLength(201); // the 200 newest + the pinned extra
+    });
+
+    it("a pinned thread appears only in mailboxes that hold its messages", async () => {
+      const c = await build();
+      await c.cache.putMailboxes("a1", await c.provider.listMailboxes());
+      await c.cache.upsertMessages("a1", [
+        sum("m1", "t1", 5),
+        { ...sum("m2", "t2", 1), mailboxIds: ["SENT"] },
+      ]);
+      await c.settings.pin("a1", "t2");
+      await c.vm.init();
+      expect(c.vm.getState().threads.map((t) => t.threadId)).toEqual(["t1"]);
+      await c.vm.selectMailbox("SENT");
+      expect(c.vm.getState().threads.map((t) => t.threadId)).toEqual(["t2"]);
+    });
+
+    it("search results show the pin but are not reordered", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1], ["m2", "t2", 2]]);
+      await c.settings.pin("a1", "t1");
+      await c.vm.init();
+      c.provider.setSearchResults("q", [sum("m2", "t2", 2), sum("m1", "t1", 1)]);
+      await c.vm.runSearch("q");
+      const threads = c.vm.getState().threads;
+      expect(threads.map((t) => t.threadId)).toEqual(["t2", "t1"]);
+      expect(threads.find((t) => t.threadId === "t1")!.pinned).toBe(true);
+    });
+
+    it("toggling a pin while searching updates the pin mark in place", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1]]);
+      await c.vm.init();
+      c.provider.setSearchResults("q", [sum("m1", "t1", 1)]);
+      await c.vm.runSearch("q");
+      await c.vm.toggleThreadPin("t1");
+      expect(c.vm.getState().search.active).toBe(true);
+      expect(c.vm.getState().threads[0].pinned).toBe(true);
+    });
+
+    it("a failed save reverts the pin and toasts", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1]]);
+      await c.vm.init();
+      vi.spyOn(c.settings, "pin").mockRejectedValue(new Error("disk full"));
+      await c.vm.toggleThreadPin("t1");
+      expect(c.vm.getState().pinnedThreadIds).toEqual([]);
+      expect(c.vm.getState().threads[0].pinned).toBe(false);
+      expect(c.showNotice).toHaveBeenCalledWith(expect.stringContaining("disk full"));
+    });
+
+    it("pins are per account: another account's pin doesn't mark this one's thread", async () => {
+      const c = await build();
+      await seed(c, [["m1", "t1", 1]]);
+      await c.settings.pin("other-account", "t1");
+      await c.vm.init();
+      expect(c.vm.getState().threads[0].pinned).toBe(false);
+      expect(c.vm.getState().pinnedThreadIds).toEqual([]);
+    });
+  });
+
+  describe("flagged view", () => {
+    type Ctx = Awaited<ReturnType<typeof build>>;
+    const flaggedMsg = (id: string, thread: string, date: number, extra: Partial<MessageSummary> = {}): MessageSummary =>
+      ({ ...sum(id, thread, date), flagged: true, ...extra });
+    /** `cached` rows go into the cache; `server` rows into the fake provider. */
+    async function seed(c: Ctx, cached: MessageSummary[], server: MessageSummary[] = cached) {
+      await c.cache.putMailboxes("a1", [
+        ...(await c.provider.listMailboxes()),
+        { id: "TRASH", name: "Deleted Items", kind: "trash" },
+      ]);
+      await c.cache.upsertMessages("a1", cached);
+      for (const m of server) c.provider.addMessage(m);
+    }
+
+    it("selectFlagged lists cached flagged threads across mailboxes, newest first, excluding unflagged and Trash", async () => {
+      const c = await build();
+      await seed(c, [
+        flaggedMsg("f1", "t1", 5),
+        flaggedMsg("f2", "t2", 9, { mailboxIds: ["SENT"] }),
+        sum("plain", "t3", 10),
+        flaggedMsg("gone", "t4", 12, { mailboxIds: ["TRASH"] }),
+      ]);
+      await c.vm.init();
+      await c.vm.selectFlagged();
+      expect(c.vm.getState().flaggedActive).toBe(true);
+      expect(c.vm.getState().threads.map((t) => t.threadId)).toEqual(["t2", "t1"]);
+    });
+
+    it("fetches the rest from the server and caches it", async () => {
+      const c = await build();
+      await seed(c, [], [flaggedMsg("old", "t-old", 1)]);
+      await c.vm.init();
+      await c.vm.selectFlagged();
+      expect(c.vm.getState().threads.map((t) => t.threadId)).toEqual(["t-old"]);
+      expect((await c.cache.getThreadMessages("a1", "t-old")).map((m) => m.id)).toEqual(["old"]);
+    });
+
+    it("shows the cached rows before the server answers", async () => {
+      const c = await build();
+      await seed(c, [flaggedMsg("f1", "t1", 5)], []);
+      await c.vm.init();
+      let release!: () => void;
+      const spy = vi.spyOn(c.provider, "listFlaggedMessages").mockImplementation(
+        () => new Promise((res) => { release = () => res({ items: [] }); }),
+      );
+      const pending = c.vm.selectFlagged();
+      // The server request is in flight (unanswered), and the cached row is already showing.
+      await vi.waitFor(() => expect(spy).toHaveBeenCalled());
+      expect(c.vm.getState().threads.map((t) => t.threadId)).toEqual(["t1"]);
+      release();
+      await pending;
+      expect(c.vm.getState().loadingList).toBe(false);
+    });
+
+    it("offline: shows the cached list, makes no request, and stays quiet", async () => {
+      const c = await build();
+      await seed(c, [flaggedMsg("f1", "t1", 5)]);
+      // Same construction the existing offline-search test uses (see `offlineVm`
+      // near the top of this file): the shared deps with `isOnline: () => false`.
+      const offline = new ViewModel({
+        cache: c.cache, sync: c.sync, settings: c.settings, getProvider: () => c.provider, isOnline: () => false,
+        openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {},
+        promptFolderName: () => {}, promptFolderRename: vi.fn(), pickNoteAttachment: vi.fn(), showNotice: c.showNotice,
+        ...contactDeps(() => c.provider),
+      });
+      const spy = vi.spyOn(c.provider, "listFlaggedMessages");
+      await offline.init();
+      await offline.selectFlagged();
+      expect(offline.getState().threads.map((t) => t.threadId)).toEqual(["t1"]);
+      expect(spy).not.toHaveBeenCalled();
+      expect(c.showNotice).not.toHaveBeenCalled();
+    });
+
+    it("a server failure keeps the cached list and toasts", async () => {
+      const c = await build();
+      await seed(c, [flaggedMsg("f1", "t1", 5)]);
+      await c.vm.init();
+      vi.spyOn(c.provider, "listFlaggedMessages").mockRejectedValue(new Error("boom"));
+      await c.vm.selectFlagged();
+      expect(c.vm.getState().threads.map((t) => t.threadId)).toEqual(["t1"]);
+      expect(c.showNotice).toHaveBeenCalledWith(expect.stringMatching(/couldn't load flagged/i));
+    });
+
+    it("Load more follows the server's page token", async () => {
+      const c = await build();
+      c.provider.pageSize = 2;
+      await seed(c, [], [flaggedMsg("a", "ta", 3), flaggedMsg("b", "tb", 2), flaggedMsg("c", "tc", 1)]);
+      await c.vm.init();
+      await c.vm.selectFlagged();
+      expect(c.vm.getState().threads).toHaveLength(2);
+      expect(c.vm.getState().hasMore).toBe(true);
+      await c.vm.loadMore();
+      expect(c.vm.getState().threads).toHaveLength(3);
+      expect(c.vm.getState().hasMore).toBe(false);
+    });
+
+    it("unflagging inside the view removes the row; a server failure puts it back", async () => {
+      const c = await build();
+      await seed(c, [flaggedMsg("f1", "t1", 5)]);
+      await c.vm.init();
+      await c.vm.selectFlagged();
+      await c.vm.toggleThreadFlag("t1");
+      expect(c.vm.getState().threads).toEqual([]);
+
+      await c.vm.toggleThreadFlag("t1"); // flag it again: the row returns
+      expect(c.vm.getState().threads.map((t) => t.threadId)).toEqual(["t1"]);
+
+      // A rejected unflag is rolled back in the cache, and the list re-derives.
+      vi.spyOn(c.provider, "setMessageFlag").mockRejectedValue(new Error("boom"));
+      await c.vm.toggleThreadFlag("t1");
+      expect(c.vm.getState().threads.map((t) => t.threadId)).toEqual(["t1"]); // rolled back
+    });
+
+    it("a partially flagged thread unflags (not flags) from a row that only shows the flagged subset", async () => {
+      const c = await build();
+      // t1 holds one flagged and one unflagged message; only the flagged one
+      // is part of the Flagged view's row, and the row reads as flagged.
+      await seed(c, [flaggedMsg("f1", "t1", 5), sum("u1", "t1", 6)]);
+      await c.vm.init();
+      await c.vm.selectFlagged();
+      expect(c.vm.getState().threads.map((t) => t.threadId)).toEqual(["t1"]);
+      expect(c.vm.getState().threads[0].messages.map((m) => m.id)).toEqual(["f1"]);
+      expect(c.vm.getState().threads[0].flagged).toBe(true);
+
+      const spy = vi.spyOn(c.provider, "setMessageFlag");
+      await c.vm.toggleThreadFlag("t1");
+      expect(spy.mock.calls).toEqual([["f1", false]]);
+      expect((await c.cache.getThreadMessages("a1", "t1")).map((m) => m.flagged)).toEqual([false, false]);
+      expect(c.vm.getState().threads).toEqual([]);
+    });
+
+    it("pinned threads still float to the top of the flagged list", async () => {
+      const c = await build();
+      await seed(c, [flaggedMsg("f1", "t1", 1), flaggedMsg("f2", "t2", 9)]);
+      await c.settings.pin("a1", "t1");
+      await c.vm.init();
+      await c.vm.selectFlagged();
+      expect(c.vm.getState().threads.map((t) => t.threadId)).toEqual(["t1", "t2"]);
+    });
+
+    it("selectMailbox leaves the view and lists that mailbox again", async () => {
+      const c = await build();
+      await seed(c, [flaggedMsg("f1", "t1", 5), sum("m2", "t2", 6)]);
+      await c.vm.init();
+      await c.vm.selectFlagged();
+      await c.vm.selectMailbox("INBOX");
+      expect(c.vm.getState().flaggedActive).toBe(false);
+      expect(c.vm.getState().threads.map((t) => t.threadId).sort()).toEqual(["t1", "t2"]);
+    });
+
+    it("selectFlagged clears an active search and a composer, like selectMailbox", async () => {
+      const c = await build();
+      await seed(c, [flaggedMsg("f1", "t1", 5)]);
+      await c.vm.init();
+      c.provider.setSearchResults("q", [sum("m9", "t9", 1)]);
+      await c.vm.runSearch("q");
+      c.vm.openNewMessage();
+      await c.vm.selectFlagged();
+      expect(c.vm.getState().search.active).toBe(false);
+      expect(c.vm.getState().composer).toBeNull();
+    });
+
+    it("selectFlagged leaves the open thread alone", async () => {
+      const c = await build();
+      await seed(c, [flaggedMsg("f1", "t1", 5), sum("m2", "t2", 6)]);
+      await c.vm.init();
+      await c.vm.openThread("t2");
+      const before = c.vm.getState().openMessages.map((m) => m.summary.id);
+      expect(before).toEqual(["m2"]);
+      await c.vm.selectFlagged();
+      expect(c.vm.getState().openThreadId).toBe("t2");
+      expect(c.vm.getState().openMessages.map((m) => m.summary.id)).toEqual(before);
+    });
+
+    it("leaving the view while the server request is in flight does not strand loading or paint flagged rows", async () => {
+      const c = await build();
+      await seed(c, [flaggedMsg("f1", "t1", 5, { mailboxIds: ["SENT"] }), sum("m2", "t2", 6)], []);
+      await c.vm.init();
+      let release!: () => void;
+      const spy = vi.spyOn(c.provider, "listFlaggedMessages").mockImplementation(
+        () => new Promise((res) => {
+          release = () => res({ items: [flaggedMsg("late", "t-late", 1, { mailboxIds: ["SENT"] })], nextPageToken: "more" });
+        }),
+      );
+      const p = c.vm.selectFlagged();
+      await vi.waitFor(() => expect(spy).toHaveBeenCalled());
+      await c.vm.selectMailbox("INBOX");
+      release();
+      await p;
+      const s = c.vm.getState();
+      expect(s.loadingList).toBe(false);
+      expect(s.flaggedActive).toBe(false);
+      expect(s.threads.map((t) => t.threadId)).toEqual(["t2"]); // INBOX only: no flagged (SENT) rows painted in
+      expect((await c.cache.getThreadMessages("a1", "t-late")).map((m) => m.id)).toEqual(["late"]);
+    });
+
+    it("leaving the view before the request starts never sends it and leaves loading cleared", async () => {
+      const c = await build();
+      await seed(c, [flaggedMsg("f1", "t1", 5)]);
+      await c.vm.init();
+      const spy = vi.spyOn(c.provider, "listFlaggedMessages");
+      // Hold selectFlagged's cache read open so the whole INBOX reload finishes first.
+      let releaseCache!: () => void;
+      const realList = c.cache.listFlaggedMessages.bind(c.cache);
+      vi.spyOn(c.cache, "listFlaggedMessages").mockImplementation(
+        (acct) => new Promise((res) => { releaseCache = () => res(realList(acct)); }),
+      );
+      const p = c.vm.selectFlagged();
+      await c.vm.selectMailbox("INBOX");
+      releaseCache();
+      await p;
+      expect(c.vm.getState().loadingList).toBe(false);
+      expect(c.vm.getState().flaggedActive).toBe(false);
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("leaving for an account with no cached mailboxes mid-fetch still clears loading", async () => {
+      const c = await build();
+      await seed(c, [flaggedMsg("f1", "t1", 5)], []);
+      await c.vm.init();
+      let release!: () => void;
+      const spy = vi.spyOn(c.provider, "listFlaggedMessages").mockImplementation(
+        () => new Promise((res) => { release = () => res({ items: [] }); }),
+      );
+      const p = c.vm.selectFlagged();
+      await vi.waitFor(() => expect(spy).toHaveBeenCalled());
+      expect(c.vm.getState().loadingList).toBe(true);
+      // "a2" has no cached mailboxes, so there is no active mailbox to fall
+      // back to and no flagged view either — reloadList has nothing to load.
+      await c.vm.selectAccount("a2");
+      expect(c.vm.getState().activeMailboxId).toBeNull();
+      expect(c.vm.getState().flaggedActive).toBe(false);
+      release();
+      await p;
+      expect(c.vm.getState().loadingList).toBe(false);
+    });
+
+    it("flagging while searching inside the view keeps the search results on screen", async () => {
+      const c = await build();
+      await seed(c, [flaggedMsg("f1", "t1", 5), sum("m9", "t9", 1)]);
+      await c.vm.init();
+      await c.vm.selectFlagged();
+      c.provider.setSearchResults("q", [sum("m9", "t9", 1)]);
+      await c.vm.runSearch("q");
+      expect(c.vm.getState().threads.map((t) => t.threadId)).toEqual(["t9"]);
+
+      await c.vm.toggleThreadFlag("t9");
+      expect(c.vm.getState().search.active).toBe(true);
+      // Still the search hits, not the (now two-row) flagged list.
+      expect(c.vm.getState().threads.map((t) => t.threadId)).toEqual(["t9"]);
+      expect(c.vm.getState().threads[0].flagged).toBe(true);
+    });
+
+    it("refreshing while searching inside the view keeps the search results on screen", async () => {
+      const c = await build();
+      await seed(c, [flaggedMsg("f1", "t1", 5), sum("m9", "t9", 1)]);
+      await c.vm.init();
+      await c.vm.selectFlagged();
+      c.provider.setSearchResults("q", [sum("m9", "t9", 1)]);
+      await c.vm.runSearch("q");
+
+      await c.vm.refresh();
+      expect(c.vm.getState().search.active).toBe(true);
+      expect(c.vm.getState().threads.map((t) => t.threadId)).toEqual(["t9"]);
+      expect(c.vm.getState().loadingList).toBe(false);
+    });
+
+    it("clearing a search made inside the view returns to the flagged list", async () => {
+      const c = await build();
+      await seed(c, [flaggedMsg("f1", "t1", 5)]);
+      await c.vm.init();
+      await c.vm.selectFlagged();
+      c.provider.setSearchResults("q", [sum("m9", "t9", 1)]);
+      await c.vm.runSearch("q");
+      await c.vm.clearSearch();
+      expect(c.vm.getState().flaggedActive).toBe(true);
+      expect(c.vm.getState().threads.map((t) => t.threadId)).toEqual(["t1"]);
+    });
+
+    it("a folder vanishing during sync does not knock the user out of the view", async () => {
+      const c = await build();
+      await seed(c, [flaggedMsg("f1", "t1", 5)]);
+      await c.vm.init();
+      await c.vm.selectFlagged();
+      await c.cache.deleteMailboxes("a1", ["INBOX"]); // the previously active real mailbox disappears
+      c.sync.changes.emit({ accountId: "a1", mailboxIds: [], reason: "incremental" });
+      await new Promise((r) => setTimeout(r, 30));
+      expect(c.vm.getState().flaggedActive).toBe(true);
+      expect(c.vm.getState().threads.map((t) => t.threadId)).toEqual(["t1"]);
+    });
+
+    it("refresh re-fetches the flagged list", async () => {
+      const c = await build();
+      await seed(c, [flaggedMsg("f1", "t1", 5)]);
+      await c.vm.init();
+      await c.vm.selectFlagged();
+      const spy = vi.spyOn(c.provider, "listFlaggedMessages");
+      await c.vm.refresh();
+      expect(spy).toHaveBeenCalledOnce();
+    });
+  });
+
   describe("contacts", () => {
     const ada = { id: "C1", displayName: "Ada Lovelace", emails: [{ email: "ada@x.com" }], businessPhones: [], homePhones: [], companyName: "Engines" };
 

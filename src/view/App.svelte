@@ -2,7 +2,7 @@
   import type { ViewModel, ViewState } from "./view-model";
   import Ribbon from "./ribbon/Ribbon.svelte";
   import type { RibbonContext } from "./ribbon/registry";
-  import type { NoteCommands } from "./mail-view";
+  import type { NoteCommands, ThreadMenuActions } from "./mail-view";
   import AccountSwitcher from "./components/AccountSwitcher.svelte";
   import MailboxList from "./components/MailboxList.svelte";
   import MessageList from "./components/MessageList.svelte";
@@ -15,15 +15,14 @@
   import Resizer from "./components/Resizer.svelte";
   import { clampPaneWidths, loadPaneWidths, savePaneWidths, type PaneWidths } from "./pane-layout";
   import { showSyncingToast } from "./refresh-toast";
-  import type { Mailbox } from "../providers/types";
 
   let { vm, onAddAccount, onThreadContextMenu, onMailboxContextMenu, noteCommands }: {
     vm: ViewModel;
     onAddAccount: () => void;
     /** Shows the host's native context menu (built in main.ts, since it
-     *  needs Obsidian's real Menu class) with a "Move" command; `onMove`
-     *  is called back with whichever folder the user picks. */
-    onThreadContextMenu: (evt: MouseEvent, candidates: Mailbox[], onMove: (destinationMailboxId: string) => void) => void;
+     *  needs Obsidian's real Menu class) with "Flag", "Pin" and "Move" commands;
+     *  `actions.onMove` is called back with whichever folder the user picks. */
+    onThreadContextMenu: (evt: MouseEvent, actions: ThreadMenuActions) => void;
     /** Shows the host's native context menu with "Rename" and "Delete"
      *  commands; `onRename`/`onDelete` are called back if confirmed. */
     onMailboxContextMenu: (
@@ -54,16 +53,16 @@
     return () => toast.hide();
   });
 
-  const isDraftsMailbox = $derived(
-    state.mailboxes.find((m) => m.id === state.activeMailboxId)?.kind === "drafts",
+  const activeMailbox = $derived(
+    state.flaggedActive ? null : (state.mailboxes.find((m) => m.id === state.activeMailboxId) ?? null),
   );
-  const isArchiveMailbox = $derived(
-    state.mailboxes.find((m) => m.id === state.activeMailboxId)?.kind === "archive",
+  const isDraftsMailbox = $derived(activeMailbox?.kind === "drafts");
+  const isArchiveMailbox = $derived(activeMailbox?.kind === "archive");
+  const isTrashMailbox = $derived(activeMailbox?.kind === "trash");
+  // Move destinations: every folder while the Flagged view is showing.
+  const moveTargets = $derived(
+    state.flaggedActive ? state.mailboxes : state.mailboxes.filter((m) => m.id !== state.activeMailboxId),
   );
-  const isTrashMailbox = $derived(
-    state.mailboxes.find((m) => m.id === state.activeMailboxId)?.kind === "trash",
-  );
-  const activeMailbox = $derived(state.mailboxes.find((m) => m.id === state.activeMailboxId) ?? null);
   const inContacts = $derived(state.mode === "contacts");
   const selectedContact = $derived(state.contacts.find((c) => c.id === state.selectedContactId) ?? null);
   const visibleContacts = $derived(filterContacts(state.contacts, state.contactSearch));
@@ -256,10 +255,10 @@
     hasAccount: state.activeAccountId !== null,
     hasOpenThread: !paneShowsComposer && state.openThreadId !== null,
     hasTargetMessage: !paneShowsComposer && targetMessageId !== null,
+    openThreadFlagged: state.openMessages.some((m) => m.summary.flagged),
+    openThreadPinned: state.openThreadId !== null && state.pinnedThreadIds.includes(state.openThreadId),
     mailboxKind: activeMailbox?.kind ?? null,
-    otherMailboxes: state.mailboxes
-      .filter((m) => m.id !== state.activeMailboxId)
-      .map((m) => ({ id: m.id, name: m.name })),
+    otherMailboxes: moveTargets.map((m) => ({ id: m.id, name: m.name })),
     readingPaneCollapsed,
     syncing: activeSyncing,
     searchOpen,
@@ -317,6 +316,8 @@
         if (id) guarded(() => vm.emailContact(id));
       },
       refreshContacts: () => { void vm.refreshContacts(); },
+      toggleFlag: () => { const id = state.openThreadId; if (id) void vm.toggleThreadFlag(id); },
+      togglePin: () => { const id = state.openThreadId; if (id) void vm.toggleThreadPin(id); },
     },
   });
 
@@ -395,7 +396,9 @@
     {:else}
       <MailboxList
         mailboxes={state.mailboxes}
-        activeId={state.activeMailboxId}
+        activeId={state.flaggedActive ? null : state.activeMailboxId}
+        flaggedActive={state.flaggedActive}
+        onSelectFlagged={() => requestSwitch(() => vm.selectFlagged())}
         onSelect={(id) => requestSwitch(() => vm.selectMailbox(id))}
         onDropThread={(threadId, destinationId) => moveThread(threadId, destinationId)}
         onContextMenu={(evt, id) => {
@@ -436,6 +439,7 @@
         openThreadId={state.openThreadId}
         hasMore={state.hasMore}
         loading={state.loadingList}
+        emptyText={state.flaggedActive ? "No flagged messages" : undefined}
         onOpen={(id) => requestSwitch(() => { vm.openThread(id); setReadingPaneCollapsed(false); })}
         onLoadMore={() => vm.loadMore()}
         {isDraftsMailbox}
@@ -444,11 +448,16 @@
         onArchiveThread={(id) => requestRowAction(() => { const closes = closesOpenThread(id); vm.archiveThread(id); if (closes) setReadingPaneCollapsed(true); })}
         onDeleteThread={(id) => requestRowAction(() => requestDelete("thread", () => { const closes = closesOpenThread(id); vm.deleteThread(id); if (closes) setReadingPaneCollapsed(true); }))}
         onThreadContextMenu={(evt, id) =>
-          onThreadContextMenu(
-            evt,
-            state.mailboxes.filter((m) => m.id !== state.activeMailboxId),
-            (destinationId) => moveThread(id, destinationId),
-          )}
+          onThreadContextMenu(evt, {
+            candidates: moveTargets,
+            onMove: (destinationId) => moveThread(id, destinationId),
+            flagged: state.threads.find((t) => t.threadId === id)?.messages.some((m) => m.flagged) ?? false,
+            onToggleFlag: () => { void vm.toggleThreadFlag(id); },
+            pinned: state.pinnedThreadIds.includes(id),
+            onTogglePin: () => { void vm.toggleThreadPin(id); },
+          })}
+        onToggleFlag={(id) => { void vm.toggleThreadFlag(id); }}
+        onTogglePin={(id) => { void vm.toggleThreadPin(id); }}
       />
     {/if}
   </section>
@@ -477,6 +486,7 @@
       activeComposerMessageId={state.composer?.targetMessageId ?? null}
       composerMode={state.composer?.mode ?? null}
       composerProps={composerFieldProps}
+      onToggleFlag={(id) => { void vm.toggleMessageFlag(id); }}
     />
   {/if}
   {#if pendingSwitch}

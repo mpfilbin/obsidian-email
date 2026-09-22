@@ -1,8 +1,10 @@
 <script lang="ts">
   import type { AttachmentMeta, MessageBody, MessageSummary } from "../../providers/types";
+  import { ACTION_ICON } from "../action-icons";
+  import { icon } from "../icon-action";
   import { renderMessageBody, type RenderHandle } from "../../render/message-renderer";
 
-  let { summary, body, expanded, autoLoadImages, renderDeps, onToggle, onDownload }: {
+  let { summary, body, expanded, autoLoadImages, renderDeps, onToggle, onToggleFlag, onDownload }: {
     summary: MessageSummary;
     body?: MessageBody;
     expanded: boolean;
@@ -10,6 +12,7 @@
     autoLoadImages: boolean;
     renderDeps: { getInlineAttachment: (cid: string) => Promise<Blob | undefined>; openExternal: (url: string) => void };
     onToggle: () => void;
+    onToggleFlag: () => void;
     onDownload: (att: AttachmentMeta) => void;
   } = $props();
 
@@ -46,6 +49,13 @@
           }}>
     <span class="oe-message-from">{summary.from.name || summary.from.email}</span>
     <span class="oe-message-date">{new Date(summary.date).toLocaleString()}</span>
+    <button
+      type="button" class="oe-message-flag" class:is-flagged={summary.flagged}
+      aria-pressed={summary.flagged} aria-label={summary.flagged ? "Remove flag" : "Flag message"}
+      use:icon={ACTION_ICON.flag}
+      onclick={(e) => { e.stopPropagation(); onToggleFlag(); }}
+      onkeydown={(e) => e.stopPropagation()}
+    ></button>
   </header>
   {#if expanded}
     <div class="oe-message-meta">

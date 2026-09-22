@@ -5,16 +5,18 @@
 
   import { THREAD_DRAG_TYPE } from "../drag-types";
 
-  let { thread, isOpen, onOpen, isDraftsMailbox, isArchiveMailbox, isTrashMailbox, onArchive, onDelete, onContextMenu }: {
+  let { thread, isOpen, onOpen, isDraftsMailbox, isArchiveMailbox, isTrashMailbox, onArchive, onDelete, onToggleFlag, onTogglePin, onContextMenu }: {
     thread: ThreadView; isOpen: boolean; onOpen: () => void;
     isDraftsMailbox: boolean; isArchiveMailbox: boolean; isTrashMailbox: boolean;
-    onArchive: () => void; onDelete: () => void;
+    onArchive: () => void; onDelete: () => void; onToggleFlag: () => void; onTogglePin: () => void;
     onContextMenu: (evt: MouseEvent) => void;
   } = $props();
 
   const newest = $derived(thread.messages[thread.messages.length - 1]);
   const sender = $derived(newest.from.name || newest.from.email || "(unknown)");
   const hasAttachments = $derived(thread.messages.some((m) => m.hasAttachments));
+  const flagged = $derived(thread.messages.some((m) => m.flagged));
+  const pinned = $derived(thread.pinned ?? false);
   const showArchive = $derived(!isDraftsMailbox && !isArchiveMailbox && !isTrashMailbox);
 
   function relative(ts: number): string {
@@ -31,6 +33,7 @@
   class="oe-thread-row"
   class:is-unread={thread.unread}
   class:is-open={isOpen}
+  class:is-pinned={pinned}
   onclick={onOpen}
   role="button"
   tabindex="0"
@@ -48,15 +51,23 @@
     <span class="oe-thread-subject">{thread.subject}</span>
     {#if thread.messages.length > 1}<span class="oe-thread-count">{thread.messages.length}</span>{/if}
     {#if hasAttachments}<span class="oe-clip" aria-label="has attachments">📎</span>{/if}
+    {#if flagged}<span class="oe-flag" role="img" aria-label="flagged" use:icon={ACTION_ICON.flag}></span>{/if}
+    {#if pinned}<span class="oe-pin" role="img" aria-label="pinned" use:icon={ACTION_ICON.pin}></span>{/if}
   </div>
   <div class="oe-thread-snippet">{newest.snippet}</div>
   <div class="oe-thread-actions">
+    <button type="button" data-action="flag" aria-pressed={flagged} onclick={(e) => { e.stopPropagation(); onToggleFlag(); }} onkeydown={(e) => e.stopPropagation()}>
+      <span class="oe-action-icon" use:icon={flagged ? ACTION_ICON.unflag : ACTION_ICON.flag}></span>{flagged ? "Unflag" : "Flag"}
+    </button>
+    <button type="button" data-action="pin" aria-pressed={pinned} onclick={(e) => { e.stopPropagation(); onTogglePin(); }} onkeydown={(e) => e.stopPropagation()}>
+      <span class="oe-action-icon" use:icon={pinned ? ACTION_ICON.unpin : ACTION_ICON.pin}></span>{pinned ? "Unpin" : "Pin"}
+    </button>
     {#if showArchive}
-      <button type="button" data-action="archive" onclick={(e) => { e.stopPropagation(); onArchive(); }}>
+      <button type="button" data-action="archive" onclick={(e) => { e.stopPropagation(); onArchive(); }} onkeydown={(e) => e.stopPropagation()}>
         <span class="oe-action-icon" use:icon={ACTION_ICON.archive}></span>Archive
       </button>
     {/if}
-    <button type="button" data-action="delete" onclick={(e) => { e.stopPropagation(); onDelete(); }}>
+    <button type="button" data-action="delete" onclick={(e) => { e.stopPropagation(); onDelete(); }} onkeydown={(e) => e.stopPropagation()}>
       <span class="oe-action-icon" use:icon={ACTION_ICON.delete}></span>Delete
     </button>
   </div>

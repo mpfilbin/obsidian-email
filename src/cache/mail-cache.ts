@@ -134,6 +134,26 @@ export class MailCache {
     await tx.done;
   }
 
+  /** Sets the flag on already-cached messages and nothing else. Unlike
+   *  `patchMessages` this never creates a row: an id that isn't cached is
+   *  simply skipped. Both matter for the optimistic flag path, whose rollback
+   *  runs after a server round-trip — by then the message may have been moved
+   *  (so re-writing the `mailboxIds` captured before the call would undo the
+   *  move) or deleted (so re-creating it would resurrect a blank placeholder
+   *  dated now, at the top of the Inbox, that nothing ever prunes). */
+  async setFlagged(accountId: string, ids: string[], flagged: boolean): Promise<void> {
+    if (!ids.length) return;
+    const tx = this.db.transaction("messages", "readwrite");
+    await Promise.all(
+      ids.map(async (id) => {
+        const row = await tx.store.get(key(accountId, id));
+        if (!row) return;
+        await tx.store.put({ ...row, flagged });
+      }),
+    );
+    await tx.done;
+  }
+
   async deleteMessages(accountId: string, ids: string[]): Promise<void> {
     const tx = this.db.transaction("messages", "readwrite");
     await Promise.all(ids.map((id) => tx.store.delete(key(accountId, id))));
@@ -165,6 +185,21 @@ export class MailCache {
     return out;
   }
 
+  /** Flagged messages across every mailbox, newest first — the Flagged view's
+   *  cached half. A message that lives only in Trash/Junk is hidden (it is
+   *  effectively deleted), matching what Outlook's own flagged list shows. */
+  async listFlaggedMessages(accountId: string): Promise<MessageSummary[]> {
+    const [rows, boxes] = await Promise.all([
+      this.db.getAllFromIndex("messages", "by-account", accountId),
+      this.getMailboxes(accountId),
+    ]);
+    const hidden = new Set(boxes.filter((b) => b.kind === "trash" || b.kind === "spam").map((b) => b.id));
+    return rows
+      .filter((r) => r.flagged && r.mailboxIds.some((id) => !hidden.has(id)))
+      .sort((a, b) => b.date - a.date)
+      .map(({ key: _k, accountId: _a, ...summary }) => summary);
+  }
+
   async getThreadMessages(accountId: string, threadId: string): Promise<MessageSummary[]> {
     const rows = await this.db.getAllFromIndex("messages", "by-account-thread", [accountId, threadId]);
     return rows
@@ -185,12 +220,19 @@ export class MailCache {
     return body;
   }
 
-  async pruneAccount(accountId: string, now: number = Date.now()): Promise<void> {
-    await this.pruneSummaries(accountId, now);
+  /** `keepThreadIds` (the user's pinned conversations) and flagged messages
+   *  are exempt from summary pruning: a pinned thread or a flagged follow-up
+   *  must not silently age out of the cache. */
+  async pruneAccount(
+    accountId: string,
+    now: number = Date.now(),
+    opts: { keepThreadIds?: Iterable<string> } = {},
+  ): Promise<void> {
+    await this.pruneSummaries(accountId, now, new Set(opts.keepThreadIds ?? []));
     await this.pruneBodies(accountId, now);
   }
 
-  private async pruneSummaries(accountId: string, now: number): Promise<void> {
+  private async pruneSummaries(accountId: string, now: number, keepThreadIds: ReadonlySet<string>): Promise<void> {
     const rows = await this.db.getAllFromIndex("messages", "by-account", accountId);
     const perMailbox = new Map<string, number>();
     for (const r of rows) for (const mb of r.mailboxIds) perMailbox.set(mb, (perMailbox.get(mb) ?? 0) + 1);
@@ -198,7 +240,11 @@ export class MailCache {
     if (!overCap) return;
     const cutoff = now - RETENTION.summaryDays * DAY_MS;
     const tx = this.db.transaction("messages", "readwrite");
-    await Promise.all(rows.filter((r) => r.date < cutoff).map((r) => tx.store.delete(r.key)));
+    await Promise.all(
+      rows
+        .filter((r) => r.date < cutoff && !r.flagged && !keepThreadIds.has(r.threadId))
+        .map((r) => tx.store.delete(r.key)),
+    );
     await tx.done;
   }
 

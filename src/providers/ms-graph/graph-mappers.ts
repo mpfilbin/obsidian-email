@@ -4,6 +4,7 @@ interface GraphRecipient { emailAddress?: { name?: string; address?: string }; }
 export interface GraphMessage {
   id: string;
   conversationId?: string;
+  parentFolderId?: string;
   subject?: string;
   bodyPreview?: string;
   receivedDateTime?: string;

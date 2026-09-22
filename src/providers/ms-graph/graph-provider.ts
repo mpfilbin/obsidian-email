@@ -14,6 +14,9 @@ export interface GraphProviderDeps {
 const DEFAULT_BASE = "https://graph.microsoft.com/v1.0";
 const SUMMARY_SELECT =
   "id,conversationId,subject,bodyPreview,from,toRecipients,ccRecipients,bccRecipients,receivedDateTime,isRead,hasAttachments,flag";
+// Flagged results are upserted into the cache, so unlike search they need the
+// message's real folder id.
+const FLAGGED_SELECT = `${SUMMARY_SELECT},parentFolderId`;
 const TOP = 25;
 const CONTACT_PAGE = 100;
 const MAX_CONTACT_PAGES = 500;
@@ -215,6 +218,23 @@ export class GraphProvider implements MailProvider, ContactsProvider {
 
   async moveMessage(id: string, destinationMailboxId: string): Promise<void> {
     await this.request<void>(`/me/messages/${id}/move`, "POST", { destinationId: destinationMailboxId });
+  }
+
+  async setMessageFlag(id: string, flagged: boolean): Promise<void> {
+    await this.request<void>(`/me/messages/${id}`, "PATCH", {
+      flag: { flagStatus: flagged ? "flagged" : "notFlagged" },
+    });
+  }
+
+  async listFlaggedMessages(pageToken?: string): Promise<Page<MessageSummary>> {
+    const url = pageToken
+      ? pageToken
+      : `/me/messages?$filter=flag/flagStatus%20eq%20'flagged'&$select=${FLAGGED_SELECT}&$top=${TOP}`;
+    const data = await this.get<{ value?: GraphMessage[]; "@odata.nextLink"?: string }>(url);
+    return {
+      items: (data.value ?? []).map((m) => mapGraphSummary(m, m.parentFolderId ?? "")),
+      nextPageToken: data["@odata.nextLink"],
+    };
   }
 
   async listContacts(): Promise<Contact[]> {

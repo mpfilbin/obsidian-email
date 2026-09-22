@@ -1,13 +1,16 @@
 <script lang="ts">
   import type { Mailbox } from "../../providers/types";
+  import { ACTION_ICON } from "../action-icons";
   import { THREAD_DRAG_TYPE } from "../drag-types";
   import { icon } from "../icon-action";
   import { mailboxIcon } from "../mailbox-icons";
 
-  let { mailboxes, activeId, onSelect, onDropThread, onContextMenu }: {
+  let { mailboxes, activeId, flaggedActive, onSelect, onSelectFlagged, onDropThread, onContextMenu }: {
     mailboxes: Mailbox[];
     activeId: string | null;
+    flaggedActive: boolean;
     onSelect: (id: string) => void;
+    onSelectFlagged: () => void;
     onDropThread: (threadId: string, destinationMailboxId: string) => void;
     /** Only fired for custom folders — Graph doesn't allow renaming the
      *  built-in ones (Inbox, Sent, Drafts, etc.). */
@@ -18,6 +21,13 @@
 </script>
 
 <nav class="oe-mailboxes">
+  <button
+    type="button" class="oe-mailbox oe-mailbox-flagged" class:is-active={flaggedActive}
+    data-view="flagged" onclick={onSelectFlagged}
+  >
+    <span class="oe-mailbox-icon" use:icon={ACTION_ICON.flag}></span>
+    <span class="oe-mailbox-name">Flagged</span>
+  </button>
   {#each mailboxes as mb (mb.id)}
     <button
       class="oe-mailbox"

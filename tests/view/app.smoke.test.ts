@@ -35,7 +35,7 @@ function fakeVm(state: Partial<ViewState> = {}): ViewModel {
     }],
     hasMore: false, loadingList: false, autoLoadImages: false,
     search: { query: "", active: false },
-    openThreadId: null, openMessages: [],
+    openThreadId: null, openMessages: [], pinnedThreadIds: [], flaggedActive: false,
     composer: null, mode: "mail",
     contacts: [], contactsStatus: "idle", contactSearch: "", selectedContactId: null, contactEdit: null,
     ribbonEnabled: true, ribbonCollapsedByDefault: false,
@@ -57,7 +57,7 @@ function fakeVm(state: Partial<ViewState> = {}): ViewModel {
   return {
     getState: () => full,
     subscribe: (fn: (s: ViewState) => void) => { listeners.add(fn); fn(full); return () => listeners.delete(fn); },
-    selectAccount: vi.fn(), selectMailbox: vi.fn(), openThread: vi.fn(), closeThread: vi.fn(),
+    selectAccount: vi.fn(), selectMailbox: vi.fn(), selectFlagged: vi.fn(), openThread: vi.fn(), closeThread: vi.fn(),
     loadMore: vi.fn(), refresh: vi.fn(), runSearch: vi.fn(), clearSearch: vi.fn(),
     renderDeps: () => ({ getInlineAttachment: async () => undefined, openExternal: () => {} }),
     downloadAttachment: vi.fn(), downloadAttachmentToDisk: vi.fn(),
@@ -69,6 +69,7 @@ function fakeVm(state: Partial<ViewState> = {}): ViewModel {
     hasUnsavedComposerContent: vi.fn().mockReturnValue(false),
     send: vi.fn(), saveDraft: vi.fn(), discardDraft: vi.fn(), closeComposer: vi.fn(),
     deleteMessage: vi.fn(), archiveMessage: vi.fn(), deleteThread: vi.fn(), archiveThread: vi.fn(),
+    toggleThreadFlag: vi.fn(), toggleMessageFlag: vi.fn(), toggleThreadPin: vi.fn(),
     moveThread: vi.fn(), requestCreateMailbox: vi.fn(), renameMailbox: vi.fn(), deleteMailbox: vi.fn(),
     requestRenameMailbox: vi.fn(), requestAttachNote: vi.fn(), saveMessageToVault: vi.fn(),
     removeComposerAttachment: vi.fn(),
@@ -366,7 +367,7 @@ describe("App.svelte — composer wiring", () => {
     const host = document.createElement("div");
     const app = mount(App, { target: host, props: appProps(vm) });
     flushSync();
-    host.querySelectorAll<HTMLElement>(".oe-mailbox")[1].click();
+    host.querySelectorAll<HTMLElement>(".oe-mailbox:not(.oe-mailbox-flagged)")[1].click();
     flushSync();
     expect(selectMailbox).toHaveBeenCalledWith("SENT");
     expect(host.querySelector(".oe-composer-prompt")).toBeNull();
@@ -384,7 +385,7 @@ describe("App.svelte — composer wiring", () => {
     const host = document.createElement("div");
     const app = mount(App, { target: host, props: appProps(vm) });
     flushSync();
-    host.querySelectorAll<HTMLElement>(".oe-mailbox")[1].click();
+    host.querySelectorAll<HTMLElement>(".oe-mailbox:not(.oe-mailbox-flagged)")[1].click();
     flushSync();
     expect(selectMailbox).not.toHaveBeenCalled();
     expect(host.querySelector(".oe-composer-prompt")).not.toBeNull();
@@ -455,10 +456,10 @@ describe("App.svelte — delete/archive wiring", () => {
       new MouseEvent("contextmenu", { bubbles: true, cancelable: true }),
     );
     expect(onThreadContextMenu).toHaveBeenCalledOnce();
-    const [, candidates, onMove] = onThreadContextMenu.mock.calls[0] as [MouseEvent, Mailbox[], (id: string) => void];
-    expect(candidates.map((m) => m.id)).toEqual(["PROJ"]);
+    const [, actions] = onThreadContextMenu.mock.calls[0] as [MouseEvent, { candidates: Mailbox[]; onMove: (id: string) => void }];
+    expect(actions.candidates.map((m) => m.id)).toEqual(["PROJ"]);
 
-    onMove("PROJ");
+    actions.onMove("PROJ");
     expect(moveThread).toHaveBeenCalledWith("t1", "PROJ");
     unmount(app);
   });
@@ -672,7 +673,7 @@ describe("App.svelte — delete/archive wiring", () => {
     // "navigating away with unsaved composer content prompts instead of
     // discarding it" (above) does: click a mailbox row while
     // hasUnsavedComposerContent() is true.
-    host.querySelector<HTMLElement>('.oe-mailbox')!.click();
+    host.querySelector<HTMLElement>('.oe-mailbox:not(.oe-mailbox-flagged)')!.click();
     flushSync();
     expect(host.querySelector(".oe-composer-prompt")).not.toBeNull();
 
@@ -709,7 +710,7 @@ describe("App.svelte — delete/archive wiring", () => {
     expect(host.querySelector(".oe-delete-confirm")).not.toBeNull();
 
     // Navigate away without resolving it (click a mailbox — triggers requestSwitch).
-    host.querySelector<HTMLElement>(".oe-mailbox")?.click();
+    host.querySelector<HTMLElement>(".oe-mailbox:not(.oe-mailbox-flagged)")?.click();
     flushSync();
 
     // The stale delete-confirm must be gone, and the delete must never have fired.
@@ -1321,6 +1322,168 @@ describe("App — contacts mode", () => {
     flushSync();
     expect(vm.suggestRecipients).toHaveBeenCalledWith("a", []);
     expect(host.querySelectorAll(".oe-suggest-item")).toHaveLength(1);
+    done();
+  });
+});
+
+describe("App — flagging", () => {
+  const openState = {
+    openThreadId: "t1",
+    openMessages: [{
+      summary: {
+        id: "m1", threadId: "t1", mailboxIds: ["INBOX"], from: { name: "Jane", email: "j@x.com" },
+        to: [], cc: [], subject: "Hello", snippet: "", date: 1, unread: false, hasAttachments: false, flagged: true,
+      },
+    }],
+  };
+  const mountApp = (vm: ViewModel, over: object = {}) => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const app = mount(App, { target: host, props: appProps(vm, over) });
+    flushSync();
+    return { host, done: () => { unmount(app); host.remove(); } };
+  };
+  const click = (el: Element | null) => { (el as HTMLElement).click(); flushSync(); };
+
+  it("the row Flag button toggles that thread", () => {
+    const vm = fakeVm();
+    const { host, done } = mountApp(vm);
+    click(host.querySelector('.oe-thread-row [data-action="flag"]'));
+    expect(vm.toggleThreadFlag).toHaveBeenCalledWith("t1");
+    done();
+  });
+
+  it("the ribbon Flag button toggles the open thread and shows pressed when it has a flagged message", () => {
+    const vm = fakeVm(openState);
+    const { host, done } = mountApp(vm);
+    const btn = host.querySelector<HTMLElement>('.oe-ribbon [data-action="flag"]')!;
+    expect(btn.getAttribute("aria-pressed")).toBe("true");
+    click(btn);
+    expect(vm.toggleThreadFlag).toHaveBeenCalledWith("t1");
+    done();
+  });
+
+  it("a message header flag toggles that message", () => {
+    const vm = fakeVm(openState);
+    const { host, done } = mountApp(vm);
+    click(host.querySelector(".oe-message-flag"));
+    expect(vm.toggleMessageFlag).toHaveBeenCalledWith("m1");
+    done();
+  });
+
+  it("the thread context menu receives flag state and a working toggle", () => {
+    const onThreadContextMenu = vi.fn();
+    const vm = fakeVm();
+    const { host, done } = mountApp(vm, { onThreadContextMenu });
+    host.querySelector(".oe-thread-row")!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    expect(onThreadContextMenu).toHaveBeenCalledOnce();
+    const [, actions] = onThreadContextMenu.mock.calls[0];
+    expect(actions.flagged).toBe(false);
+    expect(Array.isArray(actions.candidates)).toBe(true);
+    actions.onToggleFlag();
+    expect(vm.toggleThreadFlag).toHaveBeenCalledWith("t1");
+    done();
+  });
+});
+
+describe("App — pinning", () => {
+  const mountApp = (vm: ViewModel, over: object = {}) => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const app = mount(App, { target: host, props: appProps(vm, over) });
+    flushSync();
+    return { host, done: () => { unmount(app); host.remove(); } };
+  };
+  const click = (el: Element | null) => { (el as HTMLElement).click(); flushSync(); };
+  const openMessages = [{
+    summary: {
+      id: "m1", threadId: "t1", mailboxIds: ["INBOX"], from: { name: "Jane", email: "j@x.com" },
+      to: [], cc: [], subject: "Hello", snippet: "", date: 1, unread: false, hasAttachments: false, flagged: false,
+    },
+  }];
+
+  it("the row Pin button toggles that thread", () => {
+    const vm = fakeVm();
+    const { host, done } = mountApp(vm);
+    click(host.querySelector('.oe-thread-row [data-action="pin"]'));
+    expect(vm.toggleThreadPin).toHaveBeenCalledWith("t1");
+    done();
+  });
+
+  it("the ribbon Pin button toggles the open thread and shows pressed when it is pinned", () => {
+    const vm = fakeVm({ openThreadId: "t1", openMessages, pinnedThreadIds: ["t1"] });
+    const { host, done } = mountApp(vm);
+    const btn = host.querySelector<HTMLElement>('.oe-ribbon [data-action="pin"]')!;
+    expect(btn.getAttribute("aria-pressed")).toBe("true");
+    click(btn);
+    expect(vm.toggleThreadPin).toHaveBeenCalledWith("t1");
+    done();
+  });
+
+  it("the thread context menu receives pin state and a working toggle", () => {
+    const onThreadContextMenu = vi.fn();
+    const vm = fakeVm({ pinnedThreadIds: ["t1"] });
+    const { host, done } = mountApp(vm, { onThreadContextMenu });
+    host.querySelector(".oe-thread-row")!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    const [, actions] = onThreadContextMenu.mock.calls[0];
+    expect(actions.pinned).toBe(true);
+    actions.onTogglePin();
+    expect(vm.toggleThreadPin).toHaveBeenCalledWith("t1");
+    done();
+  });
+});
+
+describe("App — Flagged view", () => {
+  const mountApp = (vm: ViewModel, over: object = {}) => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const app = mount(App, { target: host, props: appProps(vm, over) });
+    flushSync();
+    return { host, done: () => { unmount(app); host.remove(); } };
+  };
+  const click = (el: Element | null) => { (el as HTMLElement).click(); flushSync(); };
+
+  it("clicking Flagged selects the view", () => {
+    const vm = fakeVm();
+    const { host, done } = mountApp(vm);
+    click(host.querySelector(".oe-mailbox-flagged"));
+    expect(vm.selectFlagged).toHaveBeenCalledOnce();
+    done();
+  });
+
+  it("selecting Flagged with an unsent message asks first", () => {
+    const vm = fakeVm();
+    (vm.hasUnsavedComposerContent as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    const { host, done } = mountApp(vm);
+    click(host.querySelector(".oe-mailbox-flagged"));
+    expect(vm.selectFlagged).not.toHaveBeenCalled();
+    expect(host.querySelector(".oe-composer-prompt")).not.toBeNull();
+    done();
+  });
+
+  it("while flagged is active only Flagged is highlighted and the empty state says so", () => {
+    const vm = fakeVm({ flaggedActive: true, threads: [] });
+    const { host, done } = mountApp(vm);
+    expect(host.querySelectorAll(".oe-mailbox.is-active")).toHaveLength(1);
+    expect(host.querySelector(".oe-mailbox-flagged")!.classList.contains("is-active")).toBe(true);
+    expect(host.textContent).toContain("No flagged messages");
+    done();
+  });
+
+  it("in the Flagged view Move offers every folder, including the one last active", () => {
+    const onThreadContextMenu = vi.fn();
+    const vm = fakeVm({ flaggedActive: true });
+    const { host, done } = mountApp(vm, { onThreadContextMenu });
+    host.querySelector(".oe-thread-row")!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    const [, actions] = onThreadContextMenu.mock.calls[0];
+    expect(actions.candidates.map((m: { id: string }) => m.id)).toEqual(["INBOX"]);
+    done();
+  });
+
+  it("in the Flagged view a row's Archive is offered (no active folder rules apply)", () => {
+    const vm = fakeVm({ flaggedActive: true, mailboxes: [{ id: "DRAFTS", name: "Drafts", kind: "drafts" }], activeMailboxId: "DRAFTS" });
+    const { host, done } = mountApp(vm);
+    expect(host.querySelector('.oe-thread-row [data-action="archive"]')).not.toBeNull();
     done();
   });
 });

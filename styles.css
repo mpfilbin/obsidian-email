@@ -130,7 +130,9 @@
 .oe-composer-attachment-remove { border: none; background: none; cursor: pointer; color: var(--text-muted); padding: 0; line-height: 1; }
 .oe-composer-attachment-remove:hover { color: var(--text-error); }
 .oe-modal-error { font-size: 12px; color: var(--text-error); margin: 4px 0 0; min-height: 1em; }
-.oe-thread-actions { display: flex; gap: 6px; padding: 0 10px 8px; }
+/* Up to four labelled buttons (Archive/Delete/Flag/Pin) — wrap rather than
+   clip them when the list column is narrow. */
+.oe-thread-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 10px 8px; }
 .oe-thread-actions button { display: inline-flex; align-items: center; gap: 4px; height: auto; background: transparent; border: 1px solid var(--background-modifier-border); border-radius: 4px; padding: 3px 8px; font-size: 12px; color: var(--text-muted); cursor: pointer; }
 .oe-thread-actions button:hover { color: var(--text-normal); }
 .oe-action-icon { display: flex; align-items: center; justify-content: center; width: 14px; height: 14px; flex-shrink: 0; }
@@ -289,3 +291,16 @@
 .oe-contact-notes-field span { padding-top: 6px; }
 .oe-contact-notes-field textarea { flex: 1; resize: vertical; }
 .oe-contact-form-actions { display: flex; gap: 8px; margin-top: 4px; }
+
+/* --- Flags --- */
+.oe-flag { display: inline-flex; width: 14px; height: 14px; color: var(--color-red, #d64545); }
+.oe-flag svg { width: 12px; height: 12px; fill: currentColor; }
+.oe-message-flag { margin-left: 8px; height: auto; padding: 2px; background: transparent; border: none; color: var(--text-faint); cursor: pointer; display: inline-flex; }
+.oe-message-flag svg { width: 14px; height: 14px; }
+.oe-message-flag:hover { color: var(--text-muted); }
+.oe-message-flag.is-flagged { color: var(--color-red, #d64545); }
+.oe-message-flag.is-flagged svg { fill: currentColor; }
+.oe-pin { display: inline-flex; width: 14px; height: 14px; color: var(--interactive-accent); }
+.oe-pin svg { width: 12px; height: 12px; }
+/* Pinned rows read as one group at the top of the list. */
+.oe-thread-row.is-pinned { box-shadow: inset 3px 0 0 var(--interactive-accent); }

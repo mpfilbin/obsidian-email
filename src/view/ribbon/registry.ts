@@ -34,6 +34,8 @@ export interface RibbonActions {
   deleteContact(): void;
   emailContact(): void;
   refreshContacts(): void;
+  toggleFlag(): void;
+  togglePin(): void;
 }
 
 export interface RibbonContext {
@@ -41,6 +43,10 @@ export interface RibbonContext {
   hasOpenThread: boolean;
   /** An expanded message exists in the open thread — the target of Reply, Archive, Delete… */
   hasTargetMessage: boolean;
+  /** An open message is flagged. */
+  openThreadFlagged: boolean;
+  /** The open thread is pinned. */
+  openThreadPinned: boolean;
   mailboxKind: MailboxKind | null;
   /** Every mailbox except the active one — the Move destinations. */
   otherMailboxes: RibbonMailboxOption[];
@@ -114,6 +120,10 @@ const BASE_COMMANDS: RibbonCommand[] = [
     options: (c) => c.otherMailboxes.map((m) => ({ id: m.id, label: m.name, run: () => c.actions.move(m.id) })) },
   { id: "close-pane", tab: "home", group: "Manage", icon: ACTION_ICON.collapse, label: "Close pane",
     enabled: (c) => !c.readingPaneCollapsed, run: (c) => c.actions.closePane() },
+  { id: "flag", tab: "home", group: "Mark", icon: ACTION_ICON.flag, label: "Flag",
+    enabled: (c) => c.hasOpenThread, pressed: (c) => c.openThreadFlagged, run: (c) => c.actions.toggleFlag() },
+  { id: "pin", tab: "home", group: "Mark", icon: ACTION_ICON.pin, label: "Pin",
+    enabled: (c) => c.hasOpenThread, pressed: (c) => c.openThreadPinned, run: (c) => c.actions.togglePin() },
   { id: "refresh", tab: "home", group: "Sync", icon: "refresh-cw", label: "Refresh",
     enabled: (c) => c.hasAccount && !c.syncing, run: (c) => c.actions.refresh() },
   { id: "search", tab: "home", group: "Search", icon: "search", label: "Search",
@@ -169,7 +179,7 @@ const BASE_COMMANDS: RibbonCommand[] = [
 // Vault "email from note" commands stay live: composing switches back to mail.
 const MAIL_ONLY = new Set([
   "reply", "reply-all", "forward", "edit-draft", "archive", "delete", "move", "close-pane",
-  "refresh", "search", "new-folder", "rename-folder", "delete-folder", "save-to-vault",
+  "flag", "pin", "refresh", "search", "new-folder", "rename-folder", "delete-folder", "save-to-vault",
 ]);
 
 export const COMMANDS: RibbonCommand[] = BASE_COMMANDS.map((c) =>

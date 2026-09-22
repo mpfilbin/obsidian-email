@@ -5,7 +5,7 @@
   import Composer from "./Composer.svelte";
   import MessageBlock from "./MessageBlock.svelte";
 
-  let { openMessages, autoLoadImages, renderDeps, onClose, onDownload, targetMessageId, onToggleExpand, activeComposerMessageId, composerMode, composerProps }: {
+  let { openMessages, autoLoadImages, renderDeps, onClose, onDownload, targetMessageId, onToggleExpand, onToggleFlag, activeComposerMessageId, composerMode, composerProps }: {
     openMessages: ViewState["openMessages"];
     /** `prefs.autoLoadImages` — when true, remote content renders immediately. */
     autoLoadImages: boolean;
@@ -16,6 +16,7 @@
      *  `undefined` means "not controlled": expand the last message. */
     targetMessageId?: string | null;
     onToggleExpand?: (messageId: string) => void;
+    onToggleFlag?: (messageId: string) => void;
     /** The message an inline (reply/forward) composer is answering — with the
      *  mode, this identifies the composer, so a new one starts fresh. */
     activeComposerMessageId?: string | null;
@@ -74,6 +75,7 @@
           {autoLoadImages}
           {renderDeps}
           onToggle={() => onToggleExpand?.(m.summary.id)}
+          onToggleFlag={() => onToggleFlag?.(m.summary.id)}
           onDownload={(att) => onDownload(m.summary.id, att)}
         />
       {/each}

@@ -16,6 +16,10 @@ export interface ThreadView {
   lastDate: number;
   messages: MessageSummary[];
   unread: boolean;
+  /** Any message in the thread is flagged. */
+  flagged: boolean;
+  /** The user pinned this conversation (local to the plugin). */
+  pinned: boolean;
 }
 
 /** The editable fields of a composer, as of the last load or successful save. */
@@ -64,7 +68,11 @@ export interface ViewState {
   activeAccountId: string | null;
   mailboxes: Mailbox[];
   activeMailboxId: string | null;
+  /** The virtual Flagged view is showing (not a mailbox). */
+  flaggedActive: boolean;
   threads: ThreadView[];
+  /** The active account's pinned conversation ids. */
+  pinnedThreadIds: string[];
   hasMore: boolean;
   loadingList: boolean;
   /** Mirrors `prefs.autoLoadImages`; drives the renderer's `allowRemote`. */
@@ -119,7 +127,11 @@ const CONTACTS_GRANT_HINT =
 const CONTACTS_REAUTH_HINT =
   "Signing in to contacts failed — use “Re-authenticate” in the Contacts view.";
 
-function groupThreads(messages: MessageSummary[]): ThreadView[] {
+function groupThreads(
+  messages: MessageSummary[],
+  pinned: ReadonlySet<string> = new Set(),
+  opts: { floatPinned?: boolean } = {},
+): ThreadView[] {
   const byThread = new Map<string, MessageSummary[]>();
   for (const m of messages) {
     const arr = byThread.get(m.threadId) ?? [];
@@ -135,9 +147,14 @@ function groupThreads(messages: MessageSummary[]): ThreadView[] {
       lastDate: Math.max(...msgs.map((m) => m.date)),
       messages: msgs,
       unread: msgs.some((m) => m.unread),
+      flagged: msgs.some((m) => m.flagged),
+      pinned: pinned.has(threadId),
     });
   }
-  threads.sort((a, b) => b.lastDate - a.lastDate);
+  // Pinned threads float to the top (newest activity first within each group);
+  // search results keep plain recency order and only show the pin mark.
+  const float = opts.floatPinned ?? true;
+  threads.sort((a, b) => (float ? Number(b.pinned) - Number(a.pinned) : 0) || b.lastDate - a.lastDate);
   return threads;
 }
 
@@ -173,8 +190,8 @@ function sameSnapshot(a: ComposerSnapshot, b: ComposerSnapshot): boolean {
 
 export class ViewModel {
   private state: ViewState = {
-    accounts: [], activeAccountId: null, mailboxes: [], activeMailboxId: null,
-    threads: [], hasMore: false, loadingList: false, autoLoadImages: false,
+    accounts: [], activeAccountId: null, mailboxes: [], activeMailboxId: null, flaggedActive: false,
+    threads: [], pinnedThreadIds: [], hasMore: false, loadingList: false, autoLoadImages: false,
     search: { query: "", active: false },
     openThreadId: null, openMessages: [],
     ribbonEnabled: true, ribbonCollapsedByDefault: false,
@@ -184,6 +201,7 @@ export class ViewModel {
   private listeners = new Set<(s: ViewState) => void>();
   private unsubSync: Array<() => void> = [];
   private providerListToken: string | undefined;
+  private flaggedToken: string | undefined;
   private providerListExhausted = false;
   /** Monotonic guard so a slow cache read can't paint over a newer one. */
   private reloadSeq = 0;
@@ -284,8 +302,10 @@ export class ViewModel {
     this.syncPrefs();
     const mailboxes = await this.deps.cache.getMailboxes(id);
     const inbox = mailboxes.find((m) => m.kind === "inbox") ?? mailboxes[0];
+    this.flaggedToken = undefined;
     this.set({
       activeAccountId: id,
+      flaggedActive: false,
       mailboxes: sortMailboxes(mailboxes),
       activeMailboxId: inbox?.id ?? null,
       search: { query: "", active: false },
@@ -293,6 +313,7 @@ export class ViewModel {
       // Navigation always drops the composer (see `closeThread`).
       composer: null,
       selectedContactId: null, contactEdit: null, contactSearch: "",
+      pinnedThreadIds: [...this.deps.settings.pinnedThreadIds(id)],
     });
     await this.loadContacts(id);
     if (inbox) await this.selectMailbox(inbox.id);
@@ -308,7 +329,8 @@ export class ViewModel {
     if (accountId !== this.state.activeAccountId) return; // stale by the time this resolved
     const sorted = sortMailboxes(mailboxes);
     this.set({ mailboxes: sorted });
-    if (sorted.length === 0 || sorted.some((m) => m.id === this.state.activeMailboxId)) return;
+    // The Flagged view has no active mailbox to fall back from.
+    if (sorted.length === 0 || this.state.flaggedActive || sorted.some((m) => m.id === this.state.activeMailboxId)) return;
     const fallback = sorted.find((m) => m.kind === "inbox") ?? sorted[0];
     if (this.state.search.active) {
       // selectMailbox clears the search — appropriate for a user-initiated
@@ -325,10 +347,45 @@ export class ViewModel {
   }
 
   async selectMailbox(id: string): Promise<void> {
-    this.set({ activeMailboxId: id, search: { query: "", active: false }, composer: null });
+    this.flaggedToken = undefined;
+    this.set({ activeMailboxId: id, flaggedActive: false, search: { query: "", active: false }, composer: null });
     this.providerListToken = undefined;
     this.providerListExhausted = false;
     await this.reloadList();
+  }
+
+  /** The virtual Flagged view: cached flagged threads appear immediately, then
+   *  the rest is fetched from the server (old flagged mail may never have been
+   *  backfilled into the cache). */
+  async selectFlagged(): Promise<void> {
+    this.flaggedToken = undefined;
+    this.set({ flaggedActive: true, search: { query: "", active: false }, composer: null });
+    await this.reloadList();
+    await this.fetchFlagged(false);
+  }
+
+  private async fetchFlagged(more: boolean): Promise<void> {
+    const acct = this.state.activeAccountId;
+    const provider = acct ? this.deps.getProvider(acct) : undefined;
+    if (!acct || !provider) return;
+    if (!this.state.flaggedActive) return; // the user already left the view
+    if (!this.deps.isOnline()) return; // cached list only; offline is not an error
+    if (more && this.flaggedToken === undefined) return;
+    this.set({ loadingList: true });
+    try {
+      const page = await provider.listFlaggedMessages(more ? this.flaggedToken : undefined);
+      if (page.items.length) await this.deps.cache.upsertMessages(acct, page.items);
+      // Navigated away mid-fetch: the rows are cached, but the token belongs to
+      // a view that is gone. Fall through to reloadList, which re-derives
+      // whatever is showing now and owns clearing `loadingList`.
+      if (acct === this.state.activeAccountId && this.state.flaggedActive) this.flaggedToken = page.nextPageToken;
+    } catch {
+      this.deps.showNotice("Couldn't load flagged messages.");
+    }
+    // A search is reachable inside the Flagged view (`runSearch` doesn't leave
+    // it), and repainting from the cache there would swap the user's hits for
+    // the flagged list — see `reloadListUnlessSearching`.
+    await this.reloadListUnlessSearching();
   }
 
   /** Prompts for a name via the host, then creates the folder. */
@@ -398,17 +455,50 @@ export class ViewModel {
   private async reloadList(): Promise<void> {
     const acct = this.state.activeAccountId;
     const mb = this.state.activeMailboxId;
-    if (!acct || !mb) return;
+    const flaggedView = this.state.flaggedActive;
+    // Nothing can legitimately be loading when there is no account and no list
+    // to load, and this return is reachable mid-flight (leaving the Flagged
+    // view for an account with no cached mailboxes while `fetchFlagged` — which
+    // relies on this call to clear the flag — is still in the air).
+    if (!acct || (!mb && !flaggedView)) {
+      if (this.state.loadingList) this.set({ loadingList: false });
+      return;
+    }
     // Switching mailbox A -> B fires two overlapping reads; without this guard
     // a slow read for A that lands after B's would paint A's rows under B's
     // header.
     const seq = ++this.reloadSeq;
     this.set({ loadingList: true });
+    if (flaggedView) {
+      const rows = await this.deps.cache.listFlaggedMessages(acct);
+      const pinned = this.deps.settings.pinnedThreadIds(acct);
+      if (seq !== this.reloadSeq) return;
+      this.set({
+        threads: groupThreads(rows, pinned),
+        pinnedThreadIds: [...pinned],
+        // Another server page exists only once a fetch returned a token.
+        hasMore: this.flaggedToken !== undefined,
+        loadingList: false,
+      });
+      return;
+    }
+    if (!mb) return;
     const limit = PAGE * 4;
     const rows = await this.deps.cache.listMailboxMessages(acct, mb, { limit });
+    // A pinned thread must show even if it is older than the loaded page:
+    // fetch its messages that live in this mailbox and add them to the rows.
+    const pinned = this.deps.settings.pinnedThreadIds(acct);
+    const seen = new Set(rows.map((r) => r.threadId));
+    const extra: MessageSummary[] = [];
+    for (const threadId of pinned) {
+      if (seen.has(threadId)) continue;
+      const messages = await this.deps.cache.getThreadMessages(acct, threadId);
+      extra.push(...messages.filter((m) => m.mailboxIds.includes(mb)));
+    }
     if (seq !== this.reloadSeq) return;
     this.set({
-      threads: groupThreads(rows),
+      threads: groupThreads([...rows, ...extra], pinned),
+      pinnedThreadIds: [...pinned],
       // Offer "load more" when the cache filled a page, when a provider cursor
       // is still open, or when the cache is empty for this mailbox. The last
       // case covers folders `SyncEngine.backfill` never populates (Spam, Trash,
@@ -422,6 +512,10 @@ export class ViewModel {
   }
 
   async loadMore(): Promise<void> {
+    if (this.state.flaggedActive) {
+      if (!this.state.search.active) await this.fetchFlagged(true);
+      return;
+    }
     const acct = this.state.activeAccountId;
     const mb = this.state.activeMailboxId;
     const provider = acct ? this.deps.getProvider(acct) : undefined;
@@ -695,7 +789,13 @@ export class ViewModel {
    * the sync-change handler and `loadMore`.
    */
   private async reloadListUnlessSearching(): Promise<void> {
-    if (this.state.search.active) return;
+    if (this.state.search.active) {
+      // Same rule as `reloadList`'s own early return: if nothing is going to
+      // repaint the list, nothing may be left marked as loading — callers like
+      // `fetchFlagged` set the flag before handing the repaint here.
+      if (this.state.loadingList) this.set({ loadingList: false });
+      return;
+    }
     await this.reloadList();
   }
 
@@ -759,6 +859,130 @@ export class ViewModel {
    *  menu's "Move" command. */
   async moveThread(threadId: string, destinationMailboxId: string): Promise<void> {
     await this.actOnThread(threadId, (provider, id) => provider.moveMessage(id, destinationMailboxId), "Moved");
+  }
+
+  /** Clears the flag on every message in the thread if ANY of them is flagged,
+   *  and flags them all if none is — the same thread-level reach as
+   *  Archive/Delete/Move. The "any flagged" test is deliberately the same one
+   *  `ThreadView.flagged` (and so the row's label, aria-pressed and indicator)
+   *  uses, so the control always does what it says: a partially flagged thread
+   *  reads as flagged, and clicking it clears the thread. It acts on the whole
+   *  cached conversation even when the visible row only holds part of it (the
+   *  Flagged view shows just the flagged subset). */
+  async toggleThreadFlag(threadId: string): Promise<void> {
+    const acct = this.state.activeAccountId;
+    const provider = acct ? this.deps.getProvider(acct) : undefined;
+    if (!acct || !provider) return;
+    let messages: MessageSummary[];
+    try {
+      messages = await this.deps.cache.getThreadMessages(acct, threadId);
+    } catch (err) {
+      this.deps.showNotice(this.errorMessage(err));
+      return;
+    }
+    if (messages.length === 0) {
+      this.deps.showNotice("Couldn't find any messages in that thread.");
+      return;
+    }
+    const flagged = !messages.some((m) => m.flagged);
+    await this.setFlags(acct, provider, messages.filter((m) => m.flagged !== flagged), flagged);
+  }
+
+  /** Per-message toggle from the reading pane; the message must be open. */
+  async toggleMessageFlag(messageId: string): Promise<void> {
+    const acct = this.state.activeAccountId;
+    const provider = acct ? this.deps.getProvider(acct) : undefined;
+    if (!acct || !provider) return;
+    const summary = this.state.openMessages.find((m) => m.summary.id === messageId)?.summary;
+    if (!summary) {
+      this.deps.showNotice("Couldn't find that message.");
+      return;
+    }
+    await this.setFlags(acct, provider, [summary], !summary.flagged);
+  }
+
+  /** Pins or unpins the conversation (local to the plugin). A save failure
+   *  leaves the pin as it was — SettingsStore reverts its own change. */
+  async toggleThreadPin(threadId: string): Promise<void> {
+    const acct = this.state.activeAccountId;
+    if (!acct) return;
+    const { settings } = this.deps;
+    try {
+      if (settings.isPinned(acct, threadId)) await settings.unpin(acct, threadId);
+      else await settings.pin(acct, threadId);
+    } catch (err) {
+      this.deps.showNotice(`Couldn't save the pin: ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
+    const pinned = settings.pinnedThreadIds(acct);
+    this.set({
+      pinnedThreadIds: [...pinned],
+      // Search results aren't re-derived from the cache — mark them in place.
+      threads: this.state.threads.map((t) => ({ ...t, pinned: pinned.has(t.threadId) })),
+    });
+    // Re-sort (and pull in a pinned thread older than the page) from the cache.
+    await this.reloadListUnlessSearching();
+  }
+
+  /** Optimistic: the cache and the visible rows change first, then the server
+   *  is told; whatever the server rejects is written back. `flagged` is the
+   *  TARGET value and `messages` are only those whose current state is the
+   *  opposite (callers filter out the rest) — unflagged messages when flagging,
+   *  flagged ones when unflagging — so a rollback simply restores `!flagged`.
+   *
+   *  The cache write goes through `cache.setFlagged`, which touches only the
+   *  flag and skips ids that are no longer cached — the rollback runs after a
+   *  server round-trip, by which time a move or a delete may have landed, and
+   *  writing back the fields captured before the call would undo it (or
+   *  resurrect a blank row for a message that is gone). */
+  private async setFlags(
+    acct: string,
+    provider: MailProvider,
+    messages: MessageSummary[],
+    flagged: boolean,
+  ): Promise<void> {
+    if (messages.length === 0) return;
+    const write = (value: boolean, list: MessageSummary[]) =>
+      this.deps.cache.setFlagged(acct, list.map((m) => m.id), value);
+    try {
+      await write(flagged, messages);
+      await this.applyFlagChange(acct, messages.map((m) => m.id), flagged);
+      const results = await Promise.allSettled(messages.map((m) => provider.setMessageFlag(m.id, flagged)));
+      const failed = messages.filter((_, i) => results[i].status === "rejected");
+      if (failed.length === 0) return;
+      await write(!flagged, failed);
+      await this.applyFlagChange(acct, failed.map((m) => m.id), !flagged);
+      const firstError = (results.find((r) => r.status === "rejected") as PromiseRejectedResult).reason;
+      this.deps.showNotice(
+        failed.length === messages.length
+          ? this.errorMessage(firstError)
+          : `${flagged ? "Flagged" : "Unflagged"} ${messages.length - failed.length} of ${messages.length} messages — ${failed.length} failed.`,
+      );
+    } catch (err) {
+      this.deps.showNotice(this.errorMessage(err));
+    }
+  }
+
+  /** Mirrors a flag change into the rows already on screen (search results
+   *  aren't derived from the cache, so they can't just be reloaded). */
+  private async applyFlagChange(acct: string, ids: string[], flagged: boolean): Promise<void> {
+    if (acct !== this.state.activeAccountId) return; // the user switched accounts mid-flight
+    const hit = new Set(ids);
+    const patch = (m: MessageSummary): MessageSummary => (hit.has(m.id) ? { ...m, flagged } : m);
+    this.set({
+      threads: this.state.threads.map((t) => {
+        if (!t.messages.some((m) => hit.has(m.id))) return t;
+        const messages = t.messages.map(patch);
+        return { ...t, messages, flagged: messages.some((m) => m.flagged) };
+      }),
+      openMessages: this.state.openMessages.map((o) =>
+        hit.has(o.summary.id) ? { ...o, summary: patch(o.summary) } : o,
+      ),
+    });
+    // The Flagged list is derived from the cache: unflagging drops the row and
+    // a rollback brings it back. Not while a search is showing, though — those
+    // rows were just patched in place above (see `reloadListUnlessSearching`).
+    if (this.state.flaggedActive) await this.reloadListUnlessSearching();
   }
 
   async openDraftForEdit(messageId: string): Promise<void> {
@@ -844,6 +1068,7 @@ export class ViewModel {
   async refresh(): Promise<void> {
     this.syncPrefs();
     if (this.state.activeAccountId) await this.deps.sync.syncAccount(this.state.activeAccountId);
+    if (this.state.flaggedActive) await this.fetchFlagged(false);
   }
 
   async runSearch(query: string): Promise<void> {
@@ -859,7 +1084,8 @@ export class ViewModel {
       const page = await provider.search(query);
       this.set({
         search: { query, active: true },
-        threads: groupThreads(page.items),
+        threads: groupThreads(page.items, this.deps.settings.pinnedThreadIds(acct), { floatPinned: false }),
+        pinnedThreadIds: [...this.deps.settings.pinnedThreadIds(acct)],
         hasMore: false,
         loadingList: false,
       });

@@ -185,6 +185,21 @@ export class FakeProvider implements MailProvider, ContactsProvider {
     this.addMessage({ ...m, mailboxIds: [destinationMailboxId] });
   }
 
+  async setMessageFlag(id: string, flagged: boolean): Promise<void> {
+    const m = this.messages.get(id);
+    if (!m) throw new Error(`no such message: ${id}`);
+    // Logged as an upsert so `syncSince` reports the change like Graph's delta does.
+    this.addMessage({ ...m, flagged });
+  }
+
+  async listFlaggedMessages(pageToken?: string): Promise<Page<MessageSummary>> {
+    const all = [...this.messages.values()].filter((m) => m.flagged).sort((a, b) => b.date - a.date);
+    const start = pageToken ? Number(pageToken) : 0;
+    const items = all.slice(start, start + this.pageSize);
+    const next = start + this.pageSize;
+    return { items, nextPageToken: next < all.length ? String(next) : undefined };
+  }
+
   seedContacts(list: Contact[]): void {
     for (const c of list) this.contacts.set(c.id, c);
   }

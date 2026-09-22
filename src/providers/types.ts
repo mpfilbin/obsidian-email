@@ -143,6 +143,16 @@ export interface MailProvider {
 
   /** Moves a message to an arbitrary mailbox (by its Mailbox.id). */
   moveMessage(id: string, destinationMailboxId: string): Promise<void>;
+
+  /** Sets or clears the follow-up flag on one message. Only flagged /
+   *  not-flagged are modelled: Outlook's "completed" state reads as not
+   *  flagged, and clearing writes `notFlagged`. */
+  setMessageFlag(id: string, flagged: boolean): Promise<void>;
+
+  /** Every flagged message across folders (the caller excludes Trash/Junk).
+   *  Unlike `search`, items carry their real `mailboxIds` so they can be
+   *  cached. Paged; pass the previous page's `nextPageToken`. */
+  listFlaggedMessages(pageToken?: string): Promise<Page<MessageSummary>>;
 }
 
 /** A contact in the user's address book. Only the fields the plugin edits are

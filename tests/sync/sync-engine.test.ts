@@ -151,4 +151,26 @@ describe("SyncEngine", () => {
     await engine.syncAccount("a1");
     expect(engine.getState("a1").status).toBe("error");
   });
+
+  it("passes the pinned thread ids to pruning so pinned threads survive", async () => {
+    const provider = new FakeProvider({ mailboxes: [{ id: "INBOX", name: "Inbox", kind: "inbox" }] });
+    provider.addMessage(summary("m1", 1));
+    const name = dbName();
+    const cache = await MailCache.open(name);
+    const cursors = await CursorStore.open(name);
+    const prune = vi.spyOn(cache, "pruneAccount");
+    const engine = new SyncEngine({
+      cache, cursors, logger,
+      getProvider: () => provider,
+      listAccountIds: () => ["a1"],
+      getPinnedThreadIds: (id) => (id === "a1" ? ["t-pinned"] : []),
+    });
+    await engine.syncAccount("a1"); // backfill
+    await engine.syncAccount("a1"); // incremental
+    expect(prune).toHaveBeenCalledTimes(2);
+    for (const call of prune.mock.calls) {
+      expect(call[0]).toBe("a1");
+      expect([...(call[2]?.keepThreadIds ?? [])]).toEqual(["t-pinned"]);
+    }
+  });
 });

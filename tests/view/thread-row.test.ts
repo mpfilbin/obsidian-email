@@ -16,7 +16,7 @@ function baseProps(over: Partial<Record<string, unknown>> = {}) {
   return {
     thread, isOpen: false, onOpen: vi.fn(),
     isDraftsMailbox: false, isArchiveMailbox: false, isTrashMailbox: false,
-    onArchive: vi.fn(), onDelete: vi.fn(), onContextMenu: vi.fn(),
+    onArchive: vi.fn(), onDelete: vi.fn(), onTogglePin: vi.fn(), onContextMenu: vi.fn(),
     ...over,
   };
 }
@@ -104,6 +104,98 @@ describe("ThreadRow smoke", () => {
     row.dispatchEvent(event);
     expect(preventSpy).toHaveBeenCalled();
     expect(onContextMenu).toHaveBeenCalledWith(event);
+    unmount(app);
+  });
+});
+
+describe("ThreadRow flagging", () => {
+  const flaggedThread: ThreadView = {
+    ...thread, flagged: true,
+    messages: [{ ...thread.messages[0], flagged: true }],
+  };
+
+  it("shows a Flag button that reports the toggle without opening the thread", () => {
+    const onToggleFlag = vi.fn(); const onOpen = vi.fn();
+    const host = document.createElement("div");
+    const app = mount(ThreadRow, { target: host, props: baseProps({ onToggleFlag, onOpen }) });
+    flushSync();
+    const btn = host.querySelector<HTMLButtonElement>('[data-action="flag"]')!;
+    expect(btn.textContent).toContain("Flag");
+    expect(btn.getAttribute("aria-pressed")).toBe("false");
+    btn.click();
+    expect(onToggleFlag).toHaveBeenCalledOnce();
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(host.querySelector(".oe-flag")).toBeNull();
+    unmount(app);
+  });
+
+  it("a flagged thread shows the indicator and an Unflag button", () => {
+    const host = document.createElement("div");
+    const app = mount(ThreadRow, { target: host, props: baseProps({ thread: flaggedThread, onToggleFlag: vi.fn() }) });
+    flushSync();
+    expect(host.querySelector(".oe-flag")).not.toBeNull();
+    const btn = host.querySelector<HTMLButtonElement>('[data-action="flag"]')!;
+    expect(btn.textContent).toContain("Unflag");
+    expect(btn.getAttribute("aria-pressed")).toBe("true");
+    unmount(app);
+  });
+
+  it("the indicator shows when only one of several messages is flagged", () => {
+    const two: ThreadView = {
+      ...thread,
+      messages: [thread.messages[0], { ...thread.messages[0], id: "m2", flagged: true }],
+    };
+    const host = document.createElement("div");
+    const app = mount(ThreadRow, { target: host, props: baseProps({ thread: two }) });
+    flushSync();
+    expect(host.querySelector(".oe-flag")).not.toBeNull();
+    unmount(app);
+  });
+
+  it("Enter on a row action button does not open the thread, but Enter on the row does", () => {
+    const onOpen = vi.fn();
+    const host = document.createElement("div");
+    const app = mount(ThreadRow, { target: host, props: baseProps({ onOpen, onToggleFlag: vi.fn(), onTogglePin: vi.fn() }) });
+    flushSync();
+    const enter = () => new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+    for (const action of ["flag", "pin", "archive", "delete"]) {
+      host.querySelector(`[data-action="${action}"]`)!.dispatchEvent(enter());
+      expect(onOpen, action).not.toHaveBeenCalled();
+    }
+    host.querySelector(".oe-thread-row")!.dispatchEvent(enter());
+    expect(onOpen).toHaveBeenCalledOnce();
+    unmount(app);
+  });
+});
+
+describe("ThreadRow pinning", () => {
+  const pinnedThread: ThreadView = { ...thread, pinned: true };
+
+  it("shows a Pin button that reports the toggle without opening the thread", () => {
+    const onTogglePin = vi.fn(); const onOpen = vi.fn();
+    const host = document.createElement("div");
+    const app = mount(ThreadRow, { target: host, props: baseProps({ onTogglePin, onOpen }) });
+    flushSync();
+    const btn = host.querySelector<HTMLButtonElement>('[data-action="pin"]')!;
+    expect(btn.textContent).toContain("Pin");
+    expect(btn.getAttribute("aria-pressed")).toBe("false");
+    btn.click();
+    expect(onTogglePin).toHaveBeenCalledOnce();
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(host.querySelector(".oe-pin")).toBeNull();
+    expect(host.querySelector(".oe-thread-row")!.classList.contains("is-pinned")).toBe(false);
+    unmount(app);
+  });
+
+  it("a pinned thread shows the indicator, the accent class and an Unpin button", () => {
+    const host = document.createElement("div");
+    const app = mount(ThreadRow, { target: host, props: baseProps({ thread: pinnedThread, onTogglePin: vi.fn() }) });
+    flushSync();
+    expect(host.querySelector(".oe-pin")).not.toBeNull();
+    expect(host.querySelector(".oe-thread-row")!.classList.contains("is-pinned")).toBe(true);
+    const btn = host.querySelector<HTMLButtonElement>('[data-action="pin"]')!;
+    expect(btn.textContent).toContain("Unpin");
+    expect(btn.getAttribute("aria-pressed")).toBe("true");
     unmount(app);
   });
 });

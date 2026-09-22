@@ -301,3 +301,68 @@ describe("ReadingPane — composer rendering", () => {
     unmount(app);
   });
 });
+
+describe("ReadingPane message flag toggle", () => {
+  const mountPane = (messages: ViewState["openMessages"], onToggleFlag = vi.fn()) => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const app = mount(ReadingPane, {
+      target: host,
+      props: { openMessages: messages, autoLoadImages: false, renderDeps, onClose: vi.fn(), onDownload: vi.fn(), onToggleFlag },
+    });
+    flushSync();
+    return { host, onToggleFlag, done: () => { unmount(app); host.remove(); } };
+  };
+
+  it("each message header has a flag toggle that reports its id and reflects the state", () => {
+    const msgs = open();
+    msgs[0] = { ...msgs[0], summary: { ...msgs[0].summary, flagged: true } };
+    const { host, onToggleFlag, done } = mountPane(msgs);
+    const btn = host.querySelector<HTMLButtonElement>(".oe-message-flag")!;
+    expect(btn.getAttribute("aria-pressed")).toBe("true");
+    expect(btn.classList.contains("is-flagged")).toBe(true);
+    btn.click();
+    expect(onToggleFlag).toHaveBeenCalledWith("m1");
+    done();
+  });
+
+  it("toggling the flag does not expand or collapse the message (click or keyboard)", () => {
+    const onToggleExpand = vi.fn();
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const app = mount(ReadingPane, {
+      target: host,
+      props: { openMessages: open(), autoLoadImages: false, renderDeps, onClose: vi.fn(), onDownload: vi.fn(), onToggleFlag: vi.fn(), onToggleExpand },
+    });
+    flushSync();
+    const btn = host.querySelector<HTMLButtonElement>(".oe-message-flag")!;
+    btn.click();
+    for (const key of ["Enter", " "]) {
+      btn.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+    }
+    flushSync();
+    expect(onToggleExpand).not.toHaveBeenCalled();
+    unmount(app);
+    host.remove();
+  });
+
+  it("control: clicking or pressing Enter/Space on the header itself does toggle expansion", () => {
+    const onToggleExpand = vi.fn();
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const app = mount(ReadingPane, {
+      target: host,
+      props: { openMessages: open(), autoLoadImages: false, renderDeps, onClose: vi.fn(), onDownload: vi.fn(), onToggleFlag: vi.fn(), onToggleExpand },
+    });
+    flushSync();
+    const head = host.querySelector<HTMLElement>(".oe-message-head")!;
+    head.click();
+    expect(onToggleExpand).toHaveBeenCalledTimes(1);
+    expect(onToggleExpand).toHaveBeenLastCalledWith("m1");
+    head.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    head.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true }));
+    expect(onToggleExpand).toHaveBeenCalledTimes(3);
+    unmount(app);
+    host.remove();
+  });
+});
