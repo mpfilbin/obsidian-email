@@ -29,6 +29,9 @@ export interface ContextHostDeps {
   saveBlob: (blob: Blob, filename: string) => Promise<void>;
   /** Prompts the user for a vault-relative path and creates a note there. */
   saveNote: (defaultPath: string, content: string) => void;
+  /** Opens the OS print dialog on a standalone HTML document — the user can
+   *  print it or choose "Save as PDF". */
+  printHtml: (html: string) => void;
   /** Prompts the user for a new folder name. */
   promptFolderName: (onSubmit: (name: string) => void) => void;
   /** Prompts for a folder's new name, pre-filled. */
@@ -187,6 +190,7 @@ export class PluginContext {
       openExternal: host.openEmailLink,
       saveBlob: host.saveBlob,
       saveNote: host.saveNote,
+      printHtml: host.printHtml,
       promptFolderName: host.promptFolderName,
       promptFolderRename: host.promptFolderRename,
       pickNoteAttachment: host.pickNoteAttachment,

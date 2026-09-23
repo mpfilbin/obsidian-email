@@ -118,6 +118,28 @@ export default class EmailPlugin extends Plugin {
       setTimeout(() => URL.revokeObjectURL(url), 0);
     };
 
+    // Prints via a hidden iframe rather than the main window, so the OS print
+    // dialog (and its "Save as PDF") sees only the message, not the whole app.
+    const printHtml = (html: string): void => {
+      const iframe = document.createElement("iframe");
+      iframe.style.position = "fixed";
+      iframe.style.width = "0";
+      iframe.style.height = "0";
+      iframe.style.border = "0";
+      const cleanup = (): void => iframe.remove();
+      iframe.addEventListener("load", () => {
+        const win = iframe.contentWindow;
+        if (!win) return cleanup();
+        win.addEventListener("afterprint", cleanup);
+        win.focus();
+        win.print();
+        // Some platforms never fire `afterprint` for a printed-to-PDF save.
+        setTimeout(cleanup, 60_000);
+      });
+      document.body.appendChild(iframe);
+      iframe.srcdoc = html;
+    };
+
     // Walks each folder segment, creating any that don't yet exist, so
     // `vault.create` never fails on a missing parent directory.
     const ensureFolder = async (vault: Vault, folderPath: string): Promise<void> => {
@@ -254,7 +276,7 @@ export default class EmailPlugin extends Plugin {
 
     this.ctx = await PluginContext.create(
       settings,
-      { http, secrets, post, openExternal, openEmailLink: openEmailLinkFn, saveBlob, saveNote, promptFolderName, promptFolderRename, pickNoteAttachment, showNotice },
+      { http, secrets, post, openExternal, openEmailLink: openEmailLinkFn, saveBlob, saveNote, printHtml, promptFolderName, promptFolderRename, pickNoteAttachment, showNotice },
       logger,
     );
     const ctx = this.ctx;
@@ -327,6 +349,23 @@ export default class EmailPlugin extends Plugin {
             new Notice(`Couldn't open contacts: ${(err as Error).message}`);
           }
         })();
+      },
+    });
+    this.addCommand({
+      id: "print-message",
+      name: "Print email",
+      // Mirrors the ribbon's `hasTargetMessage`: a message is on screen only
+      // when no top-level composer has replaced the thread view. The palette
+      // has no visibility into which message is manually expanded, though, so
+      // (unlike the ribbon) this always targets the thread's newest message.
+      checkCallback: (checking) => {
+        const state = ctx.vm.getState();
+        const composerOpen = state.composer?.mode === "new" || state.composer?.mode === "editDraft";
+        const messages = state.openMessages;
+        const target = !composerOpen && messages.length > 0 ? messages[messages.length - 1].summary.id : undefined;
+        if (checking) return target !== undefined;
+        if (target !== undefined) void ctx.vm.printMessage(target);
+        return true;
       },
     });
     this.addSettingTab(new EmailSettingTab(this, ctx, settings));

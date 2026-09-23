@@ -35,6 +35,7 @@ function hostDeps() {
     openEmailLink: vi.fn(),
     saveBlob: vi.fn().mockResolvedValue(undefined),
     saveNote: vi.fn(),
+    printHtml: vi.fn(),
     promptFolderName: vi.fn(),
     promptFolderRename: vi.fn(),
     pickNoteAttachment: vi.fn(),

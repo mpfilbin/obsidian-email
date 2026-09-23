@@ -7,7 +7,7 @@ import {
 function actions(): RibbonActions {
   const names = [
     "newMessage", "reply", "replyAll", "forward", "editDraft", "archive", "deleteMessage", "move",
-    "closePane", "refresh", "toggleSearch", "newFolder", "renameFolder", "deleteFolder", "saveToVault",
+    "closePane", "refresh", "toggleSearch", "newFolder", "renameFolder", "deleteFolder", "saveToVault", "print",
     "emailFromNote", "emailWithNoteAttached", "send", "saveDraft", "discardDraft", "attachNote",
     "toggleContacts", "newContact", "editContact", "deleteContact", "emailContact", "refreshContacts", "toggleFlag", "togglePin",
   ] as const;
@@ -87,6 +87,14 @@ describe("ribbon registry — Home enabled rules", () => {
   it("Close pane is enabled only while the reading pane is open", () => {
     expect(enabled("close-pane", ctx())).toBe(true);
     expect(enabled("close-pane", ctx({ readingPaneCollapsed: true }))).toBe(false);
+  });
+
+  it("Print needs a target message and delegates to actions.print", () => {
+    expect(enabled("print", ctx())).toBe(true);
+    expect(enabled("print", ctx({ hasTargetMessage: false }))).toBe(false);
+    const c = ctx();
+    cmd("print").run!(c);
+    expect(c.actions.print).toHaveBeenCalledOnce();
   });
 
   it("Refresh is disabled while syncing or with no account", () => {
@@ -179,7 +187,7 @@ describe("ribbon registry — contacts", () => {
 
   it("mail-only commands are disabled in contacts mode; compose entry points stay enabled", () => {
     const c = inContacts({ hasTargetMessage: true, hasOpenThread: true, mailboxKind: "custom" });
-    for (const id of ["reply", "reply-all", "forward", "archive", "delete", "move", "close-pane", "refresh", "search", "new-folder", "rename-folder", "delete-folder", "save-to-vault"]) {
+    for (const id of ["reply", "reply-all", "forward", "archive", "delete", "move", "close-pane", "refresh", "search", "new-folder", "rename-folder", "delete-folder", "save-to-vault", "print"]) {
       expect(enabled(id, c), id).toBe(false);
     }
     for (const id of ["new-message", "email-from-note", "email-with-note-attached"]) {
