@@ -298,6 +298,7 @@
         requestRowAction(() => requestDeleteMailbox(() => { void vm.deleteMailbox(id); }));
       },
       saveToVault: () => { if (targetMessageId) void vm.saveMessageToVault(targetMessageId); },
+      print: () => { if (targetMessageId) void vm.printMessage(targetMessageId); },
       emailFromNote: () => guarded(() => noteCommands.composeFromNote()),
       emailWithNoteAttached: () => guarded(() => noteCommands.composeWithNoteAttached()),
       send: () => { void vm.send(); },

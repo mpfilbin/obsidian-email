@@ -71,7 +71,7 @@ function fakeVm(state: Partial<ViewState> = {}): ViewModel {
     deleteMessage: vi.fn(), archiveMessage: vi.fn(), deleteThread: vi.fn(), archiveThread: vi.fn(),
     toggleThreadFlag: vi.fn(), toggleMessageFlag: vi.fn(), toggleThreadPin: vi.fn(),
     moveThread: vi.fn(), requestCreateMailbox: vi.fn(), renameMailbox: vi.fn(), deleteMailbox: vi.fn(),
-    requestRenameMailbox: vi.fn(), requestAttachNote: vi.fn(), saveMessageToVault: vi.fn(),
+    requestRenameMailbox: vi.fn(), requestAttachNote: vi.fn(), saveMessageToVault: vi.fn(), printMessage: vi.fn(),
     removeComposerAttachment: vi.fn(),
     setMode: vi.fn(), searchContacts: vi.fn(), selectContact: vi.fn(), newContact: vi.fn(), editContact: vi.fn(),
     updateContactDraft: vi.fn(), saveContact: vi.fn(), cancelContactEdit: vi.fn(), deleteContact: vi.fn(),
@@ -622,6 +622,26 @@ describe("App.svelte — delete/archive wiring", () => {
     flushSync();
     expect(gridStyle()).not.toContain("340px");
     expect(gridStyle()).toMatch(/0px 0px;/);
+    unmount(app);
+  });
+
+  it("clicking Print prints the currently open message", () => {
+    const printMessage = vi.fn();
+    const vm = fakeVm({
+      openThreadId: "t1",
+      openMessages: [{ summary: {
+        id: "m1", threadId: "t1", mailboxIds: ["INBOX"], from: { name: "Jane", email: "j@x.com" },
+        to: [], cc: [], subject: "Hello", snippet: "hi there", date: 1,
+        unread: true, hasAttachments: false, flagged: false,
+      } }],
+    });
+    Object.assign(vm, { printMessage });
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: appProps(vm) });
+    flushSync();
+
+    host.querySelector<HTMLElement>('.oe-ribbon [data-action="print"]')!.click();
+    expect(printMessage).toHaveBeenCalledWith("m1");
     unmount(app);
   });
 

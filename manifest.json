@@ -1,7 +1,7 @@
 {
 	"id": "obsidian-email",
 	"name": "Email",
-	"version": "0.7.0",
+	"version": "0.8.0",
 	"minAppVersion": "1.11.4",
 	"description": "A full Microsoft 365 email client inside Obsidian.",
 	"author": "Michael Filbin",

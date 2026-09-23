@@ -40,7 +40,7 @@ async function build() {
   const vm = new ViewModel({
     ...contacts,
     cache, sync, settings, getProvider: () => provider, isOnline: () => true,
-    openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {},
+    openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {}, printHtml: () => {},
     promptFolderName: () => {}, promptFolderRename, pickNoteAttachment, showNotice,
   });
   return { cache, provider, sync, settings, vm, showNotice, promptFolderRename, pickNoteAttachment, contacts };
@@ -79,7 +79,7 @@ describe("ViewModel", () => {
     const depsFor = (c: Awaited<ReturnType<typeof build>>) => ({
       ...contactDeps(() => c.provider),
       cache: c.cache, sync: c.sync, settings: c.settings, getProvider: () => c.provider, isOnline: () => true,
-      openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {},
+      openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {}, printHtml: () => {},
       promptFolderName: () => {}, promptFolderRename: vi.fn(), pickNoteAttachment: vi.fn(), showNotice: vi.fn(),
     });
 
@@ -150,7 +150,7 @@ describe("ViewModel", () => {
       ...contactDeps(() => ctx.provider),
       cache: ctx.cache, sync: ctx.sync, settings: (ctx as never as { settings: SettingsStore }).settings ?? await SettingsStore.load({ loadData: async () => ({ accounts: [{ id: "a1", email: "e", provider: "ms-graph", clientId: "c", addedAt: 0 }] }), saveData: async () => {} }),
       getProvider: () => ctx.provider, isOnline: () => false,
-      openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {},
+      openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {}, printHtml: () => {},
       promptFolderName: () => {}, promptFolderRename: () => {}, pickNoteAttachment: async () => undefined, showNotice,
     });
     await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
@@ -622,7 +622,7 @@ describe("ViewModel", () => {
       // near the top of this file): the shared deps with `isOnline: () => false`.
       const offline = new ViewModel({
         cache: c.cache, sync: c.sync, settings: c.settings, getProvider: () => c.provider, isOnline: () => false,
-        openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {},
+        openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {}, printHtml: () => {},
         promptFolderName: () => {}, promptFolderRename: vi.fn(), pickNoteAttachment: vi.fn(), showNotice: c.showNotice,
         ...contactDeps(() => c.provider),
       });
@@ -1715,7 +1715,7 @@ describe("ViewModel — saveMessageToVault", () => {
     const vm = new ViewModel({
       ...contactDeps(() => ctx.provider),
       cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
-      isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote,
+      isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote, printHtml: () => {},
       promptFolderName: () => {}, promptFolderRename: () => {}, pickNoteAttachment: async () => undefined, showNotice: vi.fn(),
     });
     await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
@@ -1748,7 +1748,7 @@ describe("ViewModel — saveMessageToVault", () => {
     const vm = new ViewModel({
       ...contactDeps(() => ctx.provider),
       cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
-      isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote,
+      isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote, printHtml: () => {},
       promptFolderName: () => {}, promptFolderRename: () => {}, pickNoteAttachment: async () => undefined, showNotice,
     });
     await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
@@ -1769,11 +1769,124 @@ describe("ViewModel — saveMessageToVault", () => {
     const vm = new ViewModel({
       ...contactDeps(() => ctx.provider),
       cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
-      isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote,
+      isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote, printHtml: () => {},
       promptFolderName: () => {}, promptFolderRename: () => {}, pickNoteAttachment: async () => undefined, showNotice: vi.fn(),
     });
     await vm.saveMessageToVault("does-not-exist");
     expect(saveNote).not.toHaveBeenCalled();
+  });
+});
+
+describe("ViewModel — printMessage", () => {
+  it("blocks remote images by default, matching the reading pane's privacy default", async () => {
+    const printHtml = vi.fn();
+    const ctx = await build();
+    const vm = new ViewModel({
+      ...contactDeps(() => ctx.provider),
+      cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
+      isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {}, printHtml,
+      promptFolderName: () => {}, promptFolderRename: () => {}, pickNoteAttachment: async () => undefined, showNotice: vi.fn(),
+    });
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await vm.init();
+    await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1)]);
+    ctx.provider.getMessageBody = vi.fn().mockResolvedValue({
+      id: "m1", html: '<img src="https://tracker.example.com/pixel.gif">', text: null, attachments: [], headers: {},
+    });
+    await vm.openThread("t1");
+
+    await vm.printMessage("m1");
+
+    expect(printHtml.mock.calls[0][0]).not.toContain("https://tracker.example.com/pixel.gif");
+  });
+
+  it("allows remote images when the user has enabled auto-loading them", async () => {
+    const printHtml = vi.fn();
+    const ctx = await build();
+    const vm = new ViewModel({
+      ...contactDeps(() => ctx.provider),
+      cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
+      isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {}, printHtml,
+      promptFolderName: () => {}, promptFolderRename: () => {}, pickNoteAttachment: async () => undefined, showNotice: vi.fn(),
+    });
+    await ctx.settings.updatePrefs({ autoLoadImages: true });
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await vm.init();
+    await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1)]);
+    ctx.provider.getMessageBody = vi.fn().mockResolvedValue({
+      id: "m1", html: '<img src="https://example.com/photo.png">', text: null, attachments: [], headers: {},
+    });
+    await vm.openThread("t1");
+
+    await vm.printMessage("m1");
+
+    expect(printHtml.mock.calls[0][0]).toContain("https://example.com/photo.png");
+  });
+
+  it("hands the host a print document built from the open message's summary and body", async () => {
+    const printHtml = vi.fn();
+    const ctx = await build();
+    const vm = new ViewModel({
+      ...contactDeps(() => ctx.provider),
+      cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
+      isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {}, printHtml,
+      promptFolderName: () => {}, promptFolderRename: () => {}, pickNoteAttachment: async () => undefined, showNotice: vi.fn(),
+    });
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await vm.init();
+    await ctx.cache.upsertMessages("a1", [{
+      id: "m1", threadId: "t1", mailboxIds: ["INBOX"],
+      from: { name: "Jane", email: "j@x.com" }, to: [{ email: "me@x.com" }], cc: [],
+      subject: "Hello", snippet: "hi", date: Date.parse("2026-01-02T03:04:05Z"),
+      unread: false, hasAttachments: false, flagged: false,
+    }]);
+    ctx.provider.getMessageBody = vi.fn().mockResolvedValue({
+      id: "m1", html: "<p><b>Hi</b> there</p>", text: null, attachments: [], headers: {},
+    });
+    await vm.openThread("t1");
+
+    await vm.printMessage("m1");
+
+    expect(printHtml).toHaveBeenCalledOnce();
+    const [html] = printHtml.mock.calls[0];
+    expect(html).toContain("<title>Hello</title>");
+    expect(html).toContain("Jane &lt;j@x.com&gt;");
+    expect(html).toContain("<b>Hi</b> there");
+  });
+
+  it("sets a notice instead of printing when the body never loaded and isn't cached", async () => {
+    const printHtml = vi.fn();
+    const showNotice = vi.fn();
+    const ctx = await build();
+    const vm = new ViewModel({
+      ...contactDeps(() => ctx.provider),
+      cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
+      isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {}, printHtml,
+      promptFolderName: () => {}, promptFolderRename: () => {}, pickNoteAttachment: async () => undefined, showNotice,
+    });
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await vm.init();
+    await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1)]);
+    ctx.provider.getMessageBody = vi.fn().mockRejectedValue(new Error("network"));
+    await vm.openThread("t1");
+
+    await vm.printMessage("m1");
+
+    expect(printHtml).not.toHaveBeenCalled();
+    expect(showNotice).toHaveBeenCalledWith(expect.stringMatching(/still loading/i));
+  });
+
+  it("does nothing for a message id that isn't currently open", async () => {
+    const printHtml = vi.fn();
+    const ctx = await build();
+    const vm = new ViewModel({
+      ...contactDeps(() => ctx.provider),
+      cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
+      isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {}, printHtml,
+      promptFolderName: () => {}, promptFolderRename: () => {}, pickNoteAttachment: async () => undefined, showNotice: vi.fn(),
+    });
+    await vm.printMessage("does-not-exist");
+    expect(printHtml).not.toHaveBeenCalled();
   });
 });
 
@@ -1840,7 +1953,7 @@ describe("ViewModel — requestCreateMailbox", () => {
     const vm = new ViewModel({
       ...contactDeps(() => ctx.provider),
       cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
-      isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {},
+      isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {}, printHtml: () => {},
       promptFolderName: (onSubmit) => { submit = onSubmit; }, promptFolderRename: () => {}, pickNoteAttachment: async () => undefined, showNotice: vi.fn(),
     });
     await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
@@ -1866,7 +1979,7 @@ describe("ViewModel — requestCreateMailbox", () => {
     const vm = new ViewModel({
       ...contactDeps(() => ctx.provider),
       cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
-      isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {},
+      isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {}, printHtml: () => {},
       promptFolderName: (onSubmit) => { submit = onSubmit; }, promptFolderRename: () => {}, pickNoteAttachment: async () => undefined, showNotice,
     });
     await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());

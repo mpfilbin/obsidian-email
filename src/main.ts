@@ -22,6 +22,7 @@ import { FolderNameModal } from "./view/folder-name-modal";
 import { NotePickerModal } from "./view/note-picker-modal";
 import { renderNoteToHtml } from "./view/note-to-html";
 import { openEmailLink } from "./render/open-email-link";
+import { printHtml } from "./view/print-html";
 
 export default class EmailPlugin extends Plugin {
   private ctx?: PluginContext;
@@ -254,7 +255,7 @@ export default class EmailPlugin extends Plugin {
 
     this.ctx = await PluginContext.create(
       settings,
-      { http, secrets, post, openExternal, openEmailLink: openEmailLinkFn, saveBlob, saveNote, promptFolderName, promptFolderRename, pickNoteAttachment, showNotice },
+      { http, secrets, post, openExternal, openEmailLink: openEmailLinkFn, saveBlob, saveNote, printHtml, promptFolderName, promptFolderRename, pickNoteAttachment, showNotice },
       logger,
     );
     const ctx = this.ctx;
@@ -327,6 +328,23 @@ export default class EmailPlugin extends Plugin {
             new Notice(`Couldn't open contacts: ${(err as Error).message}`);
           }
         })();
+      },
+    });
+    this.addCommand({
+      id: "print-message",
+      name: "Print email",
+      // Mirrors the ribbon's `hasTargetMessage`: a message is on screen only
+      // when no top-level composer has replaced the thread view. The palette
+      // has no visibility into which message is manually expanded, though, so
+      // (unlike the ribbon) this always targets the thread's newest message.
+      checkCallback: (checking) => {
+        const state = ctx.vm.getState();
+        const composerOpen = state.composer?.mode === "new" || state.composer?.mode === "editDraft";
+        const messages = state.openMessages;
+        const target = !composerOpen && messages.length > 0 ? messages[messages.length - 1].summary.id : undefined;
+        if (checking) return target !== undefined;
+        if (target !== undefined) void ctx.vm.printMessage(target);
+        return true;
       },
     });
     this.addSettingTab(new EmailSettingTab(this, ctx, settings));

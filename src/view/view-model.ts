@@ -9,6 +9,7 @@ import { rankSuggestions, type RecipientSuggestion } from "./recipient-suggest";
 import type { SettingsStore } from "../settings/settings-store";
 import { sanitizeEmailHtml } from "../render/html-sanitizer";
 import { defaultNoteFilename, emailToNote } from "../render/email-to-note";
+import { messageToPrintHtml } from "../render/message-to-print-html";
 
 export interface ThreadView {
   threadId: string;
@@ -107,6 +108,9 @@ export interface ViewModelDeps {
   openExternal: (url: string) => void;
   saveBlob: (blob: Blob, filename: string) => Promise<void>;
   saveNote: (defaultPath: string, content: string) => void;
+  /** Hands the host a standalone HTML document to print (e.g. via a hidden
+   *  iframe + `window.print()`), letting the OS print dialog save it as a PDF. */
+  printHtml: (html: string) => void;
   /** Prompts for a new folder name; calls `onSubmit` with it if confirmed. */
   promptFolderName: (onSubmit: (name: string) => void) => void;
   /** Prompts for a folder's new name, pre-filled with `currentName`. */
@@ -1063,6 +1067,23 @@ export class ViewModel {
       }
     }
     this.deps.saveNote(defaultNoteFilename(found.summary), emailToNote(found.summary, body));
+  }
+
+  /** Renders the given (already-open) message as a printable HTML document
+   *  and hands it to the host, which opens the OS print dialog. */
+  async printMessage(messageId: string): Promise<void> {
+    const found = this.state.openMessages.find((m) => m.summary.id === messageId);
+    if (!found) return;
+    let body = found.body;
+    if (!body) {
+      const acct = this.state.activeAccountId;
+      body = acct ? await this.deps.cache.getBody(acct, messageId) : undefined;
+      if (!body) {
+        this.deps.showNotice("Message body still loading — try again in a moment.");
+        return;
+      }
+    }
+    this.deps.printHtml(messageToPrintHtml(found.summary, body, { allowRemote: this.state.autoLoadImages }));
   }
 
   async refresh(): Promise<void> {
