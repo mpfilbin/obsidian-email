@@ -34,4 +34,12 @@ describe("printHtml", () => {
 
     expect(order).toEqual(["srcdoc", "append"]);
   });
+
+  it("hides the iframe from assistive tech and gives it a descriptive title", () => {
+    printHtml("<p>hi</p>");
+    const iframe = document.querySelector("iframe")!;
+    expect(iframe.getAttribute("aria-hidden")).toBe("true");
+    expect(iframe.getAttribute("tabindex")).toBe("-1");
+    expect(iframe.title).toBe("Print preview");
+  });
 });

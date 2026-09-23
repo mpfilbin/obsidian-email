@@ -1083,7 +1083,7 @@ export class ViewModel {
         return;
       }
     }
-    this.deps.printHtml(messageToPrintHtml(found.summary, body));
+    this.deps.printHtml(messageToPrintHtml(found.summary, body, { allowRemote: this.state.autoLoadImages }));
   }
 
   async refresh(): Promise<void> {

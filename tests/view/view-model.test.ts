@@ -1778,6 +1778,51 @@ describe("ViewModel — saveMessageToVault", () => {
 });
 
 describe("ViewModel — printMessage", () => {
+  it("blocks remote images by default, matching the reading pane's privacy default", async () => {
+    const printHtml = vi.fn();
+    const ctx = await build();
+    const vm = new ViewModel({
+      ...contactDeps(() => ctx.provider),
+      cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
+      isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {}, printHtml,
+      promptFolderName: () => {}, promptFolderRename: () => {}, pickNoteAttachment: async () => undefined, showNotice: vi.fn(),
+    });
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await vm.init();
+    await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1)]);
+    ctx.provider.getMessageBody = vi.fn().mockResolvedValue({
+      id: "m1", html: '<img src="https://tracker.example.com/pixel.gif">', text: null, attachments: [], headers: {},
+    });
+    await vm.openThread("t1");
+
+    await vm.printMessage("m1");
+
+    expect(printHtml.mock.calls[0][0]).not.toContain("https://tracker.example.com/pixel.gif");
+  });
+
+  it("allows remote images when the user has enabled auto-loading them", async () => {
+    const printHtml = vi.fn();
+    const ctx = await build();
+    const vm = new ViewModel({
+      ...contactDeps(() => ctx.provider),
+      cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
+      isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {}, printHtml,
+      promptFolderName: () => {}, promptFolderRename: () => {}, pickNoteAttachment: async () => undefined, showNotice: vi.fn(),
+    });
+    await ctx.settings.updatePrefs({ autoLoadImages: true });
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await vm.init();
+    await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1)]);
+    ctx.provider.getMessageBody = vi.fn().mockResolvedValue({
+      id: "m1", html: '<img src="https://example.com/photo.png">', text: null, attachments: [], headers: {},
+    });
+    await vm.openThread("t1");
+
+    await vm.printMessage("m1");
+
+    expect(printHtml.mock.calls[0][0]).toContain("https://example.com/photo.png");
+  });
+
   it("hands the host a print document built from the open message's summary and body", async () => {
     const printHtml = vi.fn();
     const ctx = await build();

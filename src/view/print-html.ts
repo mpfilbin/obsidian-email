@@ -12,6 +12,9 @@ export function printHtml(html: string): void {
   iframe.style.width = "0";
   iframe.style.height = "0";
   iframe.style.border = "0";
+  iframe.title = "Print preview";
+  iframe.setAttribute("aria-hidden", "true");
+  iframe.setAttribute("tabindex", "-1");
   const cleanup = (): void => iframe.remove();
   iframe.addEventListener(
     "load",

@@ -25,7 +25,7 @@ function attachment(over: Partial<AttachmentMeta> = {}): AttachmentMeta {
 
 describe("messageToPrintHtml", () => {
   it("includes the subject as the document title and a heading", () => {
-    const html = messageToPrintHtml(summary(), body({ html: "<p>Hi</p>" }));
+    const html = messageToPrintHtml(summary(), body({ html: "<p>Hi</p>" }), { allowRemote: true });
     expect(html).toContain("<title>Quarterly report</title>");
     expect(html).toContain("<h1>Quarterly report</h1>");
   });
@@ -34,6 +34,7 @@ describe("messageToPrintHtml", () => {
     const html = messageToPrintHtml(
       summary({ to: [{ name: "Michael", email: "me@example.com" }], cc: [{ email: "other@example.com" }] }),
       body({ html: "<p>Hi</p>" }),
+      { allowRemote: true },
     );
     expect(html).toContain("Jane Doe &lt;jane@example.com&gt;");
     expect(html).toContain("Michael &lt;me@example.com&gt;");
@@ -42,18 +43,22 @@ describe("messageToPrintHtml", () => {
   });
 
   it("omits the Cc line when there are no cc recipients", () => {
-    const html = messageToPrintHtml(summary({ cc: [] }), body({ html: "<p>Hi</p>" }));
+    const html = messageToPrintHtml(summary({ cc: [] }), body({ html: "<p>Hi</p>" }), { allowRemote: true });
     expect(html).not.toContain("Cc:");
   });
 
   it("embeds the sanitized HTML body", () => {
-    const html = messageToPrintHtml(summary(), body({ html: "<p>Hello <b>world</b></p><script>evil()</script>" }));
+    const html = messageToPrintHtml(
+      summary(),
+      body({ html: "<p>Hello <b>world</b></p><script>evil()</script>" }),
+      { allowRemote: true },
+    );
     expect(html).toContain("<p>Hello <b>world</b></p>");
     expect(html).not.toContain("evil()");
   });
 
   it("falls back to escaped plain text when there is no HTML body", () => {
-    const html = messageToPrintHtml(summary(), body({ html: null, text: "Just <plain> text." }));
+    const html = messageToPrintHtml(summary(), body({ html: null, text: "Just <plain> text." }), { allowRemote: true });
     expect(html).toContain("Just &lt;plain&gt; text.");
   });
 
@@ -64,13 +69,14 @@ describe("messageToPrintHtml", () => {
         html: "<p>Hi</p>",
         attachments: [attachment({ filename: "report.pdf" }), attachment({ id: "a2", filename: "logo.png", inline: true, contentId: "logo" })],
       }),
+      { allowRemote: true },
     );
     expect(html).toContain("report.pdf");
     expect(html).not.toContain("logo.png");
   });
 
   it("omits the attachments section when there are no attachments to list", () => {
-    const html = messageToPrintHtml(summary(), body({ html: "<p>Hi</p>", attachments: [] }));
+    const html = messageToPrintHtml(summary(), body({ html: "<p>Hi</p>", attachments: [] }), { allowRemote: true });
     expect(html).not.toContain("Attachments:");
   });
 
@@ -78,9 +84,28 @@ describe("messageToPrintHtml", () => {
     const html = messageToPrintHtml(
       summary({ subject: "<script>alert(1)</script>", from: { name: "A & B", email: "ab@example.com" } }),
       body({ html: "<p>Hi</p>" }),
+      { allowRemote: true },
     );
     expect(html).not.toContain("<script>alert(1)</script>");
     expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
     expect(html).toContain("A &amp; B &lt;ab@example.com&gt;");
+  });
+
+  it("blocks remote images when allowRemote is false, respecting the user's privacy preference", () => {
+    const html = messageToPrintHtml(
+      summary(),
+      body({ html: '<img src="https://tracker.example.com/pixel.gif">' }),
+      { allowRemote: false },
+    );
+    expect(html).not.toContain("https://tracker.example.com/pixel.gif");
+  });
+
+  it("loads remote images when allowRemote is true", () => {
+    const html = messageToPrintHtml(
+      summary(),
+      body({ html: '<img src="https://example.com/photo.png">' }),
+      { allowRemote: true },
+    );
+    expect(html).toContain("https://example.com/photo.png");
   });
 });

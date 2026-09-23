@@ -9,11 +9,17 @@ const fmtAddr = (a: Address): string =>
  *  a From/To/Cc/Date header block, then the sanitized body, then a list of
  *  non-inline attachment filenames. Like `emailToNote`, this re-sanitizes
  *  `body.html` rather than reusing the live-rendered DOM, so inline (cid:)
- *  images won't appear — the same accepted gap as "Save email to vault". */
-export function messageToPrintHtml(summary: MessageSummary, body: MessageBody): string {
+ *  images won't appear — the same accepted gap as "Save email to vault".
+ *  `allowRemote` mirrors the reading pane's own remote-content gate, so
+ *  printing doesn't silently fetch tracking pixels the user has blocked. */
+export function messageToPrintHtml(
+  summary: MessageSummary,
+  body: MessageBody,
+  opts: { allowRemote: boolean },
+): string {
   const subject = summary.subject || "(no subject)";
   const bodyHtml = body.html
-    ? sanitizeEmailHtml(body.html, { allowRemote: true }).html
+    ? sanitizeEmailHtml(body.html, { allowRemote: opts.allowRemote }).html
     : `<pre>${escapeHtml(body.text ?? "")}</pre>`;
 
   const attachments = body.attachments.filter((a) => !a.inline);
