@@ -23,6 +23,9 @@ export interface ContextHostDeps {
   secrets: SecretStore;
   post: HttpPost;
   openExternal: (url: string) => void;
+  /** Opens a link clicked in an email body — routes through Obsidian's Web
+   *  Viewer when it's enabled, else falls back to `openExternal`. */
+  openEmailLink: (url: string) => void;
   saveBlob: (blob: Blob, filename: string) => Promise<void>;
   /** Prompts the user for a vault-relative path and creates a note there. */
   saveNote: (defaultPath: string, content: string) => void;
@@ -181,7 +184,7 @@ export class PluginContext {
       settings,
       getProvider: (id) => providers.get(id),
       isOnline: () => (typeof navigator === "undefined" ? true : navigator.onLine),
-      openExternal: host.openExternal,
+      openExternal: host.openEmailLink,
       saveBlob: host.saveBlob,
       saveNote: host.saveNote,
       promptFolderName: host.promptFolderName,

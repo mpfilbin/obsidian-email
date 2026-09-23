@@ -32,6 +32,7 @@ function hostDeps() {
       json: { access_token: "a", refresh_token: "r", expires_in: 3600 },
     }),
     openExternal: vi.fn(),
+    openEmailLink: vi.fn(),
     saveBlob: vi.fn().mockResolvedValue(undefined),
     saveNote: vi.fn(),
     promptFolderName: vi.fn(),
