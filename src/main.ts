@@ -21,6 +21,7 @@ import { SaveEmailModal } from "./view/save-email-modal";
 import { FolderNameModal } from "./view/folder-name-modal";
 import { NotePickerModal } from "./view/note-picker-modal";
 import { renderNoteToHtml } from "./view/note-to-html";
+import { openEmailLink } from "./render/open-email-link";
 
 export default class EmailPlugin extends Plugin {
   private ctx?: PluginContext;
@@ -66,6 +67,22 @@ export default class EmailPlugin extends Plugin {
       shell: { openExternal(url: string): Promise<void> };
     };
     const openExternal = (url: string): void => void shell.openExternal(url);
+
+    // `internalPlugins` isn't part of the public Obsidian API; cast narrowly
+    // for the one lookup we need — whether the core "Web viewer" plugin is on.
+    const { internalPlugins } = this.app as unknown as {
+      internalPlugins: { getEnabledPluginById(id: string): unknown };
+    };
+    const isWebViewerEnabled = (): boolean => !!internalPlugins.getEnabledPluginById("webviewer");
+    const openInWebViewer = (url: string): void => {
+      void this.app.workspace.getLeaf("tab").setViewState({
+        type: "webviewer",
+        active: true,
+        state: { url, navigate: true },
+      });
+    };
+    const openEmailLinkFn = (url: string): void =>
+      openEmailLink(url, { isWebViewerEnabled, openInWebViewer, openExternal });
 
     // Ruling D: persist attachments into the configured vault folder, else hand
     // the blob to the renderer as a download.
@@ -235,7 +252,7 @@ export default class EmailPlugin extends Plugin {
 
     this.ctx = await PluginContext.create(
       settings,
-      { http, secrets, post, openExternal, saveBlob, saveNote, promptFolderName, promptFolderRename, pickNoteAttachment, showNotice },
+      { http, secrets, post, openExternal, openEmailLink: openEmailLinkFn, saveBlob, saveNote, promptFolderName, promptFolderRename, pickNoteAttachment, showNotice },
       logger,
     );
     const ctx = this.ctx;
