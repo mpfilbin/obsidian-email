@@ -70,10 +70,12 @@ export default class EmailPlugin extends Plugin {
 
     // `internalPlugins` isn't part of the public Obsidian API; cast narrowly
     // for the one lookup we need — whether the core "Web viewer" plugin is on.
+    // Optional-chained throughout: an API absent or reshaped in some
+    // version/environment should fall back to the system browser, not throw.
     const { internalPlugins } = this.app as unknown as {
-      internalPlugins: { getEnabledPluginById(id: string): unknown };
+      internalPlugins?: { getEnabledPluginById?(id: string): unknown };
     };
-    const isWebViewerEnabled = (): boolean => !!internalPlugins.getEnabledPluginById("webviewer");
+    const isWebViewerEnabled = (): boolean => !!internalPlugins?.getEnabledPluginById?.("webviewer");
     const openInWebViewer = (url: string): void => {
       void this.app.workspace.getLeaf("tab").setViewState({
         type: "webviewer",
