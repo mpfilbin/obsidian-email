@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { describeFollowUp, followUpPresets, startOfLocalDay } from "../../src/util/follow-up";
+import { describeFollowUp, followUpPresets, formatDateInput, parseDateInput, startOfLocalDay } from "../../src/util/follow-up";
 
 const at = (y: number, mo: number, d: number, h = 15) => new Date(y, mo - 1, d, h, 30).getTime();
 const day = (y: number, mo: number, d: number) => new Date(y, mo - 1, d).getTime();
@@ -35,5 +35,28 @@ describe("describeFollowUp", () => {
     const later = describeFollowUp(day(2026, 10, 12), now);
     expect(later.overdue).toBe(false);
     expect(later.text).toMatch(/^Due .*12/);
+  });
+});
+
+describe("date input helpers", () => {
+  it("parseDateInput returns that day's local midnight", () => {
+    expect(parseDateInput("2026-10-12")).toBe(day(2026, 10, 12));
+    expect(parseDateInput(" 2026-01-05 ")).toBe(day(2026, 1, 5));
+  });
+
+  it("parseDateInput accepts a past date (it just reads as overdue)", () => {
+    expect(parseDateInput("2020-02-29")).toBe(day(2020, 2, 29));
+  });
+
+  it("parseDateInput rejects blanks, malformed strings and impossible dates", () => {
+    for (const bad of ["", "tomorrow", "2026-1-5", "10/12/2026", "2026-02-30", "2026-13-01", "2026-00-10", "2027-02-29"]) {
+      expect(parseDateInput(bad), bad).toBeUndefined();
+    }
+  });
+
+  it("formatDateInput is the YYYY-MM-DD of the local day and round-trips", () => {
+    expect(formatDateInput(at(2026, 10, 7, 23))).toBe("2026-10-07");
+    expect(formatDateInput(day(2026, 1, 5))).toBe("2026-01-05");
+    expect(parseDateInput(formatDateInput(at(2026, 3, 9)))).toBe(day(2026, 3, 9));
   });
 });

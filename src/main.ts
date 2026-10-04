@@ -19,6 +19,7 @@ import { safeAttachmentName, uniqueAttachmentPath } from "./util/safe-filename";
 import { arrayBufferToBase64 } from "./util/base64";
 import { SaveEmailModal } from "./view/save-email-modal";
 import { FolderNameModal } from "./view/folder-name-modal";
+import { FollowUpDateModal } from "./view/follow-up-date-modal";
 import { NotePickerModal } from "./view/note-picker-modal";
 import { renderNoteToHtml } from "./view/note-to-html";
 import { openEmailLink } from "./render/open-email-link";
@@ -155,6 +156,10 @@ export default class EmailPlugin extends Plugin {
       new FolderNameModal(this.app, { heading: "New folder", submitLabel: "Create" }, onSubmit).open();
     };
 
+    const promptFollowUpDate = (onSubmit: (dueDate: number) => void): void => {
+      new FollowUpDateModal(this.app, onSubmit).open();
+    };
+
     const promptFolderRename = (currentName: string, onSubmit: (name: string) => void): void => {
       new FolderNameModal(
         this.app,
@@ -231,7 +236,7 @@ export default class EmailPlugin extends Plugin {
     // click event: on desktop a MenuItem can be backed by a native OS menu,
     // whose click callback doesn't carry a real DOM mouse position — using it
     // for showAtMouseEvent put the submenu at (0, 0) instead of near the row.
-    const showThreadContextMenu: ThreadContextMenuHandler = (evt, { candidates, onMove, flagged, onToggleFlag, onFlagFollowUp, onCompleteFlag, pinned, onTogglePin }) => {
+    const showThreadContextMenu: ThreadContextMenuHandler = (evt, { candidates, onMove, flagged, onToggleFlag, onFlagFollowUp, onFlagCustomFollowUp, onCompleteFlag, pinned, onTogglePin }) => {
       const position = { x: evt.clientX, y: evt.clientY };
       const menu = new Menu();
       menu.addItem((item) =>
@@ -249,6 +254,7 @@ export default class EmailPlugin extends Plugin {
             for (const preset of followUpPresets(Date.now())) {
               followMenu.addItem((i) => i.setTitle(preset.label).onClick(() => onFlagFollowUp(preset.dueDate)));
             }
+            followMenu.addItem((i) => i.setTitle("Custom date…").onClick(() => onFlagCustomFollowUp()));
             followMenu.showAtPosition(position);
           }),
       );
@@ -280,7 +286,7 @@ export default class EmailPlugin extends Plugin {
 
     this.ctx = await PluginContext.create(
       settings,
-      { http, secrets, post, openExternal, openEmailLink: openEmailLinkFn, showLinkContextMenu, saveBlob, saveNote, printHtml, promptFolderName, promptFolderRename, pickNoteAttachment, showNotice },
+      { http, secrets, post, openExternal, openEmailLink: openEmailLinkFn, showLinkContextMenu, saveBlob, saveNote, printHtml, promptFolderName, promptFollowUpDate, promptFolderRename, pickNoteAttachment, showNotice },
       logger,
     );
     const ctx = this.ctx;

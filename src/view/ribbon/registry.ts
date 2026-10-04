@@ -38,6 +38,7 @@ export interface RibbonActions {
   refreshContacts(): void;
   toggleFlag(): void;
   flagFollowUp(dueDate: number): void;
+  flagCustomFollowUp(): void;
   completeFlag(): void;
   togglePin(): void;
 }
@@ -130,7 +131,10 @@ const BASE_COMMANDS: RibbonCommand[] = [
     enabled: (c) => c.hasOpenThread, pressed: (c) => c.openThreadFlagged, run: (c) => c.actions.toggleFlag() },
   { id: "follow-up", tab: "home", group: "Mark", icon: ACTION_ICON.followUp, label: "Follow up",
     enabled: (c) => c.hasOpenThread,
-    options: (c) => followUpPresets(Date.now()).map((p) => ({ id: p.id, label: p.label, run: () => c.actions.flagFollowUp(p.dueDate) })) },
+    options: (c) => [
+      ...followUpPresets(Date.now()).map((p) => ({ id: p.id, label: p.label, run: () => c.actions.flagFollowUp(p.dueDate) })),
+      { id: "custom", label: "Custom date…", run: () => c.actions.flagCustomFollowUp() },
+    ] },
   { id: "complete-flag", tab: "home", group: "Mark", icon: ACTION_ICON.complete, label: "Complete",
     enabled: (c) => c.hasOpenThread && c.openThreadFlagged, run: (c) => c.actions.completeFlag() },
   { id: "pin", tab: "home", group: "Mark", icon: ACTION_ICON.pin, label: "Pin",

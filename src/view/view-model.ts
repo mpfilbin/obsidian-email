@@ -117,6 +117,9 @@ export interface ViewModelDeps {
   printHtml: (html: string) => void;
   /** Prompts for a new folder name; calls `onSubmit` with it if confirmed. */
   promptFolderName: (onSubmit: (name: string) => void) => void;
+  /** Prompts for a custom follow-up date; calls `onSubmit` with its local
+   *  midnight (epoch ms) if confirmed. */
+  promptFollowUpDate?: (onSubmit: (dueDate: number) => void) => void;
   /** Prompts for a folder's new name, pre-filled with `currentName`. */
   promptFolderRename: (currentName: string, onSubmit: (name: string) => void) => void;
   /** Lets the user pick a vault note and resolves with it as an attachment,
@@ -907,6 +910,11 @@ export class ViewModel {
     await this.setFlags(acct, provider, todo, { flagged: true, ...(dueDate !== undefined ? { flagDue: dueDate } : {}) }, (m) =>
       dueDate !== undefined ? provider.setMessageFlag(m.id, true, dueDate) : provider.setMessageFlag(m.id, true),
     );
+  }
+
+  /** Asks for a date, then flags the thread with it. Cancelling does nothing. */
+  flagThreadCustom(threadId: string): void {
+    this.deps.promptFollowUpDate?.((dueDate) => { void this.flagThread(threadId, dueDate); });
   }
 
   /** Marks the flag complete on every flagged message in the thread. Completed

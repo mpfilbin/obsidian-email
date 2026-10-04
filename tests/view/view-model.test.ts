@@ -2317,3 +2317,42 @@ describe("ViewModel — follow-up flags", () => {
     expect(c.showNotice).toHaveBeenCalledWith(expect.stringMatching(/couldn't find/i));
   });
 });
+
+describe("ViewModel — custom follow-up date", () => {
+  async function setup(promptFollowUpDate?: (cb: (d: number) => void) => void) {
+    const ctx = await build();
+    const vm = new ViewModel({
+      ...contactDeps(() => ctx.provider),
+      cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
+      isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {}, printHtml: () => {},
+      promptFolderName: () => {}, promptFolderRename: () => {}, pickNoteAttachment: async () => undefined, showNotice: vi.fn(),
+      promptFollowUpDate,
+    });
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1)]);
+    ctx.provider.addMessage(sum("m1", "t1", 1));
+    await vm.init();
+    return { ctx, vm };
+  }
+
+  it("flags the thread with the date the prompt returns", async () => {
+    const DUE = Date.UTC(2026, 11, 25, 5);
+    const { ctx, vm } = await setup((cb) => cb(DUE));
+    const spy = vi.spyOn(ctx.provider, "setMessageFlag");
+    vm.flagThreadCustom("t1");
+    await vi.waitFor(() => expect(spy).toHaveBeenCalledWith("m1", true, DUE));
+  });
+
+  it("does nothing when the prompt is cancelled", async () => {
+    const { ctx, vm } = await setup(() => {});
+    const spy = vi.spyOn(ctx.provider, "setMessageFlag");
+    vm.flagThreadCustom("t1");
+    await new Promise((r) => setTimeout(r, 10));
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("is a no-op when the host provides no prompt", async () => {
+    const { vm } = await setup(undefined);
+    expect(() => vm.flagThreadCustom("t1")).not.toThrow();
+  });
+});

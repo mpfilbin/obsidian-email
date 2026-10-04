@@ -40,3 +40,21 @@ export function describeFollowUp(due: number, now: number): { text: string; over
   const day = new Date(due).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
   return { text: `Due ${day}`, overdue: false };
 }
+
+/** `YYYY-MM-DD` (an `<input type="date">` value) for a timestamp's local day. */
+export function formatDateInput(ts: number): string {
+  const d = new Date(ts);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** Parses a `YYYY-MM-DD` value to that day's local midnight, or undefined when
+ *  it isn't a real calendar date (blank, malformed, or e.g. 2026-02-30). */
+export function parseDateInput(value: string): number | undefined {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+  if (!m) return undefined;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const date = new Date(y, mo - 1, d);
+  if (date.getFullYear() !== y || date.getMonth() !== mo - 1 || date.getDate() !== d) return undefined;
+  return date.getTime();
+}

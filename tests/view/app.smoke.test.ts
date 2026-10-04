@@ -69,7 +69,7 @@ function fakeVm(state: Partial<ViewState> = {}): ViewModel {
     hasUnsavedComposerContent: vi.fn().mockReturnValue(false),
     send: vi.fn(), saveDraft: vi.fn(), discardDraft: vi.fn(), closeComposer: vi.fn(),
     deleteMessage: vi.fn(), archiveMessage: vi.fn(), deleteThread: vi.fn(), archiveThread: vi.fn(),
-    toggleThreadFlag: vi.fn(), flagThread: vi.fn(), completeThreadFlag: vi.fn(), toggleMessageFlag: vi.fn(), toggleThreadPin: vi.fn(),
+    toggleThreadFlag: vi.fn(), flagThread: vi.fn(), flagThreadCustom: vi.fn(), completeThreadFlag: vi.fn(), toggleMessageFlag: vi.fn(), toggleThreadPin: vi.fn(),
     moveThread: vi.fn(), requestCreateMailbox: vi.fn(), renameMailbox: vi.fn(), deleteMailbox: vi.fn(),
     requestRenameMailbox: vi.fn(), requestAttachNote: vi.fn(), saveMessageToVault: vi.fn(), printMessage: vi.fn(),
     removeComposerAttachment: vi.fn(),
@@ -1430,8 +1430,21 @@ describe("App — follow-up flags", () => {
     const [, actions] = onThreadContextMenu.mock.calls[0];
     actions.onFlagFollowUp(1234);
     expect(vm.flagThread).toHaveBeenCalledWith("t1", 1234);
+    actions.onFlagCustomFollowUp();
+    expect(vm.flagThreadCustom).toHaveBeenCalledWith("t1");
     actions.onCompleteFlag();
     expect(vm.completeThreadFlag).toHaveBeenCalledWith("t1");
+    done();
+  });
+
+  it("the ribbon Follow up dropdown's Custom date asks for a date for the open thread", () => {
+    const vm = fakeVm({ openThreadId: "t1", openMessages });
+    const { host, done } = mountApp(vm);
+    click(host.querySelector('.oe-ribbon [data-action="follow-up"]'));
+    const custom = [...document.querySelectorAll<HTMLElement>(".oe-ribbon-menu button")].find((i) => i.textContent?.includes("Custom date"));
+    expect(custom).toBeDefined();
+    click(custom!);
+    expect(vm.flagThreadCustom).toHaveBeenCalledWith("t1");
     done();
   });
 

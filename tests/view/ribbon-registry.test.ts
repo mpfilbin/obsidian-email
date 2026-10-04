@@ -9,7 +9,7 @@ function actions(): RibbonActions {
     "newMessage", "reply", "replyAll", "forward", "editDraft", "archive", "deleteMessage", "move",
     "closePane", "refresh", "toggleSearch", "newFolder", "renameFolder", "deleteFolder", "saveToVault", "print",
     "emailFromNote", "emailWithNoteAttached", "send", "saveDraft", "discardDraft", "attachNote",
-    "toggleContacts", "newContact", "editContact", "deleteContact", "emailContact", "refreshContacts", "toggleFlag", "flagFollowUp", "completeFlag", "togglePin",
+    "toggleContacts", "newContact", "editContact", "deleteContact", "emailContact", "refreshContacts", "toggleFlag", "flagFollowUp", "flagCustomFollowUp", "completeFlag", "togglePin",
   ] as const;
   return Object.fromEntries(names.map((n) => [n, vi.fn()])) as unknown as RibbonActions;
 }
@@ -236,7 +236,7 @@ describe("ribbon registry — contacts", () => {
 });
 
 describe("ribbon registry — follow-up", () => {
-  it("Follow up is a Home › Mark dropdown of Today / Tomorrow / Next week, needing an open thread", () => {
+  it("Follow up is a Home › Mark dropdown of Today / Tomorrow / Next week / Custom date, needing an open thread", () => {
     expect(cmd("follow-up").tab).toBe("home");
     expect(cmd("follow-up").group).toBe("Mark");
     expect(enabled("follow-up", ctx({ hasOpenThread: false }))).toBe(false);
@@ -244,10 +244,12 @@ describe("ribbon registry — follow-up", () => {
     expect(enabled("follow-up", ctx())).toBe(true);
     const c = ctx();
     const options = cmd("follow-up").options!(c);
-    expect(options.map((o) => o.label)).toEqual(["Today", "Tomorrow", "Next week"]);
+    expect(options.map((o) => o.label)).toEqual(["Today", "Tomorrow", "Next week", "Custom date…"]);
     options[1].run();
     expect(c.actions.flagFollowUp).toHaveBeenCalledOnce();
     expect(c.actions.flagFollowUp).toHaveBeenCalledWith(expect.any(Number));
+    options[3].run();
+    expect(c.actions.flagCustomFollowUp).toHaveBeenCalledOnce();
   });
 
   it("Complete is enabled only for an open flagged thread", () => {

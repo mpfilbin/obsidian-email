@@ -36,6 +36,8 @@ export interface ContextHostDeps {
   printHtml: (html: string) => void;
   /** Prompts the user for a new folder name. */
   promptFolderName: (onSubmit: (name: string) => void) => void;
+  /** Prompts for a custom follow-up date. */
+  promptFollowUpDate?: (onSubmit: (dueDate: number) => void) => void;
   /** Prompts for a folder's new name, pre-filled. */
   promptFolderRename: (currentName: string, onSubmit: (name: string) => void) => void;
   /** Picks a vault note and reads it as an attachment. */
@@ -195,6 +197,7 @@ export class PluginContext {
       saveNote: host.saveNote,
       printHtml: host.printHtml,
       promptFolderName: host.promptFolderName,
+      promptFollowUpDate: host.promptFollowUpDate,
       promptFolderRename: host.promptFolderRename,
       pickNoteAttachment: host.pickNoteAttachment,
       showNotice: host.showNotice,
