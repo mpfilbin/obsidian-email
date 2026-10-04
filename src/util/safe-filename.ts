@@ -67,3 +67,22 @@ export async function uniqueAttachmentPath(
   }
   throw new Error(`Too many files named like ${rel}`);
 }
+
+/**
+ * The vault-relative path an attachment named `filename` should be written to
+ * inside `dir`, or `undefined` if the result would land outside it (or has no
+ * file name). `normalize` is Obsidian's `normalizePath`, injected so this stays
+ * pure. Defence in depth: `safeAttachmentName` already yields a single inert
+ * segment, and this re-checks the joined path against the folder anyway.
+ */
+export function attachmentTargetPath(
+  dir: string,
+  filename: string,
+  normalize: (path: string) => string,
+): string | undefined {
+  const baseDir = normalize(dir);
+  const rel = normalize(`${baseDir}/${safeAttachmentName(filename)}`);
+  const prefix = baseDir === "/" ? "" : `${baseDir}/`;
+  if (!rel.startsWith(prefix) || rel.length <= prefix.length) return undefined;
+  return rel;
+}

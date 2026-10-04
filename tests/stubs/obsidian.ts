@@ -131,6 +131,13 @@ export class Setting {
 
 export class WorkspaceLeaf {}
 
+/** Stand-in for Obsidian's renderer; suites spy on `render` to supply output. */
+export const MarkdownRenderer = {
+  render: async (_app: unknown, markdown: string, el: HTMLElement): Promise<void> => {
+    el.textContent = markdown;
+  },
+};
+
 // Mirrors Obsidian's `normalizePath`: POSIX separators, collapsed runs, no
 // leading/trailing slash, NFC-normalized, with "" folded to the vault root.
 export function normalizePath(path: string): string {

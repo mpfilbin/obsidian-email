@@ -15,7 +15,7 @@ import type { OutgoingAttachment } from "./providers/types";
 import { EmailSettingTab } from "./settings/settings-tab";
 import { makeObsidianHttp } from "./providers/obsidian-http";
 import { Logger } from "./util/logger";
-import { safeAttachmentName, uniqueAttachmentPath } from "./util/safe-filename";
+import { attachmentTargetPath, safeAttachmentName, uniqueAttachmentPath } from "./util/safe-filename";
 import { arrayBufferToBase64 } from "./util/base64";
 import { SaveEmailModal } from "./view/save-email-modal";
 import { FolderNameModal } from "./view/folder-name-modal";
@@ -107,10 +107,8 @@ export default class EmailPlugin extends Plugin {
       const dir = settings.get().prefs.attachmentDir;
       if (dir) {
         const { adapter } = this.app.vault;
-        const baseDir = normalizePath(dir);
-        const rel = normalizePath(`${baseDir}/${safeAttachmentName(filename)}`);
-        const prefix = baseDir === "/" ? "" : `${baseDir}/`;
-        if (!rel.startsWith(prefix) || rel.length <= prefix.length) {
+        const rel = attachmentTargetPath(dir, filename, normalizePath);
+        if (!rel) {
           new Notice(`Refused to save "${filename}" outside the attachment folder.`);
           return;
         }

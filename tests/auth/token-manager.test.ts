@@ -13,6 +13,33 @@ function makeSecrets(initial: Record<string, string> = {}) {
 
 const KEY = (id: string, s: string) => `obsidian-email-${id}-${s}`;
 
+describe("TokenManager — storing and clearing", () => {
+  it("storeInitialTokens refuses a response without a refresh token (re-consent is needed)", async () => {
+    const secrets = makeSecrets();
+    const tm = new TokenManager("a1", "ms-graph", "cid", { secrets, post: vi.fn(), now: () => 0 });
+    await expect(tm.storeInitialTokens({ accessToken: "at", expiresInSec: 3600 })).rejects.toBeInstanceOf(AuthError);
+    expect(secrets.setSecret).not.toHaveBeenCalled();
+  });
+
+  it("clear overwrites the stored refresh token and drops the cached access token", async () => {
+    const secrets = makeSecrets({ [KEY("a1", "refresh")]: "rt" });
+    const post = vi.fn().mockResolvedValue({ status: 200, json: { access_token: "at", expires_in: 3600 } });
+    const tm = new TokenManager("a1", "ms-graph", "cid", { secrets, post, now: () => 0 });
+    await tm.getAccessToken();
+    await tm.clear();
+    expect(secrets.map.get(KEY("a1", "refresh"))).toBe("");
+    // Nothing cached any more, and no refresh token left to mint one from.
+    await expect(tm.getAccessToken()).rejects.toBeInstanceOf(AuthError);
+  });
+
+  it("clear is best-effort: a failing secret store doesn't throw", async () => {
+    const secrets = makeSecrets({ [KEY("a1", "refresh")]: "rt" });
+    secrets.setSecret.mockRejectedValue(new Error("keychain locked"));
+    const tm = new TokenManager("a1", "ms-graph", "cid", { secrets, post: vi.fn(), now: () => 0 });
+    await expect(tm.clear()).resolves.toBeUndefined();
+  });
+});
+
 describe("TokenManager", () => {
   it("returns the cached access token until near expiry", async () => {
     const secrets = makeSecrets({ [KEY("a1", "refresh")]: "rt" });
