@@ -4,6 +4,8 @@ import { restoreBlockedContent, sanitizeEmailHtml } from "./html-sanitizer";
 export interface RenderDeps {
   getInlineAttachment: (contentId: string) => Promise<Blob | undefined>;
   openExternal: (url: string) => void;
+  /** Shows a right-click menu for a link (e.g. "Open in default browser"). */
+  onLinkContextMenu?: (evt: MouseEvent, url: string) => void;
 }
 
 export interface RenderHandle {
@@ -35,6 +37,11 @@ export function renderMessageBody(
       a.addEventListener("click", (e) => {
         e.preventDefault();
         deps.openExternal(a.getAttribute("href")!);
+      });
+      a.addEventListener("contextmenu", (e) => {
+        if (!deps.onLinkContextMenu) return;
+        e.preventDefault();
+        deps.onLinkContextMenu(e, a.getAttribute("href")!);
       });
     });
   };

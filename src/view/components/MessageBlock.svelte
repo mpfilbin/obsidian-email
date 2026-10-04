@@ -10,7 +10,7 @@
     expanded: boolean;
     /** `prefs.autoLoadImages` — when true, remote content renders immediately. */
     autoLoadImages: boolean;
-    renderDeps: { getInlineAttachment: (cid: string) => Promise<Blob | undefined>; openExternal: (url: string) => void };
+    renderDeps: { getInlineAttachment: (cid: string) => Promise<Blob | undefined>; openExternal: (url: string) => void; onLinkContextMenu?: (evt: MouseEvent, url: string) => void };
     onToggle: () => void;
     onToggleFlag: () => void;
     onDownload: (att: AttachmentMeta) => void;

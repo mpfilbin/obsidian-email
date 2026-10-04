@@ -12,6 +12,16 @@ const deps = () => ({
 });
 
 describe("renderMessageBody", () => {
+  it("right-clicking a link calls onLinkContextMenu with its href", () => {
+    const onLinkContextMenu = vi.fn();
+    const el = document.createElement("div");
+    renderMessageBody(el, body({ html: '<a href="https://example.com">go</a>' }), { allowRemote: false }, { ...deps(), onLinkContextMenu });
+    const evt = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    el.querySelector("a")!.dispatchEvent(evt);
+    expect(onLinkContextMenu).toHaveBeenCalledWith(evt, "https://example.com");
+    expect(evt.defaultPrevented).toBe(true);
+  });
+
   it("renders plain text when there is no html", () => {
     const el = document.createElement("div");
     renderMessageBody(el, body({ text: "hello <b>not bold</b>" }), { allowRemote: false }, deps());

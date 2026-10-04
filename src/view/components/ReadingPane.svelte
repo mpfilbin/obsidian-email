@@ -9,7 +9,7 @@
     openMessages: ViewState["openMessages"];
     /** `prefs.autoLoadImages` — when true, remote content renders immediately. */
     autoLoadImages: boolean;
-    renderDeps: { getInlineAttachment: (cid: string) => Promise<Blob | undefined>; openExternal: (url: string) => void };
+    renderDeps: { getInlineAttachment: (cid: string) => Promise<Blob | undefined>; openExternal: (url: string) => void; onLinkContextMenu?: (evt: MouseEvent, url: string) => void };
     onClose: () => void;
     onDownload: (messageId: string, att: AttachmentMeta) => void;
     /** The expanded message (owned by App so the ribbon can act on it).
