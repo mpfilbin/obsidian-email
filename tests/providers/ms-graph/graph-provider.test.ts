@@ -438,6 +438,36 @@ describe("GraphProvider flags", () => {
     expect(JSON.parse(req.mock.calls[1][0].body)).toEqual({ flag: { flagStatus: "notFlagged" } });
   });
 
+  it("setMessageFlag with a due date sends matching UTC start and due times", async () => {
+    const req = vi.fn(async () => resp({}));
+    const due = Date.UTC(2026, 9, 12, 4, 0, 0);
+    await make(req).setMessageFlag("M1", true, due);
+    expect(JSON.parse(req.mock.calls[0][0].body)).toEqual({
+      flag: {
+        flagStatus: "flagged",
+        startDateTime: { dateTime: "2026-10-12T04:00:00.000", timeZone: "UTC" },
+        dueDateTime: { dateTime: "2026-10-12T04:00:00.000", timeZone: "UTC" },
+      },
+    });
+  });
+
+  it("setMessageFlag ignores a due date when clearing the flag", async () => {
+    const req = vi.fn(async () => resp({}));
+    await make(req).setMessageFlag("M1", false, Date.now());
+    expect(JSON.parse(req.mock.calls[0][0].body)).toEqual({ flag: { flagStatus: "notFlagged" } });
+  });
+
+  it("completeMessageFlag PATCHes flagStatus complete with a completion time", async () => {
+    const req = vi.fn(async () => resp({}));
+    await make(req).completeMessageFlag("M1");
+    expect(req.mock.calls[0][0].url).toBe("https://graph.microsoft.com/v1.0/me/messages/M1");
+    expect(req.mock.calls[0][0].method).toBe("PATCH");
+    const body = JSON.parse(req.mock.calls[0][0].body);
+    expect(body.flag.flagStatus).toBe("complete");
+    expect(body.flag.completedDateTime.timeZone).toBe("UTC");
+    expect(body.flag.completedDateTime.dateTime).toMatch(/^\d{4}-\d\d-\d\dT[\d:.]+$/);
+  });
+
   it("a 403 on setMessageFlag is an AuthError (mail semantics, not contacts)", async () => {
     const req = vi.fn(async () => resp({}, 403));
     await expect(make(req).setMessageFlag("M1", true)).rejects.toBeInstanceOf(AuthError);

@@ -135,3 +135,49 @@ describe("contact mappers", () => {
     });
   });
 });
+
+describe("follow-up flag mapping", () => {
+  const base = { id: "M1", conversationId: "C1" };
+
+  it("reads a due date (zone-less Graph strings are UTC) from a flagged message", () => {
+    const m = mapGraphSummary({ ...base, flag: { flagStatus: "flagged", dueDateTime: { dateTime: "2026-10-12T04:00:00.0000000", timeZone: "UTC" } } }, "INBOX");
+    expect(m.flagged).toBe(true);
+    expect(m.flagDue).toBe(Date.UTC(2026, 9, 12, 4));
+    expect(m.flagComplete).toBeUndefined();
+  });
+
+  it("a flagged message without dates has no flagDue", () => {
+    const m = mapGraphSummary({ ...base, flag: { flagStatus: "flagged" } }, "INBOX");
+    expect(m).toMatchObject({ flagged: true });
+    expect(m.flagDue).toBeUndefined();
+  });
+
+  it("a completed flag is not flagged, is marked complete, and drops its due date", () => {
+    const m = mapGraphSummary({ ...base, flag: { flagStatus: "complete", dueDateTime: { dateTime: "2026-10-12T04:00:00.0000000", timeZone: "UTC" } } }, "INBOX");
+    expect(m.flagged).toBe(false);
+    expect(m.flagComplete).toBe(true);
+    expect(m.flagDue).toBeUndefined();
+  });
+
+  it("an unparseable due date is ignored", () => {
+    expect(mapGraphSummary({ ...base, flag: { flagStatus: "flagged", dueDateTime: { dateTime: "nonsense" } } }, "INBOX").flagDue).toBeUndefined();
+  });
+
+  it("a delta patch carries the follow-up fields, and explicitly clears them when the flag is gone", () => {
+    const set = mapGraphSummaryPatch({ ...base, flag: { flagStatus: "flagged", dueDateTime: { dateTime: "2026-10-12T04:00:00Z" } } }, "INBOX");
+    expect(set).toMatchObject({ flagged: true, flagDue: Date.UTC(2026, 9, 12, 4) });
+    const cleared = mapGraphSummaryPatch({ ...base, flag: { flagStatus: "notFlagged" } }, "INBOX");
+    expect(cleared).toMatchObject({ flagged: false });
+    expect("flagDue" in cleared).toBe(true);
+    expect(cleared.flagDue).toBeUndefined();
+    const done = mapGraphSummaryPatch({ ...base, flag: { flagStatus: "complete" } }, "INBOX");
+    expect(done).toMatchObject({ flagged: false, flagComplete: true });
+  });
+
+  it("a delta patch without a flag leaves the follow-up fields alone", () => {
+    const p = mapGraphSummaryPatch({ ...base, isRead: true }, "INBOX");
+    expect("flagged" in p).toBe(false);
+    expect("flagDue" in p).toBe(false);
+    expect("flagComplete" in p).toBe(false);
+  });
+});

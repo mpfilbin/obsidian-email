@@ -2,6 +2,7 @@
   import { ACTION_ICON } from "../action-icons";
   import { icon } from "../icon-action";
   import type { ThreadView } from "../view-model";
+  import { describeFollowUp } from "../../util/follow-up";
 
   import { THREAD_DRAG_TYPE } from "../drag-types";
 
@@ -16,6 +17,7 @@
   const sender = $derived(newest.from.name || newest.from.email || "(unknown)");
   const hasAttachments = $derived(thread.messages.some((m) => m.hasAttachments));
   const flagged = $derived(thread.messages.some((m) => m.flagged));
+  const due = $derived(flagged && thread.flagDue !== undefined ? describeFollowUp(thread.flagDue, Date.now()) : null);
   const pinned = $derived(thread.pinned ?? false);
   const showArchive = $derived(!isDraftsMailbox && !isArchiveMailbox && !isTrashMailbox);
 
@@ -52,6 +54,7 @@
     {#if thread.messages.length > 1}<span class="oe-thread-count">{thread.messages.length}</span>{/if}
     {#if hasAttachments}<span class="oe-clip" aria-label="has attachments">📎</span>{/if}
     {#if flagged}<span class="oe-flag" role="img" aria-label="flagged" use:icon={ACTION_ICON.flag}></span>{/if}
+    {#if due}<span class="oe-flag-due" class:is-overdue={due.overdue}>{due.text}</span>{/if}
     {#if pinned}<span class="oe-pin" role="img" aria-label="pinned" use:icon={ACTION_ICON.pin}></span>{/if}
   </div>
   <div class="oe-thread-snippet">{newest.snippet}</div>

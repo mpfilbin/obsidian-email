@@ -1,4 +1,4 @@
-import type { Address, AttachmentMeta, Contact, ContactPatch, Mailbox, MailboxKind, MessageBody, MessageSummary, MessageSummaryPatch } from "../types";
+import type { Address, AttachmentMeta, Contact, ContactPatch, FlagState, Mailbox, MailboxKind, MessageBody, MessageSummary, MessageSummaryPatch } from "../types";
 
 interface GraphRecipient { emailAddress?: { name?: string; address?: string }; }
 export interface GraphMessage {
@@ -10,7 +10,7 @@ export interface GraphMessage {
   receivedDateTime?: string;
   isRead?: boolean;
   hasAttachments?: boolean;
-  flag?: { flagStatus?: string };
+  flag?: { flagStatus?: string; dueDateTime?: { dateTime?: string; timeZone?: string } };
   from?: GraphRecipient;
   toRecipients?: GraphRecipient[];
   ccRecipients?: GraphRecipient[];
@@ -57,8 +57,27 @@ export function mapGraphSummary(m: GraphMessage, folderId: string): MessageSumma
     date: m.receivedDateTime ? Date.parse(m.receivedDateTime) : Date.now(),
     unread: m.isRead === false,
     hasAttachments: Boolean(m.hasAttachments),
-    flagged: m.flag?.flagStatus === "flagged",
+    ...mapGraphFlag(m.flag),
   };
+}
+
+/** Graph reports flag dates as zone-less strings plus a zone name; the plugin
+ *  only ever writes UTC (and Graph's default is UTC), so a bare string is read
+ *  as UTC. */
+function parseFlagDate(dt?: { dateTime?: string }): number | undefined {
+  const raw = dt?.dateTime;
+  if (!raw) return undefined;
+  const t = Date.parse(/[zZ]$|[+-]\d\d:?\d\d$/.test(raw) ? raw : `${raw}Z`);
+  return Number.isNaN(t) ? undefined : t;
+}
+
+function mapGraphFlag(flag: GraphMessage["flag"]): FlagState {
+  const flagged = flag?.flagStatus === "flagged";
+  const state: FlagState = { flagged };
+  const due = flagged ? parseFlagDate(flag?.dueDateTime) : undefined;
+  if (due !== undefined) state.flagDue = due;
+  if (flag?.flagStatus === "complete") state.flagComplete = true;
+  return state;
 }
 
 /** Maps a delta item to a patch, including a field only when Graph actually
@@ -75,7 +94,14 @@ export function mapGraphSummaryPatch(m: GraphMessage, folderId: string): Message
   if (m.receivedDateTime !== undefined) patch.date = Date.parse(m.receivedDateTime);
   if (m.isRead !== undefined) patch.unread = m.isRead === false;
   if (m.hasAttachments !== undefined) patch.hasAttachments = Boolean(m.hasAttachments);
-  if (m.flag !== undefined) patch.flagged = m.flag?.flagStatus === "flagged";
+  if (m.flag !== undefined) {
+    const f = mapGraphFlag(m.flag);
+    patch.flagged = f.flagged;
+    // Explicit undefined so the merge clears a due date / completion that the
+    // server no longer reports.
+    patch.flagDue = f.flagDue;
+    patch.flagComplete = f.flagComplete;
+  }
   return patch;
 }
 

@@ -2191,3 +2191,129 @@ describe("ViewModel — renderDeps link context menu", () => {
     expect(() => vm.renderDeps().onLinkContextMenu!(new MouseEvent("contextmenu"), "https://example.com")).not.toThrow();
   });
 });
+
+describe("ViewModel — follow-up flags", () => {
+  type Ctx = Awaited<ReturnType<typeof build>>;
+  const DUE = Date.UTC(2026, 9, 12, 4);
+  async function seed(c: Ctx, msgs: MessageSummary[]) {
+    await c.cache.putMailboxes("a1", await c.provider.listMailboxes());
+    await c.cache.upsertMessages("a1", msgs);
+    for (const m of msgs) c.provider.addMessage(m);
+    await c.vm.init();
+  }
+  const cached = async (c: Ctx, thread: string) => c.cache.getThreadMessages("a1", thread);
+
+  it("flagThread flags every message with the due date — cache, rows and server", async () => {
+    const c = await build();
+    await seed(c, [sum("m1", "t1", 1), sum("m2", "t1", 2)]);
+    const spy = vi.spyOn(c.provider, "setMessageFlag");
+    await c.vm.flagThread("t1", DUE);
+    expect(spy.mock.calls).toEqual([["m1", true, DUE], ["m2", true, DUE]]);
+    expect((await cached(c, "t1")).map((m) => [m.flagged, m.flagDue])).toEqual([[true, DUE], [true, DUE]]);
+    expect(c.vm.getState().threads[0]).toMatchObject({ flagged: true, flagDue: DUE });
+  });
+
+  it("flagThread without a date is a plain flag (no third argument)", async () => {
+    const c = await build();
+    await seed(c, [sum("m1", "t1", 1)]);
+    const spy = vi.spyOn(c.provider, "setMessageFlag");
+    await c.vm.flagThread("t1");
+    expect(spy.mock.calls).toEqual([["m1", true]]);
+  });
+
+  it("flagThread re-dates an already-flagged message but skips ones already on that date", async () => {
+    const c = await build();
+    await seed(c, [
+      { ...sum("m1", "t1", 1), flagged: true, flagDue: DUE },
+      { ...sum("m2", "t1", 2), flagged: true, flagDue: DUE - 86_400_000 },
+    ]);
+    const spy = vi.spyOn(c.provider, "setMessageFlag");
+    await c.vm.flagThread("t1", DUE);
+    expect(spy.mock.calls).toEqual([["m2", true, DUE]]);
+    expect((await cached(c, "t1")).map((m) => m.flagDue)).toEqual([DUE, DUE]);
+  });
+
+  it("the row shows the earliest due date among the flagged messages", async () => {
+    const c = await build();
+    await seed(c, [
+      { ...sum("m1", "t1", 1), flagged: true, flagDue: DUE + 86_400_000 },
+      { ...sum("m2", "t1", 2), flagged: true, flagDue: DUE },
+      sum("m3", "t1", 3),
+    ]);
+    await c.vm.selectMailbox("INBOX");
+    expect(c.vm.getState().threads[0].flagDue).toBe(DUE);
+  });
+
+  it("a failed flagThread restores each message's own prior state", async () => {
+    const c = await build();
+    await seed(c, [
+      { ...sum("m1", "t1", 1), flagged: true, flagDue: DUE - 86_400_000 },
+      sum("m2", "t1", 2),
+    ]);
+    vi.spyOn(c.provider, "setMessageFlag").mockRejectedValue(new Error("boom"));
+    await c.vm.flagThread("t1", DUE);
+    expect((await cached(c, "t1")).map((m) => [m.flagged, m.flagDue])).toEqual([[true, DUE - 86_400_000], [false, undefined]]);
+    expect(c.vm.getState().threads[0].flagDue).toBe(DUE - 86_400_000);
+    expect(c.showNotice).toHaveBeenCalledWith("boom");
+  });
+
+  it("completeThreadFlag completes only the flagged messages and unflags them", async () => {
+    const c = await build();
+    await seed(c, [{ ...sum("m1", "t1", 1), flagged: true, flagDue: DUE }, sum("m2", "t1", 2)]);
+    const spy = vi.spyOn(c.provider, "completeMessageFlag");
+    await c.vm.completeThreadFlag("t1");
+    expect(spy.mock.calls).toEqual([["m1"]]);
+    const [m1, m2] = await cached(c, "t1");
+    expect(m1).toMatchObject({ flagged: false, flagComplete: true });
+    expect("flagDue" in m1).toBe(false);
+    expect(m2.flagComplete).toBeUndefined();
+    expect(c.vm.getState().threads[0]).toMatchObject({ flagged: false });
+  });
+
+  it("completeThreadFlag on an unflagged thread does nothing", async () => {
+    const c = await build();
+    await seed(c, [sum("m1", "t1", 1)]);
+    const spy = vi.spyOn(c.provider, "completeMessageFlag");
+    await c.vm.completeThreadFlag("t1");
+    expect(spy).not.toHaveBeenCalled();
+    expect(c.showNotice).not.toHaveBeenCalled();
+  });
+
+  it("a failed completion rolls back to flagged with its due date", async () => {
+    const c = await build();
+    await seed(c, [{ ...sum("m1", "t1", 1), flagged: true, flagDue: DUE }]);
+    vi.spyOn(c.provider, "completeMessageFlag").mockRejectedValue(new Error("boom"));
+    await c.vm.completeThreadFlag("t1");
+    const [m1] = await cached(c, "t1");
+    expect(m1).toMatchObject({ flagged: true, flagDue: DUE });
+    expect(m1.flagComplete).toBeUndefined();
+    expect(c.showNotice).toHaveBeenCalledWith("boom");
+  });
+
+  it("completing a thread removes it from the Flagged view", async () => {
+    const c = await build();
+    await seed(c, [{ ...sum("m1", "t1", 1), flagged: true }, { ...sum("m2", "t2", 2), flagged: true }]);
+    await c.vm.selectFlagged();
+    expect(c.vm.getState().threads.map((t) => t.threadId).sort()).toEqual(["t1", "t2"]);
+    await c.vm.completeThreadFlag("t1");
+    expect(c.vm.getState().threads.map((t) => t.threadId)).toEqual(["t2"]);
+  });
+
+  it("the Flagged view orders by due date: soonest first, undated last", async () => {
+    const c = await build();
+    await seed(c, [
+      { ...sum("a", "ta", 50), flagged: true },
+      { ...sum("b", "tb", 1), flagged: true, flagDue: DUE + 86_400_000 },
+      { ...sum("c", "tc", 2), flagged: true, flagDue: DUE },
+    ]);
+    await c.vm.selectFlagged();
+    expect(c.vm.getState().threads.map((t) => t.threadId)).toEqual(["tc", "tb", "ta"]);
+  });
+
+  it("flagThread for an unknown thread toasts instead of throwing", async () => {
+    const c = await build();
+    await seed(c, [sum("m1", "t1", 1)]);
+    await c.vm.flagThread("nope", DUE);
+    expect(c.showNotice).toHaveBeenCalledWith(expect.stringMatching(/couldn't find/i));
+  });
+});

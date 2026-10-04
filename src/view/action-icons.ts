@@ -12,6 +12,8 @@ export const ACTION_ICON = {
   saveToVault: "save",
   flag: "flag",
   unflag: "flag-off",
+  complete: "check-circle",
+  followUp: "calendar-clock",
   pin: "pin",
   unpin: "pin-off",
 } as const;

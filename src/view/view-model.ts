@@ -1,4 +1,4 @@
-import type { Address, AttachmentMeta, Contact, ContactDraft, Mailbox, MailProvider, MessageBody, MessageSummary, OutgoingAttachment, OutgoingMessage, ProviderKind } from "../providers/types";
+import type { Address, AttachmentMeta, Contact, ContactDraft, FlagState, Mailbox, MailProvider, MessageBody, MessageSummary, OutgoingAttachment, OutgoingMessage, ProviderKind } from "../providers/types";
 import { AuthError, ContactsConsentRequired, supportsContacts } from "../providers/types";
 import type { MailCache } from "../cache/mail-cache";
 import type { SyncEngine, SyncStatus } from "../sync/sync-engine";
@@ -19,6 +19,8 @@ export interface ThreadView {
   unread: boolean;
   /** Any message in the thread is flagged. */
   flagged: boolean;
+  /** Earliest follow-up due date among the thread's flagged messages. */
+  flagDue?: number;
   /** The user pinned this conversation (local to the plugin). */
   pinned: boolean;
 }
@@ -136,7 +138,7 @@ const CONTACTS_REAUTH_HINT =
 function groupThreads(
   messages: MessageSummary[],
   pinned: ReadonlySet<string> = new Set(),
-  opts: { floatPinned?: boolean } = {},
+  opts: { floatPinned?: boolean; byDue?: boolean } = {},
 ): ThreadView[] {
   const byThread = new Map<string, MessageSummary[]>();
   for (const m of messages) {
@@ -147,6 +149,7 @@ function groupThreads(
   const threads: ThreadView[] = [];
   for (const [threadId, msgs] of byThread) {
     msgs.sort((a, b) => a.date - b.date);
+    const dues = msgs.filter((m) => m.flagged && m.flagDue !== undefined).map((m) => m.flagDue!);
     threads.push({
       threadId,
       subject: msgs[msgs.length - 1].subject,
@@ -154,13 +157,19 @@ function groupThreads(
       messages: msgs,
       unread: msgs.some((m) => m.unread),
       flagged: msgs.some((m) => m.flagged),
+      ...(dues.length ? { flagDue: Math.min(...dues) } : {}),
       pinned: pinned.has(threadId),
     });
   }
   // Pinned threads float to the top (newest activity first within each group);
   // search results keep plain recency order and only show the pin mark.
   const float = opts.floatPinned ?? true;
-  threads.sort((a, b) => (float ? Number(b.pinned) - Number(a.pinned) : 0) || b.lastDate - a.lastDate);
+  // The Flagged view also orders by follow-up: soonest due first, undated last.
+  const due = (t: ThreadView) => (opts.byDue ? t.flagDue ?? Infinity : 0);
+  threads.sort((a, b) =>
+    (float ? Number(b.pinned) - Number(a.pinned) : 0) ||
+    (due(a) === due(b) ? 0 : due(a) < due(b) ? -1 : 1) ||
+    b.lastDate - a.lastDate);
   return threads;
 }
 
@@ -482,7 +491,7 @@ export class ViewModel {
       const pinned = this.deps.settings.pinnedThreadIds(acct);
       if (seq !== this.reloadSeq) return;
       this.set({
-        threads: groupThreads(rows, pinned),
+        threads: groupThreads(rows, pinned, { byDue: true }),
         pinnedThreadIds: [...pinned],
         // Another server page exists only once a fetch returned a token.
         hasMore: this.flaggedToken !== undefined,
@@ -878,22 +887,59 @@ export class ViewModel {
    *  cached conversation even when the visible row only holds part of it (the
    *  Flagged view shows just the flagged subset). */
   async toggleThreadFlag(threadId: string): Promise<void> {
+    const ctx = await this.flagContext(threadId);
+    if (!ctx) return;
+    const { acct, provider, messages } = ctx;
+    const flagged = !messages.some((m) => m.flagged);
+    await this.setFlags(acct, provider, messages.filter((m) => m.flagged !== flagged), { flagged }, (m) =>
+      provider.setMessageFlag(m.id, flagged),
+    );
+  }
+
+  /** Flags every message in the thread with a follow-up due date (an undated
+   *  flag when `dueDate` is omitted). Unlike the toggle this also re-dates
+   *  messages that are already flagged and re-flags completed ones. */
+  async flagThread(threadId: string, dueDate?: number): Promise<void> {
+    const ctx = await this.flagContext(threadId);
+    if (!ctx) return;
+    const { acct, provider, messages } = ctx;
+    const todo = messages.filter((m) => !(m.flagged && m.flagDue === dueDate));
+    await this.setFlags(acct, provider, todo, { flagged: true, ...(dueDate !== undefined ? { flagDue: dueDate } : {}) }, (m) =>
+      dueDate !== undefined ? provider.setMessageFlag(m.id, true, dueDate) : provider.setMessageFlag(m.id, true),
+    );
+  }
+
+  /** Marks the flag complete on every flagged message in the thread. Completed
+   *  messages leave the Flagged view, like Outlook's checkmark. */
+  async completeThreadFlag(threadId: string): Promise<void> {
+    const ctx = await this.flagContext(threadId);
+    if (!ctx) return;
+    const { acct, provider, messages } = ctx;
+    await this.setFlags(acct, provider, messages.filter((m) => m.flagged), { flagged: false, flagComplete: true }, (m) =>
+      provider.completeMessageFlag(m.id),
+    );
+  }
+
+  /** The active account's provider plus the thread's cached messages, or
+   *  undefined after telling the user why not. */
+  private async flagContext(
+    threadId: string,
+  ): Promise<{ acct: string; provider: MailProvider; messages: MessageSummary[] } | undefined> {
     const acct = this.state.activeAccountId;
     const provider = acct ? this.deps.getProvider(acct) : undefined;
-    if (!acct || !provider) return;
+    if (!acct || !provider) return undefined;
     let messages: MessageSummary[];
     try {
       messages = await this.deps.cache.getThreadMessages(acct, threadId);
     } catch (err) {
       this.deps.showNotice(this.errorMessage(err));
-      return;
+      return undefined;
     }
     if (messages.length === 0) {
       this.deps.showNotice("Couldn't find any messages in that thread.");
-      return;
+      return undefined;
     }
-    const flagged = !messages.some((m) => m.flagged);
-    await this.setFlags(acct, provider, messages.filter((m) => m.flagged !== flagged), flagged);
+    return { acct, provider, messages };
   }
 
   /** Per-message toggle from the reading pane; the message must be open. */
@@ -906,7 +952,8 @@ export class ViewModel {
       this.deps.showNotice("Couldn't find that message.");
       return;
     }
-    await this.setFlags(acct, provider, [summary], !summary.flagged);
+    const flagged = !summary.flagged;
+    await this.setFlags(acct, provider, [summary], { flagged }, (m) => provider.setMessageFlag(m.id, flagged));
   }
 
   /** Pins or unpins the conversation (local to the plugin). A save failure
@@ -933,38 +980,40 @@ export class ViewModel {
   }
 
   /** Optimistic: the cache and the visible rows change first, then the server
-   *  is told; whatever the server rejects is written back. `flagged` is the
-   *  TARGET value and `messages` are only those whose current state is the
-   *  opposite (callers filter out the rest) — unflagged messages when flagging,
-   *  flagged ones when unflagging — so a rollback simply restores `!flagged`.
+   *  is told; whatever the server rejects is restored to that message's own
+   *  prior flag state (due dates differ per message). `target` is the state to
+   *  write and `messages` are the ones that need it.
    *
-   *  The cache write goes through `cache.setFlagged`, which touches only the
-   *  flag and skips ids that are no longer cached — the rollback runs after a
-   *  server round-trip, by which time a move or a delete may have landed, and
-   *  writing back the fields captured before the call would undo it (or
-   *  resurrect a blank row for a message that is gone). */
+   *  The cache write goes through `cache.setFlagState`, which touches only the
+   *  flag fields and skips ids that are no longer cached — the rollback runs
+   *  after a server round-trip, by which time a move or a delete may have
+   *  landed, and writing back the fields captured before the call would undo it
+   *  (or resurrect a blank row for a message that is gone). */
   private async setFlags(
     acct: string,
     provider: MailProvider,
     messages: MessageSummary[],
-    flagged: boolean,
+    target: FlagState,
+    send: (m: MessageSummary) => Promise<void>,
   ): Promise<void> {
     if (messages.length === 0) return;
-    const write = (value: boolean, list: MessageSummary[]) =>
-      this.deps.cache.setFlagged(acct, list.map((m) => m.id), value);
+    const entries = (list: MessageSummary[], state: (m: MessageSummary) => FlagState) =>
+      list.map((m) => ({ id: m.id, ...state(m) }));
+    const prior = (m: MessageSummary): FlagState => ({ flagged: m.flagged, flagDue: m.flagDue, flagComplete: m.flagComplete });
+    const verb = target.flagComplete ? "Completed" : target.flagged ? "Flagged" : "Unflagged";
     try {
-      await write(flagged, messages);
-      await this.applyFlagChange(acct, messages.map((m) => m.id), flagged);
-      const results = await Promise.allSettled(messages.map((m) => provider.setMessageFlag(m.id, flagged)));
+      await this.deps.cache.setFlagState(acct, entries(messages, () => target));
+      await this.applyFlagChange(acct, entries(messages, () => target));
+      const results = await Promise.allSettled(messages.map((m) => send(m)));
       const failed = messages.filter((_, i) => results[i].status === "rejected");
       if (failed.length === 0) return;
-      await write(!flagged, failed);
-      await this.applyFlagChange(acct, failed.map((m) => m.id), !flagged);
+      await this.deps.cache.setFlagState(acct, entries(failed, prior));
+      await this.applyFlagChange(acct, entries(failed, prior));
       const firstError = (results.find((r) => r.status === "rejected") as PromiseRejectedResult).reason;
       this.deps.showNotice(
         failed.length === messages.length
           ? this.errorMessage(firstError)
-          : `${flagged ? "Flagged" : "Unflagged"} ${messages.length - failed.length} of ${messages.length} messages — ${failed.length} failed.`,
+          : `${verb} ${messages.length - failed.length} of ${messages.length} messages — ${failed.length} failed.`,
       );
     } catch (err) {
       this.deps.showNotice(this.errorMessage(err));
@@ -973,18 +1022,25 @@ export class ViewModel {
 
   /** Mirrors a flag change into the rows already on screen (search results
    *  aren't derived from the cache, so they can't just be reloaded). */
-  private async applyFlagChange(acct: string, ids: string[], flagged: boolean): Promise<void> {
+  private async applyFlagChange(acct: string, changes: Array<{ id: string } & FlagState>): Promise<void> {
     if (acct !== this.state.activeAccountId) return; // the user switched accounts mid-flight
-    const hit = new Set(ids);
-    const patch = (m: MessageSummary): MessageSummary => (hit.has(m.id) ? { ...m, flagged } : m);
+    const byId = new Map(changes.map((c) => [c.id, c]));
+    const patch = (m: MessageSummary): MessageSummary => {
+      const c = byId.get(m.id);
+      if (!c) return m;
+      const { flagDue: _d, flagComplete: _c, ...rest } = m;
+      return { ...rest, flagged: c.flagged, ...(c.flagDue !== undefined ? { flagDue: c.flagDue } : {}), ...(c.flagComplete ? { flagComplete: true } : {}) };
+    };
     this.set({
       threads: this.state.threads.map((t) => {
-        if (!t.messages.some((m) => hit.has(m.id))) return t;
+        if (!t.messages.some((m) => byId.has(m.id))) return t;
         const messages = t.messages.map(patch);
-        return { ...t, messages, flagged: messages.some((m) => m.flagged) };
+        const dues = messages.filter((m) => m.flagged && m.flagDue !== undefined).map((m) => m.flagDue!);
+        const { flagDue: _f, ...rest } = t;
+        return { ...rest, messages, flagged: messages.some((m) => m.flagged), ...(dues.length ? { flagDue: Math.min(...dues) } : {}) };
       }),
       openMessages: this.state.openMessages.map((o) =>
-        hit.has(o.summary.id) ? { ...o, summary: patch(o.summary) } : o,
+        byId.has(o.summary.id) ? { ...o, summary: patch(o.summary) } : o,
       ),
     });
     // The Flagged list is derived from the cache: unflagging drops the row and

@@ -9,7 +9,7 @@ function actions(): RibbonActions {
     "newMessage", "reply", "replyAll", "forward", "editDraft", "archive", "deleteMessage", "move",
     "closePane", "refresh", "toggleSearch", "newFolder", "renameFolder", "deleteFolder", "saveToVault",
     "emailFromNote", "emailWithNoteAttached", "send", "saveDraft", "discardDraft", "attachNote",
-    "toggleContacts", "newContact", "editContact", "deleteContact", "emailContact", "refreshContacts", "toggleFlag", "togglePin",
+    "toggleContacts", "newContact", "editContact", "deleteContact", "emailContact", "refreshContacts", "toggleFlag", "flagFollowUp", "completeFlag", "togglePin",
   ] as const;
   return Object.fromEntries(names.map((n) => [n, vi.fn()])) as unknown as RibbonActions;
 }

@@ -13,6 +13,10 @@ export interface ThreadMenuActions {
   /** Any message in the thread is flagged. */
   flagged: boolean;
   onToggleFlag: () => void;
+  /** Flags the thread with a follow-up due date (epoch ms). */
+  onFlagFollowUp: (dueDate: number) => void;
+  /** Marks the thread's flag complete. */
+  onCompleteFlag: () => void;
   /** The conversation is pinned. */
   pinned: boolean;
   onTogglePin: () => void;
