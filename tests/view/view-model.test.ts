@@ -2164,3 +2164,30 @@ describe("ViewModel — attach a note to the open composer", () => {
     expect(ctx.vm.getState().composer?.attachments).toEqual([]);
   });
 });
+
+describe("ViewModel — renderDeps link context menu", () => {
+  it("forwards onLinkContextMenu to the host dep", async () => {
+    const onLinkContextMenu = vi.fn();
+    const ctx = await build();
+    const vm = new ViewModel({
+      ...contactDeps(() => ctx.provider),
+      cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
+      isOnline: () => true, openExternal: () => {}, onLinkContextMenu, saveBlob: async () => {}, saveNote: () => {}, printHtml: () => {},
+      promptFolderName: () => {}, promptFolderRename: () => {}, pickNoteAttachment: async () => undefined, showNotice: vi.fn(),
+    });
+    const evt = new MouseEvent("contextmenu");
+    vm.renderDeps().onLinkContextMenu!(evt, "https://example.com");
+    expect(onLinkContextMenu).toHaveBeenCalledWith(evt, "https://example.com");
+  });
+
+  it("is a no-op when the host provides no link menu", async () => {
+    const ctx = await build();
+    const vm = new ViewModel({
+      ...contactDeps(() => ctx.provider),
+      cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
+      isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {}, printHtml: () => {},
+      promptFolderName: () => {}, promptFolderRename: () => {}, pickNoteAttachment: async () => undefined, showNotice: vi.fn(),
+    });
+    expect(() => vm.renderDeps().onLinkContextMenu!(new MouseEvent("contextmenu"), "https://example.com")).not.toThrow();
+  });
+});
