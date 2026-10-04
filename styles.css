@@ -179,6 +179,14 @@
    selection it's supposed to sit next to. */
 .oe-composer .ql-container.ql-snow { position: relative; border: none; font-family: var(--font-text); font-size: var(--font-text-size); }
 .oe-composer .ql-editor { min-height: 100px; max-height: 260px; overflow-y: auto; color: var(--text-normal); }
+/* A top-level composer (new message / edit draft) owns the whole reading pane,
+   so the editor grows to fill it instead of stopping at the inline composer's
+   260px cap and leaving the rest of the pane empty. Only the editor scrolls, so
+   the address fields and toolbar stay put. Inline reply composers keep the cap. */
+.oe-reading-pane > .oe-composer { flex: 1 1 auto; min-height: 0; }
+.oe-reading-pane > .oe-composer .oe-composer-editor { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.oe-reading-pane > .oe-composer .ql-container.ql-snow { display: flex; flex-direction: column; }
+.oe-reading-pane > .oe-composer .ql-editor { flex: 1 1 auto; min-height: 100px; max-height: none; }
 .oe-composer .ql-editor.ql-blank::before { color: var(--text-faint); font-style: normal; }
 /* Base button/icon sizing Quill's own CSS normally provides — without it,
    toolbar buttons have no intrinsic size and their SVG icons collapse to
