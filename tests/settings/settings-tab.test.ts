@@ -32,17 +32,20 @@ function fakeContainer(): HTMLElement {
   return { empty: () => {}, createEl: () => ({}) } as unknown as HTMLElement;
 }
 
-function buildTab(addAccountFlow = vi.fn().mockResolvedValue({ email: "m@x.com" })) {
+function buildTab(
+  addAccountFlow = vi.fn().mockResolvedValue({ email: "m@x.com" }),
+  accounts: Array<{ id: string; email: string }> = [],
+) {
   const ctx = {
     addAccountFlow,
     sync: { getState: () => ({ accountId: "", status: "idle" }) },
     applyPollInterval: () => {},
     clearLocalCache: vi.fn().mockResolvedValue(undefined),
-    reauthAccount: vi.fn(),
-    removeAccountFlow: vi.fn(),
+    reauthAccount: vi.fn().mockResolvedValue({ ok: true, message: "Re-authenticated." }),
+    removeAccountFlow: vi.fn().mockResolvedValue(undefined),
   } as unknown as PluginContext;
   const settings = {
-    get: () => structuredClone(DEFAULT_SETTINGS),
+    get: () => ({ ...structuredClone(DEFAULT_SETTINGS), accounts }),
     updatePrefs: vi.fn(),
   } as unknown as SettingsStore;
   const plugin = { app: {} } as never;
@@ -87,6 +90,42 @@ describe("EmailSettingTab — Add account", () => {
     resetSettingStubs();
     tab.display();
     expect(find((c) => c.kind === "text" && c.name === "Client ID").value).toBe("client-123");
+  });
+});
+
+describe("EmailSettingTab — account rows", () => {
+  beforeEach(() => resetSettingStubs());
+  const accounts = [{ id: "a1", email: "me@x.com" }];
+
+  it("each account gets Re-authenticate and Remove buttons", () => {
+    const { tab } = buildTab(undefined, accounts);
+    tab.display();
+    const rows = settingComponents.filter((c) => c.name === "me@x.com");
+    expect(rows.map((c) => c.buttonText)).toEqual(["Re-authenticate", "Remove"]);
+  });
+
+  it("Re-authenticate re-runs the flow for that account and redraws", async () => {
+    const { tab, ctx } = buildTab(undefined, accounts);
+    tab.display();
+    const redraw = vi.spyOn(tab, "display");
+    await find((c) => c.buttonText === "Re-authenticate").emitClick();
+    expect(ctx.reauthAccount).toHaveBeenCalledWith("a1");
+    expect(redraw).toHaveBeenCalledOnce();
+  });
+
+  it("Remove removes that account and redraws", async () => {
+    const { tab, ctx } = buildTab(undefined, accounts);
+    tab.display();
+    const redraw = vi.spyOn(tab, "display");
+    await find((c) => c.buttonText === "Remove").emitClick();
+    expect(ctx.removeAccountFlow).toHaveBeenCalledWith("a1");
+    expect(redraw).toHaveBeenCalledOnce();
+  });
+
+  it("shows a prompt instead of rows when there are no accounts", () => {
+    const { tab } = buildTab();
+    tab.display();
+    expect(settingComponents.some((c) => c.buttonText === "Remove")).toBe(false);
   });
 });
 

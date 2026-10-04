@@ -18,6 +18,50 @@ describe("GraphProvider", () => {
     expect(page.nextPageToken).toContain("$skiptoken=PAGE2");
   });
 
+  it("search quotes and URL-encodes the query, and maps results with no known folder", async () => {
+    const req = vi.fn(async () => resp(fx("messages-page.json")));
+    const p = new GraphProvider({ http: { request: req }, getAccessToken: async () => "at" });
+    const page = await p.search('q4 "budget" & plan');
+    const url: string = req.mock.calls[0][0].url;
+    expect(url).toContain(`/me/messages?$search=${encodeURIComponent('"q4 "budget" & plan"')}`);
+    expect(url).toContain("$top=");
+    expect(page.items.map((m) => m.id)).toEqual(["G1", "G2"]);
+    expect(page.items.every((m) => m.mailboxIds[0] === "")).toBe(true);
+    expect(page.nextPageToken).toContain("$skiptoken=PAGE2");
+  });
+
+  it("search follows a page token verbatim", async () => {
+    const req = vi.fn(async () => resp({ value: [] }));
+    const p = new GraphProvider({ http: { request: req }, getAccessToken: async () => "at" });
+    await p.search("ignored", "https://graph.microsoft.com/v1.0/me/messages?$skiptoken=S2");
+    expect(req.mock.calls[0][0].url).toBe("https://graph.microsoft.com/v1.0/me/messages?$skiptoken=S2");
+  });
+
+  it("getMessageBody expands attachments and maps the body", async () => {
+    const req = vi.fn(async () => resp({
+      id: "M1", body: { contentType: "html", content: "<p>hi</p>" },
+      attachments: [{ id: "A1", name: "r.pdf", contentType: "application/pdf", size: 3, isInline: false }],
+    }));
+    const p = new GraphProvider({ http: { request: req }, getAccessToken: async () => "at" });
+    const body = await p.getMessageBody("M1");
+    expect(req.mock.calls[0][0].url).toBe("https://graph.microsoft.com/v1.0/me/messages/M1?$expand=attachments");
+    expect(body.html).toBe("<p>hi</p>");
+    expect(body.attachments.map((a) => a.id)).toEqual(["A1"]);
+  });
+
+  it("getAttachment decodes the base64 contentBytes into an ArrayBuffer", async () => {
+    const req = vi.fn(async () => resp({ contentBytes: Buffer.from([0, 1, 2, 250, 255]).toString("base64") }));
+    const p = new GraphProvider({ http: { request: req }, getAccessToken: async () => "at" });
+    const buf = await p.getAttachment("M1", "A1");
+    expect(req.mock.calls[0][0].url).toBe("https://graph.microsoft.com/v1.0/me/messages/M1/attachments/A1");
+    expect([...new Uint8Array(buf)]).toEqual([0, 1, 2, 250, 255]);
+  });
+
+  it("getAttachment yields an empty buffer when Graph returns no contentBytes", async () => {
+    const p = new GraphProvider({ http: { request: vi.fn(async () => resp({})) }, getAccessToken: async () => "at" });
+    expect((await p.getAttachment("M1", "A1")).byteLength).toBe(0);
+  });
+
   it("selects bccRecipients so an edited draft can round-trip its Bcc", async () => {
     const req = vi.fn(async () => resp({ value: [] }));
     const p = new GraphProvider({ http: { request: req }, getAccessToken: async () => "at" });

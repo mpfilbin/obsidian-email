@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { SyncEngine } from "../../src/sync/sync-engine";
 import { MailCache } from "../../src/cache/mail-cache";
 import { CursorStore } from "../../src/cache/cursor-store";
@@ -29,6 +29,48 @@ async function harness(provider: MailProvider) {
   });
   return { cache, cursors, engine };
 }
+
+describe("SyncEngine polling", () => {
+  const provider = () => new FakeProvider({ mailboxes: [{ id: "INBOX", name: "Inbox", kind: "inbox" }] });
+  // The IndexedDB-backed harness must be built on real timers; only the
+  // polling itself runs under fake ones.
+  async function polled() {
+    const { engine } = await harness(provider());
+    const spy = vi.spyOn(engine, "syncAll").mockResolvedValue();
+    vi.useFakeTimers();
+    return { engine, spy };
+  }
+  afterEach(() => { vi.useRealTimers(); });
+
+  it("start() syncs immediately, then on every interval until stop()", async () => {
+    const { engine, spy } = await polled();
+    engine.start(1000);
+    expect(spy).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(3000);
+    expect(spy).toHaveBeenCalledTimes(4);
+    engine.stop();
+    vi.advanceTimersByTime(5000);
+    expect(spy).toHaveBeenCalledTimes(4);
+  });
+
+  it("start(null) syncs once and never schedules a poll", async () => {
+    const { engine, spy } = await polled();
+    engine.start(null);
+    vi.advanceTimersByTime(60_000);
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it("setPollInterval replaces the previous timer rather than stacking another", async () => {
+    const { engine, spy } = await polled();
+    engine.setPollInterval(1000);
+    engine.setPollInterval(5000);
+    vi.advanceTimersByTime(5000);
+    expect(spy).toHaveBeenCalledTimes(1);
+    engine.setPollInterval(null); // turning polling off clears it
+    vi.advanceTimersByTime(20_000);
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe("SyncEngine", () => {
   it("backfills on first sync then persists a cursor with backfillDone", async () => {

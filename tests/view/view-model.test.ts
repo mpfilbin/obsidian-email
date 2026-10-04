@@ -2356,3 +2356,56 @@ describe("ViewModel — custom follow-up date", () => {
     expect(() => vm.flagThreadCustom("t1")).not.toThrow();
   });
 });
+
+describe("ViewModel — attachments, search failure, missing draft", () => {
+  async function withSaveBlob() {
+    const saveBlob = vi.fn(async () => {});
+    const ctx = await build();
+    const vm = new ViewModel({
+      ...contactDeps(() => ctx.provider),
+      cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
+      isOnline: () => true, openExternal: () => {}, saveBlob, saveNote: () => {}, printHtml: () => {},
+      promptFolderName: () => {}, promptFolderRename: () => {}, pickNoteAttachment: async () => undefined, showNotice: ctx.showNotice,
+    });
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await vm.init();
+    return { ctx, vm, saveBlob };
+  }
+  const att = { id: "A1", filename: "report.pdf", mimeType: "application/pdf", size: 3, inline: false };
+
+  it("downloadAttachment wraps the provider's bytes in a Blob of the attachment's type", async () => {
+    const { ctx, vm } = await withSaveBlob();
+    vi.spyOn(ctx.provider, "getAttachment").mockResolvedValue(Uint8Array.from([1, 2, 3]).buffer);
+    const blob = await vm.downloadAttachment("m1", att);
+    expect(blob.type).toBe("application/pdf");
+    expect(blob.size).toBe(3);
+  });
+
+  it("downloadAttachmentToDisk hands the blob and the original filename to saveBlob", async () => {
+    const { ctx, vm, saveBlob } = await withSaveBlob();
+    vi.spyOn(ctx.provider, "getAttachment").mockResolvedValue(new ArrayBuffer(2));
+    await vm.downloadAttachmentToDisk("m1", att);
+    expect(saveBlob).toHaveBeenCalledWith(expect.any(Blob), "report.pdf");
+  });
+
+  it("downloadAttachment rejects when no account is active", async () => {
+    const ctx = await build(); // not initialised: no active account yet
+    await expect(ctx.vm.downloadAttachment("m1", att)).rejects.toThrow(/no active account/i);
+  });
+
+  it("a failed search toasts, clears the spinner and leaves the search inactive", async () => {
+    const { ctx, vm } = await withSaveBlob();
+    vi.spyOn(ctx.provider, "search").mockRejectedValue(new Error("boom"));
+    await vm.runSearch("anything");
+    expect(ctx.showNotice).toHaveBeenCalledWith("Search failed.");
+    expect(vm.getState().loadingList).toBe(false);
+    expect(vm.getState().search.active).toBe(false);
+  });
+
+  it("openDraftForEdit for a message that isn't open toasts instead of opening a blank composer", async () => {
+    const { ctx, vm } = await withSaveBlob();
+    await vm.openDraftForEdit("not-open");
+    expect(ctx.showNotice).toHaveBeenCalledWith("Couldn't open that draft.");
+    expect(vm.getState().composer).toBeNull();
+  });
+});
