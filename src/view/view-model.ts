@@ -106,6 +106,8 @@ export interface ViewModelDeps {
   getProvider: (id: string) => MailProvider | undefined;
   isOnline: () => boolean;
   openExternal: (url: string) => void;
+  /** Shows a right-click menu for a link in an email body. */
+  onLinkContextMenu?: (evt: MouseEvent, url: string) => void;
   saveBlob: (blob: Blob, filename: string) => Promise<void>;
   saveNote: (defaultPath: string, content: string) => void;
   /** Hands the host a standalone HTML document to print (e.g. via a hidden
@@ -214,11 +216,13 @@ export class ViewModel {
   private readonly _renderDeps: {
     getInlineAttachment: (cid: string) => Promise<Blob | undefined>;
     openExternal: (url: string) => void;
+    onLinkContextMenu?: (evt: MouseEvent, url: string) => void;
   };
 
   constructor(private deps: ViewModelDeps) {
     this._renderDeps = {
       openExternal: (url: string) => this.deps.openExternal(url),
+      onLinkContextMenu: (evt: MouseEvent, url: string) => this.deps.onLinkContextMenu?.(evt, url),
       getInlineAttachment: async (cid: string) => {
         const acct = this.state.activeAccountId;
         const provider = acct ? this.deps.getProvider(acct) : undefined;
@@ -1034,7 +1038,11 @@ export class ViewModel {
     this.set({ mode: "mail", composer: { ...composer, savedSnapshot: snapshotOf(composer) } });
   }
 
-  renderDeps(): { getInlineAttachment: (cid: string) => Promise<Blob | undefined>; openExternal: (url: string) => void } {
+  renderDeps(): {
+    getInlineAttachment: (cid: string) => Promise<Blob | undefined>;
+    openExternal: (url: string) => void;
+    onLinkContextMenu?: (evt: MouseEvent, url: string) => void;
+  } {
     return this._renderDeps;
   }
 

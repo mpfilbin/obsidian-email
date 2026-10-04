@@ -12,6 +12,32 @@ const deps = () => ({
 });
 
 describe("renderMessageBody", () => {
+  it("right-clicking a link calls onLinkContextMenu with its href", () => {
+    const onLinkContextMenu = vi.fn();
+    const el = document.createElement("div");
+    renderMessageBody(el, body({ html: '<a href="https://example.com">go</a>' }), { allowRemote: false }, { ...deps(), onLinkContextMenu });
+    const evt = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    el.querySelector("a")!.dispatchEvent(evt);
+    expect(onLinkContextMenu).toHaveBeenCalledWith(evt, "https://example.com");
+    expect(evt.defaultPrevented).toBe(true);
+  });
+
+  it("leaves the native context menu alone when no onLinkContextMenu is provided", () => {
+    const el = document.createElement("div");
+    renderMessageBody(el, body({ html: '<a href="https://example.com">go</a>' }), { allowRemote: false }, deps());
+    const evt = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    el.querySelector("a")!.dispatchEvent(evt);
+    expect(evt.defaultPrevented).toBe(false);
+  });
+
+  it("right-click does not trigger openExternal (left-click behaviour is unchanged)", () => {
+    const d = deps();
+    const el = document.createElement("div");
+    renderMessageBody(el, body({ html: '<a href="https://example.com">go</a>' }), { allowRemote: false }, { ...d, onLinkContextMenu: vi.fn() });
+    el.querySelector("a")!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    expect(d.openExternal).not.toHaveBeenCalled();
+  });
+
   it("renders plain text when there is no html", () => {
     const el = document.createElement("div");
     renderMessageBody(el, body({ text: "hello <b>not bold</b>" }), { allowRemote: false }, deps());

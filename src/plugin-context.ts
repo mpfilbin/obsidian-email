@@ -26,6 +26,8 @@ export interface ContextHostDeps {
   /** Opens a link clicked in an email body — routes through Obsidian's Web
    *  Viewer when it's enabled, else falls back to `openExternal`. */
   openEmailLink: (url: string) => void;
+  /** Shows a right-click menu for a link in an email body. */
+  showLinkContextMenu?: (evt: MouseEvent, url: string) => void;
   saveBlob: (blob: Blob, filename: string) => Promise<void>;
   /** Prompts the user for a vault-relative path and creates a note there. */
   saveNote: (defaultPath: string, content: string) => void;
@@ -188,6 +190,7 @@ export class PluginContext {
       getProvider: (id) => providers.get(id),
       isOnline: () => (typeof navigator === "undefined" ? true : navigator.onLine),
       openExternal: host.openEmailLink,
+      onLinkContextMenu: host.showLinkContextMenu,
       saveBlob: host.saveBlob,
       saveNote: host.saveNote,
       printHtml: host.printHtml,

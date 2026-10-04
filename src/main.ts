@@ -86,6 +86,13 @@ export default class EmailPlugin extends Plugin {
     };
     const openEmailLinkFn = (url: string): void =>
       openEmailLink(url, { isWebViewerEnabled, openInWebViewer, openExternal });
+    const showLinkContextMenu = (evt: MouseEvent, url: string): void => {
+      const menu = new Menu();
+      menu.addItem((item) =>
+        item.setTitle("Open in default browser").setIcon("external-link").onClick(() => openExternal(url)),
+      );
+      menu.showAtMouseEvent(evt);
+    };
 
     // Ruling D: persist attachments into the configured vault folder, else hand
     // the blob to the renderer as a download.
@@ -255,7 +262,7 @@ export default class EmailPlugin extends Plugin {
 
     this.ctx = await PluginContext.create(
       settings,
-      { http, secrets, post, openExternal, openEmailLink: openEmailLinkFn, saveBlob, saveNote, printHtml, promptFolderName, promptFolderRename, pickNoteAttachment, showNotice },
+      { http, secrets, post, openExternal, openEmailLink: openEmailLinkFn, showLinkContextMenu, saveBlob, saveNote, printHtml, promptFolderName, promptFolderRename, pickNoteAttachment, showNotice },
       logger,
     );
     const ctx = this.ctx;
