@@ -6,7 +6,7 @@ param([string]$VaultPath)
 $ErrorActionPreference = 'Stop'
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
-$PluginId = (node -p "require('./manifest.json').id" | Out-String).Trim()
+$PluginId = (Get-Content -LiteralPath (Join-Path $RepoRoot 'manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json).id
 if (-not $VaultPath) { $VaultPath = Join-Path $RepoRoot 'dev-vault' }
 
 if (-not (Test-Path -LiteralPath $VaultPath -PathType Container)) {

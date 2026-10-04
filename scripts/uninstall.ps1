@@ -6,7 +6,7 @@ param([string]$VaultPath)
 $ErrorActionPreference = 'Stop'
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
-$PluginId = (node -p "require('./manifest.json').id" | Out-String).Trim()
+$PluginId = (Get-Content -LiteralPath (Join-Path $RepoRoot 'manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json).id
 if (-not $VaultPath) { $VaultPath = Join-Path $RepoRoot 'dev-vault' }
 
 if (-not (Test-Path -LiteralPath $VaultPath -PathType Container)) {
@@ -40,11 +40,14 @@ if (-not (Test-Path -LiteralPath $CommunityPluginsFile)) {
 Write-Host "-> Removing '$PluginId' from $CommunityPluginsFile..."
 try {
   $raw = Get-Content -LiteralPath $CommunityPluginsFile -Raw -Encoding UTF8
-  $parsed = @(ConvertFrom-Json -InputObject $raw)
+  $parsed = @(ConvertFrom-Json -InputObject $raw | ForEach-Object { $_ })  # enumerate: 5.1 emits the array as one object
   $filtered = @($parsed | Where-Object { $_ -ne $PluginId })
 
   if ($filtered.Count -ne $parsed.Count) {
-    $json = if ($filtered.Count -eq 0) { '[]' } else { ConvertTo-Json -InputObject $filtered }
+    # Build the array by hand: Windows PowerShell 5.1's ConvertTo-Json unwraps
+    # single-element arrays into a bare scalar, which would corrupt the file.
+    $items = @($filtered | ForEach-Object { ConvertTo-Json -InputObject ([string]$_) -Compress })
+    $json = '[' + ($items -join ', ') + ']'
     # Write UTF-8 without BOM so Obsidian's JSON parser is happy.
     [System.IO.File]::WriteAllText($CommunityPluginsFile, $json + "`n", (New-Object System.Text.UTF8Encoding($false)))
     Write-Host "Done. Plugin files and community plugin entry removed."
