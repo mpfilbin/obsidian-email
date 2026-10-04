@@ -220,9 +220,19 @@ export class GraphProvider implements MailProvider, ContactsProvider {
     await this.request<void>(`/me/messages/${id}/move`, "POST", { destinationId: destinationMailboxId });
   }
 
-  async setMessageFlag(id: string, flagged: boolean): Promise<void> {
+  async setMessageFlag(id: string, flagged: boolean, dueDate?: number): Promise<void> {
+    const flag: Record<string, unknown> = { flagStatus: flagged ? "flagged" : "notFlagged" };
+    if (flagged && dueDate !== undefined) {
+      // Outlook wants a start alongside the due date (due can't precede start).
+      flag.startDateTime = utcDateTime(dueDate);
+      flag.dueDateTime = utcDateTime(dueDate);
+    }
+    await this.request<void>(`/me/messages/${id}`, "PATCH", { flag });
+  }
+
+  async completeMessageFlag(id: string): Promise<void> {
     await this.request<void>(`/me/messages/${id}`, "PATCH", {
-      flag: { flagStatus: flagged ? "flagged" : "notFlagged" },
+      flag: { flagStatus: "complete", completedDateTime: utcDateTime(Date.now()) },
     });
   }
 
@@ -339,4 +349,9 @@ export class GraphProvider implements MailProvider, ContactsProvider {
       cursor: { kind: "ms-graph", deltaLinks: newDeltaLinks },
     };
   }
+}
+
+/** Graph's dateTimeTimeZone for an instant, pinned to UTC. */
+function utcDateTime(ms: number): { dateTime: string; timeZone: "UTC" } {
+  return { dateTime: new Date(ms).toISOString().replace(/Z$/, ""), timeZone: "UTC" };
 }

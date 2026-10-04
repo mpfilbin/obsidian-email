@@ -198,6 +198,29 @@ describe("FakeProvider flags", () => {
     expect((await p.listFlaggedMessages()).items).toEqual([]);
   });
 
+  it("setMessageFlag stores a due date only while flagged; clearing drops it", async () => {
+    const p = new FakeProvider({ mailboxes: [{ id: "INBOX", name: "Inbox", kind: "inbox" }] });
+    p.addMessage(msg("m1", 1));
+    await p.setMessageFlag("m1", true, 5000);
+    expect((await p.listFlaggedMessages()).items[0]).toMatchObject({ id: "m1", flagged: true, flagDue: 5000 });
+    await p.setMessageFlag("m1", false, 5000);
+    expect((await p.listFlaggedMessages()).items).toEqual([]);
+    await p.setMessageFlag("m1", true);
+    expect((await p.listFlaggedMessages()).items[0].flagDue).toBeUndefined();
+  });
+
+  it("completeMessageFlag unflags the message, marks it complete, and syncSince reports it", async () => {
+    const p = new FakeProvider({ mailboxes: [{ id: "INBOX", name: "Inbox", kind: "inbox" }] });
+    p.addMessage(msg("m1", 1));
+    await p.setMessageFlag("m1", true, 5000);
+    const cursor = await p.initialCursor();
+    await p.completeMessageFlag("m1");
+    expect((await p.listFlaggedMessages()).items).toEqual([]);
+    const result = await p.syncSince(cursor);
+    expect(result.upserts.find((u) => u.id === "m1")).toMatchObject({ flagged: false, flagComplete: true });
+    await expect(p.completeMessageFlag("nope")).rejects.toThrow(/no such message/);
+  });
+
   it("setMessageFlag rejects for an unknown message", async () => {
     await expect(new FakeProvider().setMessageFlag("nope", true)).rejects.toThrow(/no such message/);
   });

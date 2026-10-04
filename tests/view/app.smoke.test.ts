@@ -69,7 +69,7 @@ function fakeVm(state: Partial<ViewState> = {}): ViewModel {
     hasUnsavedComposerContent: vi.fn().mockReturnValue(false),
     send: vi.fn(), saveDraft: vi.fn(), discardDraft: vi.fn(), closeComposer: vi.fn(),
     deleteMessage: vi.fn(), archiveMessage: vi.fn(), deleteThread: vi.fn(), archiveThread: vi.fn(),
-    toggleThreadFlag: vi.fn(), toggleMessageFlag: vi.fn(), toggleThreadPin: vi.fn(),
+    toggleThreadFlag: vi.fn(), flagThread: vi.fn(), flagThreadCustom: vi.fn(), completeThreadFlag: vi.fn(), toggleMessageFlag: vi.fn(), toggleThreadPin: vi.fn(),
     moveThread: vi.fn(), requestCreateMailbox: vi.fn(), renameMailbox: vi.fn(), deleteMailbox: vi.fn(),
     requestRenameMailbox: vi.fn(), requestAttachNote: vi.fn(), saveMessageToVault: vi.fn(), printMessage: vi.fn(),
     removeComposerAttachment: vi.fn(),
@@ -1402,6 +1402,69 @@ describe("App — flagging", () => {
     expect(Array.isArray(actions.candidates)).toBe(true);
     actions.onToggleFlag();
     expect(vm.toggleThreadFlag).toHaveBeenCalledWith("t1");
+    done();
+  });
+});
+
+describe("App — follow-up flags", () => {
+  const mountApp = (vm: ViewModel, over: object = {}) => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const app = mount(App, { target: host, props: appProps(vm, over) });
+    flushSync();
+    return { host, done: () => { unmount(app); host.remove(); } };
+  };
+  const click = (el: Element | null) => { (el as HTMLElement).click(); flushSync(); };
+  const openMessages = [{
+    summary: {
+      id: "m1", threadId: "t1", mailboxIds: ["INBOX"], from: { name: "Jane", email: "j@x.com" },
+      to: [], cc: [], subject: "Hello", snippet: "", date: 1, unread: false, hasAttachments: false, flagged: true,
+    },
+  }];
+
+  it("the thread context menu's follow-up and complete actions act on that thread", () => {
+    const onThreadContextMenu = vi.fn();
+    const vm = fakeVm();
+    const { host, done } = mountApp(vm, { onThreadContextMenu });
+    host.querySelector(".oe-thread-row")!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    const [, actions] = onThreadContextMenu.mock.calls[0];
+    actions.onFlagFollowUp(1234);
+    expect(vm.flagThread).toHaveBeenCalledWith("t1", 1234);
+    actions.onFlagCustomFollowUp();
+    expect(vm.flagThreadCustom).toHaveBeenCalledWith("t1");
+    actions.onCompleteFlag();
+    expect(vm.completeThreadFlag).toHaveBeenCalledWith("t1");
+    done();
+  });
+
+  it("the ribbon Follow up dropdown's Custom date asks for a date for the open thread", () => {
+    const vm = fakeVm({ openThreadId: "t1", openMessages });
+    const { host, done } = mountApp(vm);
+    click(host.querySelector('.oe-ribbon [data-action="follow-up"]'));
+    const custom = [...document.querySelectorAll<HTMLElement>(".oe-ribbon-menu button")].find((i) => i.textContent?.includes("Custom date"));
+    expect(custom).toBeDefined();
+    click(custom!);
+    expect(vm.flagThreadCustom).toHaveBeenCalledWith("t1");
+    done();
+  });
+
+  it("the ribbon Complete button completes the open thread's flag", () => {
+    const vm = fakeVm({ openThreadId: "t1", openMessages });
+    const { host, done } = mountApp(vm);
+    click(host.querySelector('.oe-ribbon [data-action="complete-flag"]'));
+    expect(vm.completeThreadFlag).toHaveBeenCalledWith("t1");
+    done();
+  });
+
+  it("the ribbon Follow up dropdown flags the open thread with a due date", () => {
+    const vm = fakeVm({ openThreadId: "t1", openMessages });
+    const { host, done } = mountApp(vm);
+    click(host.querySelector('.oe-ribbon [data-action="follow-up"]'));
+    const items = [...document.querySelectorAll<HTMLElement>(".oe-ribbon-menu button, .oe-ribbon-menu [role=menuitem]")];
+    const tomorrow = items.find((i) => i.textContent?.trim() === "Tomorrow");
+    expect(tomorrow).toBeDefined();
+    click(tomorrow!);
+    expect(vm.flagThread).toHaveBeenCalledWith("t1", expect.any(Number));
     done();
   });
 });

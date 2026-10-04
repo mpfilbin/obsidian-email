@@ -79,6 +79,47 @@ describe("MailCache", () => {
     expect(stored.from).toEqual({ email: "" });
   });
 
+  describe("setFlagState", () => {
+    it("writes flag, due date and completion together, leaving other fields alone", async () => {
+      await cache.upsertMessages("a1", [msg("m1", { subject: "Keep me", mailboxIds: ["INBOX", "X"] })]);
+      await cache.setFlagState("a1", [{ id: "m1", flagged: true, flagDue: 500 }]);
+      let [stored] = await cache.listMailboxMessages("a1", "INBOX");
+      expect(stored).toMatchObject({ flagged: true, flagDue: 500, subject: "Keep me", mailboxIds: ["INBOX", "X"] });
+      await cache.setFlagState("a1", [{ id: "m1", flagged: false, flagComplete: true }]);
+      [stored] = await cache.listMailboxMessages("a1", "INBOX");
+      expect(stored.flagged).toBe(false);
+      expect(stored.flagComplete).toBe(true);
+      expect("flagDue" in stored).toBe(false);
+    });
+
+    it("restores a prior state exactly, including a cleared due date", async () => {
+      await cache.upsertMessages("a1", [msg("m1", { flagged: true, flagDue: 500 })]);
+      await cache.setFlagState("a1", [{ id: "m1", flagged: false, flagComplete: true }]);
+      await cache.setFlagState("a1", [{ id: "m1", flagged: true, flagDue: 500 }]);
+      const [stored] = await cache.listMailboxMessages("a1", "INBOX");
+      expect(stored).toMatchObject({ flagged: true, flagDue: 500 });
+      expect("flagComplete" in stored).toBe(false);
+    });
+
+    it("never creates a row for an uncached id", async () => {
+      await cache.setFlagState("a1", [{ id: "ghost", flagged: true }]);
+      expect(await cache.getThreadMessages("a1", "ghost")).toEqual([]);
+    });
+  });
+
+  describe("listFlaggedMessages ordering", () => {
+    it("puts dated follow-ups first (soonest due first), then undated newest-first; completed are excluded", async () => {
+      await cache.upsertMessages("a1", [
+        msg("later", { flagged: true, flagDue: 900, date: 1 }),
+        msg("undated-old", { flagged: true, date: 10 }),
+        msg("soon", { flagged: true, flagDue: 100, date: 2 }),
+        msg("undated-new", { flagged: true, date: 50 }),
+        msg("done", { flagged: false, flagComplete: true, date: 99 }),
+      ]);
+      expect((await cache.listFlaggedMessages("a1")).map((m) => m.id)).toEqual(["soon", "later", "undated-new", "undated-old"]);
+    });
+  });
+
   describe("setFlagged", () => {
     it("changes only `flagged`, leaving every other field (notably mailboxIds) alone", async () => {
       await cache.upsertMessages("a1", [

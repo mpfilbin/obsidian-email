@@ -318,6 +318,9 @@
       },
       refreshContacts: () => { void vm.refreshContacts(); },
       toggleFlag: () => { const id = state.openThreadId; if (id) void vm.toggleThreadFlag(id); },
+      flagFollowUp: (dueDate) => { const id = state.openThreadId; if (id) void vm.flagThread(id, dueDate); },
+      flagCustomFollowUp: () => { const id = state.openThreadId; if (id) vm.flagThreadCustom(id); },
+      completeFlag: () => { const id = state.openThreadId; if (id) void vm.completeThreadFlag(id); },
       togglePin: () => { const id = state.openThreadId; if (id) void vm.toggleThreadPin(id); },
     },
   });
@@ -454,6 +457,9 @@
             onMove: (destinationId) => moveThread(id, destinationId),
             flagged: state.threads.find((t) => t.threadId === id)?.messages.some((m) => m.flagged) ?? false,
             onToggleFlag: () => { void vm.toggleThreadFlag(id); },
+            onFlagFollowUp: (dueDate) => { void vm.flagThread(id, dueDate); },
+            onFlagCustomFollowUp: () => vm.flagThreadCustom(id),
+            onCompleteFlag: () => { void vm.completeThreadFlag(id); },
             pinned: state.pinnedThreadIds.includes(id),
             onTogglePin: () => { void vm.toggleThreadPin(id); },
           })}

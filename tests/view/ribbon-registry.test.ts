@@ -9,7 +9,7 @@ function actions(): RibbonActions {
     "newMessage", "reply", "replyAll", "forward", "editDraft", "archive", "deleteMessage", "move",
     "closePane", "refresh", "toggleSearch", "newFolder", "renameFolder", "deleteFolder", "saveToVault", "print",
     "emailFromNote", "emailWithNoteAttached", "send", "saveDraft", "discardDraft", "attachNote",
-    "toggleContacts", "newContact", "editContact", "deleteContact", "emailContact", "refreshContacts", "toggleFlag", "togglePin",
+    "toggleContacts", "newContact", "editContact", "deleteContact", "emailContact", "refreshContacts", "toggleFlag", "flagFollowUp", "flagCustomFollowUp", "completeFlag", "togglePin",
   ] as const;
   return Object.fromEntries(names.map((n) => [n, vi.fn()])) as unknown as RibbonActions;
 }
@@ -232,6 +232,34 @@ describe("ribbon registry — contacts", () => {
       cmd(id).run!(c);
       expect(c.actions[action], id).toHaveBeenCalledOnce();
     }
+  });
+});
+
+describe("ribbon registry — follow-up", () => {
+  it("Follow up is a Home › Mark dropdown of Today / Tomorrow / Next week / Custom date, needing an open thread", () => {
+    expect(cmd("follow-up").tab).toBe("home");
+    expect(cmd("follow-up").group).toBe("Mark");
+    expect(enabled("follow-up", ctx({ hasOpenThread: false }))).toBe(false);
+    expect(enabled("follow-up", ctx({ mode: "contacts" }))).toBe(false);
+    expect(enabled("follow-up", ctx())).toBe(true);
+    const c = ctx();
+    const options = cmd("follow-up").options!(c);
+    expect(options.map((o) => o.label)).toEqual(["Today", "Tomorrow", "Next week", "Custom date…"]);
+    options[1].run();
+    expect(c.actions.flagFollowUp).toHaveBeenCalledOnce();
+    expect(c.actions.flagFollowUp).toHaveBeenCalledWith(expect.any(Number));
+    options[3].run();
+    expect(c.actions.flagCustomFollowUp).toHaveBeenCalledOnce();
+  });
+
+  it("Complete is enabled only for an open flagged thread", () => {
+    expect(enabled("complete-flag", ctx({ openThreadFlagged: false }))).toBe(false);
+    expect(enabled("complete-flag", ctx({ openThreadFlagged: true, hasOpenThread: false }))).toBe(false);
+    expect(enabled("complete-flag", ctx({ openThreadFlagged: true, mode: "contacts" }))).toBe(false);
+    expect(enabled("complete-flag", ctx({ openThreadFlagged: true }))).toBe(true);
+    const c = ctx({ openThreadFlagged: true });
+    cmd("complete-flag").run!(c);
+    expect(c.actions.completeFlag).toHaveBeenCalledOnce();
   });
 });
 

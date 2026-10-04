@@ -49,7 +49,24 @@ export interface MessageSummary {
   date: number; // epoch ms
   unread: boolean;
   hasAttachments: boolean;
+  /** An ACTIVE follow-up flag. Outlook's "completed" state is `flagged: false`
+   *  with `flagComplete: true`, so every "is this flagged?" test stays a plain
+   *  boolean. */
   flagged: boolean;
+  /** Follow-up due date (epoch ms, the chosen day's local midnight). Only
+   *  meaningful while `flagged`; absent for undated flags and for rows cached
+   *  before this field existed. */
+  flagDue?: number;
+  /** The flag was marked complete. Absent means "no". */
+  flagComplete?: boolean;
+}
+
+/** The follow-up flag fields of a message, as one unit — what an optimistic
+ *  write puts in the cache and what a rollback restores. */
+export interface FlagState {
+  flagged: boolean;
+  flagDue?: number;
+  flagComplete?: boolean;
 }
 
 export interface AttachmentMeta {
@@ -144,10 +161,12 @@ export interface MailProvider {
   /** Moves a message to an arbitrary mailbox (by its Mailbox.id). */
   moveMessage(id: string, destinationMailboxId: string): Promise<void>;
 
-  /** Sets or clears the follow-up flag on one message. Only flagged /
-   *  not-flagged are modelled: Outlook's "completed" state reads as not
-   *  flagged, and clearing writes `notFlagged`. */
-  setMessageFlag(id: string, flagged: boolean): Promise<void>;
+  /** Sets or clears the follow-up flag on one message; clearing writes
+   *  `notFlagged`. `dueDate` (epoch ms) is only used when flagging. */
+  setMessageFlag(id: string, flagged: boolean, dueDate?: number): Promise<void>;
+
+  /** Marks a message's follow-up flag complete (Outlook's checkmark). */
+  completeMessageFlag(id: string): Promise<void>;
 
   /** Every flagged message across folders (the caller excludes Trash/Junk).
    *  Unlike `search`, items carry their real `mailboxIds` so they can be

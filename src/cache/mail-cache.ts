@@ -1,5 +1,5 @@
 import type { IDBPDatabase } from "idb";
-import type { Mailbox, MessageBody, MessageSummary, MessageSummaryPatch } from "../providers/types";
+import type { FlagState, Mailbox, MessageBody, MessageSummary, MessageSummaryPatch } from "../providers/types";
 import { RETENTION, openMailDb, type MailDb, type StoredMessage } from "./schema";
 
 const DAY_MS = 24 * 3600 * 1000;
@@ -154,6 +154,29 @@ export class MailCache {
     await tx.done;
   }
 
+  /** Writes the whole follow-up state (flag, due date, completion) onto
+   *  already-cached messages — same never-create, skip-uncached rules as
+   *  `setFlagged`. Used for optimistic writes and for restoring each message's
+   *  own prior state on rollback, since due dates differ per message. */
+  async setFlagState(accountId: string, entries: Array<{ id: string } & FlagState>): Promise<void> {
+    if (!entries.length) return;
+    const tx = this.db.transaction("messages", "readwrite");
+    await Promise.all(
+      entries.map(async ({ id, flagged, flagDue, flagComplete }) => {
+        const row = await tx.store.get(key(accountId, id));
+        if (!row) return;
+        const { flagDue: _d, flagComplete: _c, ...rest } = row;
+        await tx.store.put({
+          ...rest,
+          flagged,
+          ...(flagDue !== undefined ? { flagDue } : {}),
+          ...(flagComplete ? { flagComplete } : {}),
+        });
+      }),
+    );
+    await tx.done;
+  }
+
   async deleteMessages(accountId: string, ids: string[]): Promise<void> {
     const tx = this.db.transaction("messages", "readwrite");
     await Promise.all(ids.map((id) => tx.store.delete(key(accountId, id))));
@@ -185,8 +208,9 @@ export class MailCache {
     return out;
   }
 
-  /** Flagged messages across every mailbox, newest first — the Flagged view's
-   *  cached half. A message that lives only in Trash/Junk is hidden (it is
+  /** Flagged messages across every mailbox — the Flagged view's cached half.
+   *  Dated follow-ups come first, soonest due first (overdue on top), then
+   *  undated flags newest first. A message that lives only in Trash/Junk is hidden (it is
    *  effectively deleted), matching what Outlook's own flagged list shows. */
   async listFlaggedMessages(accountId: string): Promise<MessageSummary[]> {
     const [rows, boxes] = await Promise.all([
@@ -196,7 +220,12 @@ export class MailCache {
     const hidden = new Set(boxes.filter((b) => b.kind === "trash" || b.kind === "spam").map((b) => b.id));
     return rows
       .filter((r) => r.flagged && r.mailboxIds.some((id) => !hidden.has(id)))
-      .sort((a, b) => b.date - a.date)
+      .sort((a, b) => {
+        if (a.flagDue !== undefined && b.flagDue !== undefined) return a.flagDue - b.flagDue || b.date - a.date;
+        if (a.flagDue !== undefined) return -1;
+        if (b.flagDue !== undefined) return 1;
+        return b.date - a.date;
+      })
       .map(({ key: _k, accountId: _a, ...summary }) => summary);
   }
 

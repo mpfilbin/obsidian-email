@@ -1,6 +1,7 @@
 import type { MailboxKind } from "../../providers/types";
 import type { ComposerState } from "../view-model";
 import { ACTION_ICON } from "../action-icons";
+import { followUpPresets } from "../../util/follow-up";
 
 export type TabId = "home" | "folder" | "vault" | "message" | "contacts";
 
@@ -36,6 +37,9 @@ export interface RibbonActions {
   emailContact(): void;
   refreshContacts(): void;
   toggleFlag(): void;
+  flagFollowUp(dueDate: number): void;
+  flagCustomFollowUp(): void;
+  completeFlag(): void;
   togglePin(): void;
 }
 
@@ -125,6 +129,14 @@ const BASE_COMMANDS: RibbonCommand[] = [
     enabled: (c) => c.hasTargetMessage, run: (c) => c.actions.print() },
   { id: "flag", tab: "home", group: "Mark", icon: ACTION_ICON.flag, label: "Flag",
     enabled: (c) => c.hasOpenThread, pressed: (c) => c.openThreadFlagged, run: (c) => c.actions.toggleFlag() },
+  { id: "follow-up", tab: "home", group: "Mark", icon: ACTION_ICON.followUp, label: "Follow up",
+    enabled: (c) => c.hasOpenThread,
+    options: (c) => [
+      ...followUpPresets(Date.now()).map((p) => ({ id: p.id, label: p.label, run: () => c.actions.flagFollowUp(p.dueDate) })),
+      { id: "custom", label: "Custom date…", run: () => c.actions.flagCustomFollowUp() },
+    ] },
+  { id: "complete-flag", tab: "home", group: "Mark", icon: ACTION_ICON.complete, label: "Complete",
+    enabled: (c) => c.hasOpenThread && c.openThreadFlagged, run: (c) => c.actions.completeFlag() },
   { id: "pin", tab: "home", group: "Mark", icon: ACTION_ICON.pin, label: "Pin",
     enabled: (c) => c.hasOpenThread, pressed: (c) => c.openThreadPinned, run: (c) => c.actions.togglePin() },
   { id: "refresh", tab: "home", group: "Sync", icon: "refresh-cw", label: "Refresh",
@@ -182,7 +194,7 @@ const BASE_COMMANDS: RibbonCommand[] = [
 // Vault "email from note" commands stay live: composing switches back to mail.
 const MAIL_ONLY = new Set([
   "reply", "reply-all", "forward", "edit-draft", "archive", "delete", "move", "close-pane",
-  "flag", "pin", "refresh", "search", "new-folder", "rename-folder", "delete-folder", "save-to-vault", "print",
+  "flag", "follow-up", "complete-flag", "pin", "refresh", "search", "new-folder", "rename-folder", "delete-folder", "save-to-vault", "print",
 ]);
 
 export const COMMANDS: RibbonCommand[] = BASE_COMMANDS.map((c) =>

@@ -22,6 +22,35 @@ function baseProps(over: Partial<Record<string, unknown>> = {}) {
 }
 
 describe("ThreadRow smoke", () => {
+  it("shows a due badge on a flagged thread, and marks overdue ones", () => {
+    const withDue = (flagDue: number, flagged = true): ThreadView => ({
+      ...thread, flagged, flagDue,
+      messages: [{ ...thread.messages[0], flagged, flagDue }],
+    });
+    const host = document.createElement("div");
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const app = mount(ThreadRow, { target: host, props: baseProps({ thread: withDue(today.getTime()) }) });
+    flushSync();
+    expect(host.querySelector(".oe-flag-due")?.textContent).toBe("Due today");
+    expect(host.querySelector(".oe-flag-due")?.classList.contains("is-overdue")).toBe(false);
+    unmount(app);
+
+    const host2 = document.createElement("div");
+    const app2 = mount(ThreadRow, { target: host2, props: baseProps({ thread: withDue(today.getTime() - 3 * 86_400_000) }) });
+    flushSync();
+    expect(host2.querySelector(".oe-flag-due")?.textContent).toBe("Overdue");
+    expect(host2.querySelector(".oe-flag-due")?.classList.contains("is-overdue")).toBe(true);
+    unmount(app2);
+  });
+
+  it("shows no due badge for an undated or unflagged thread", () => {
+    const host = document.createElement("div");
+    const app = mount(ThreadRow, { target: host, props: baseProps() });
+    flushSync();
+    expect(host.querySelector(".oe-flag-due")).toBeNull();
+    unmount(app);
+  });
+
   it("shows Archive and Delete in a normal mailbox", () => {
     const host = document.createElement("div");
     const app = mount(ThreadRow, { target: host, props: baseProps() });
