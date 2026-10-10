@@ -2741,7 +2741,12 @@ describe("ViewModel — multi-select and bulk actions", () => {
         throw new Error("boom");
       });
       await c.vm.markThreadsRead(["t1"], true);
+      // Not back in its own thread...
+      expect(await c.cache.getThreadMessages("a1", "t1")).toEqual([]);
+      // ...nor as a blank placeholder row, which would be filed under a thread
+      // named after the message itself...
       expect(await c.cache.getThreadMessages("a1", "m1")).toEqual([]);
+      // ...nor in the mailbox listing.
       expect(await cachedIds(c)).toEqual([]);
     });
 
