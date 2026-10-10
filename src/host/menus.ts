@@ -1,4 +1,4 @@
-import type { MailboxContextMenuHandler, ThreadContextMenuHandler } from "../view/mail-view";
+import type { BulkContextMenuHandler, MailboxContextMenuHandler, ThreadContextMenuHandler } from "../view/mail-view";
 import { followUpPresets } from "../util/follow-up";
 
 // Structural stand-ins for Obsidian's `Menu`/`MenuItem`, so the menus can be
@@ -26,6 +26,7 @@ export function makeMenus(host: MenuHost): {
   showLinkContextMenu: (evt: MouseEvent, url: string) => void;
   showMailboxContextMenu: MailboxContextMenuHandler;
   showThreadContextMenu: ThreadContextMenuHandler;
+  showBulkContextMenu: BulkContextMenuHandler;
 } {
   const now = host.now ?? Date.now;
 
@@ -117,5 +118,33 @@ export function makeMenus(host: MenuHost): {
     menu.showAtMouseEvent(evt);
   };
 
-  return { showLinkContextMenu, showMailboxContextMenu, showThreadContextMenu };
+  // The menu for a multi-selection. "Move" chains a folder menu from the
+  // original click position, like the single-thread menu does.
+  const showBulkContextMenu: BulkContextMenuHandler = (evt, { candidates, showArchive, onMarkRead, onMarkUnread, onMove, onArchive, onDelete }) => {
+    const position = { x: evt.clientX, y: evt.clientY };
+    const menu = host.newMenu();
+    menu.addItem((item) => item.setTitle("Mark as unread").setIcon("mail").onClick(() => onMarkUnread()));
+    menu.addItem((item) => item.setTitle("Mark as read").setIcon("mail-open").onClick(() => onMarkRead()));
+    if (candidates.length > 0) {
+      menu.addItem((item) =>
+        item
+          .setTitle("Move")
+          .setIcon("folder-input")
+          .onClick(() => {
+            const folderMenu = host.newMenu();
+            for (const box of candidates) {
+              folderMenu.addItem((folderItem) => folderItem.setTitle(box.name).onClick(() => onMove(box.id)));
+            }
+            folderMenu.showAtPosition(position);
+          }),
+      );
+    }
+    if (showArchive) {
+      menu.addItem((item) => item.setTitle("Archive").setIcon("archive").onClick(() => onArchive()));
+    }
+    menu.addItem((item) => item.setTitle("Delete").setIcon("trash-2").setWarning(true).onClick(() => onDelete()));
+    menu.showAtMouseEvent(evt);
+  };
+
+  return { showLinkContextMenu, showMailboxContextMenu, showThreadContextMenu, showBulkContextMenu };
 }

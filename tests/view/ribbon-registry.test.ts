@@ -18,7 +18,7 @@ function ctx(over: Partial<RibbonContext> = {}): RibbonContext {
   return {
     hasAccount: true, hasOpenThread: true, hasTargetMessage: true, mailboxKind: "inbox",
     otherMailboxes: [{ id: "ARCH", name: "Archive" }], readingPaneCollapsed: false, syncing: false, searchOpen: false,
-    composerMode: null, composerSending: false, openThreadFlagged: false, openThreadPinned: false,
+    composerMode: null, composerSending: false, openThreadFlagged: false, openThreadPinned: false, selectedCount: 0,
     mode: "mail", hasSelectedContact: false, selectedContactHasEmail: false, contactEditing: false, contactsBlocked: false, contactsSyncing: false,
     actions: actions(), ...over,
   };
@@ -232,6 +232,46 @@ describe("ribbon registry — contacts", () => {
       cmd(id).run!(c);
       expect(c.actions[action], id).toHaveBeenCalledOnce();
     }
+  });
+});
+
+describe("ribbon registry — bulk selection", () => {
+  const nothingOpen = { hasOpenThread: false, hasTargetMessage: false };
+
+  it("Archive, Delete and Move come alive for a selection even with nothing open", () => {
+    for (const id of ["archive", "delete", "move"]) {
+      expect(enabled(id, ctx({ ...nothingOpen })), `${id} without a selection`).toBe(false);
+      expect(enabled(id, ctx({ ...nothingOpen, selectedCount: 1 })), `${id} with one ticked`).toBe(true);
+      expect(enabled(id, ctx({ ...nothingOpen, selectedCount: 5 })), `${id} with five ticked`).toBe(true);
+    }
+  });
+
+  it("the usual rules still gate the selection: no Archive in Archive / Drafts / Trash, no Move without a destination", () => {
+    for (const kind of ["archive", "drafts", "trash"] as const) {
+      expect(enabled("archive", ctx({ ...nothingOpen, selectedCount: 2, mailboxKind: kind })), kind).toBe(false);
+    }
+    expect(enabled("delete", ctx({ ...nothingOpen, selectedCount: 2, mailboxKind: "trash" }))).toBe(true);
+    expect(enabled("move", ctx({ ...nothingOpen, selectedCount: 2, otherMailboxes: [] }))).toBe(false);
+  });
+
+  it("they stay dead in Contacts mode, selection or not", () => {
+    for (const id of ["archive", "delete", "move"]) {
+      expect(enabled(id, ctx({ ...nothingOpen, selectedCount: 2, mode: "contacts" })), id).toBe(false);
+    }
+  });
+
+  it("an open conversation still enables them with nothing ticked (unchanged)", () => {
+    for (const id of ["archive", "delete", "move"]) expect(enabled(id, ctx({ selectedCount: 0 })), id).toBe(true);
+  });
+
+  it("running them calls the same actions — the App decides whether that means the selection", () => {
+    const c = ctx({ selectedCount: 2 });
+    cmd("archive").run!(c);
+    cmd("delete").run!(c);
+    cmd("move").options!(c)[0].run();
+    expect(c.actions.archive).toHaveBeenCalledOnce();
+    expect(c.actions.deleteMessage).toHaveBeenCalledOnce();
+    expect(c.actions.move).toHaveBeenCalledWith("ARCH");
   });
 });
 

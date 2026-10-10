@@ -6,9 +6,10 @@ Sub-project 1 shipped reading and search. Sub-project 2 (this) adds **reply,
 reply-all, forward, new messages, and drafts** — composed with a rich-text
 editor, sent through Microsoft Graph. **Flagging** (synced to Outlook) and
 **pinning** (local to the plugin, not visible in Outlook) are supported, with
-a virtual Flagged view in the folder list. Other mailbox actions (archive,
-delete, mark read/unread, move, unified inbox) are still not
-supported — see the [Roadmap](#roadmap).
+a virtual Flagged view in the folder list. You can also select several
+conversations at once and mark them read/unread, move, archive or delete them.
+A unified inbox across accounts is still not supported — see the
+[Roadmap](#roadmap).
 
 ## What it is
 
@@ -105,6 +106,32 @@ re-create the app or change the Client ID.
   back out of Deleted Items isn't supported here — do that in Outlook Web
   first if you need to act on it.
 
+## Selecting several conversations
+
+Tick conversations to act on many at once:
+
+- **Checkbox** on each row (it appears on hover, and on every row once anything
+  is ticked), **Ctrl/Cmd-click** a row to tick it, **Shift-click** to tick the
+  range from the last one you ticked, or press **Space** on a focused row.
+  A plain click still opens the conversation.
+- A bar above the list shows how many are selected, with **Select all** (every
+  conversation loaded in the list), **Unread**, **Read**, **Archive**, a
+  **Move to…** menu, **Delete**, and a clear (✕) button. **Escape** also clears
+  the selection. Right-clicking a row inside the selection offers the same
+  actions. The ribbon's **Archive**, **Delete** and **Move** buttons (Home ›
+  Manage) also act on the selection whenever anything is ticked, in preference
+  to the open conversation.
+- **Read** marks every unread message in each conversation as read. **Unread**
+  marks the conversation's newest message unread (a conversation that is already
+  unread is left alone). Folder unread counts update afterwards.
+- Deleting works as it does for a single conversation: recoverable from Deleted
+  Items, and a confirmation first (naming how many) when it would be permanent —
+  in Deleted Items, or while a search is showing.
+- Changing folders, switching account, or searching clears the selection.
+- Large selections are sent to Microsoft a few requests at a time, so they can
+  take a moment; anything that fails is reported ("Deleted 7 of 9 messages — 2
+  failed") and left where it was.
+
 ## Security notes
 
 - **Refresh tokens** are stored in Obsidian's `secretStorage`, which is backed
@@ -148,5 +175,5 @@ Design spec and implementation plan:
 
 ## Roadmap
 
-- **SP3** — mark read/unread, move to custom folders, bulk selection, and a unified inbox across accounts.
+- **SP3** — a unified inbox across accounts.
 - **SP4** — polish: keyboard navigation, notifications, performance, settings UX.

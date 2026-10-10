@@ -179,6 +179,13 @@ export class FakeProvider implements MailProvider, ContactsProvider {
     this.addMessage(moved);
   }
 
+  async setMessageRead(id: string, read: boolean): Promise<void> {
+    const m = this.messages.get(id);
+    if (!m) throw new Error(`no such message: ${id}`);
+    // Logged as an upsert so `syncSince` reports the change like Graph's delta does.
+    this.addMessage({ ...m, unread: !read });
+  }
+
   async moveMessage(id: string, destinationMailboxId: string): Promise<void> {
     const m = this.messages.get(id);
     if (!m) throw new Error(`no such message: ${id}`);

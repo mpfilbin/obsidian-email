@@ -6,8 +6,14 @@
 
   import { THREAD_DRAG_TYPE } from "../drag-types";
 
-  let { thread, isOpen, onOpen, isDraftsMailbox, isArchiveMailbox, isTrashMailbox, onArchive, onDelete, onToggleFlag, onTogglePin, onContextMenu }: {
+  let { thread, isOpen, onOpen, isDraftsMailbox, isArchiveMailbox, isTrashMailbox, onArchive, onDelete, onToggleFlag, onTogglePin, onContextMenu, selected = false, selectionActive = false, onSelect = () => {} }: {
     thread: ThreadView; isOpen: boolean; onOpen: () => void;
+    /** This row is ticked for a bulk action. */
+    selected?: boolean;
+    /** Some row is ticked, so every row shows its checkbox. */
+    selectionActive?: boolean;
+    /** Tick/untick this row, or tick the range from the last-ticked row. */
+    onSelect?: (mode: "toggle" | "range") => void;
     isDraftsMailbox: boolean; isArchiveMailbox: boolean; isTrashMailbox: boolean;
     onArchive: () => void; onDelete: () => void; onToggleFlag: () => void; onTogglePin: () => void;
     onContextMenu: (evt: MouseEvent) => void;
@@ -20,6 +26,18 @@
   const due = $derived(flagged && thread.flagDue !== undefined ? describeFollowUp(thread.flagDue, Date.now()) : null);
   const pinned = $derived(thread.pinned ?? false);
   const showArchive = $derived(!isDraftsMailbox && !isArchiveMailbox && !isTrashMailbox);
+
+  // Ctrl/Cmd-click ticks the row, Shift-click ticks a range, a plain click
+  // opens it — the same modifiers file managers and mail clients use.
+  function handleClick(e: MouseEvent): void {
+    if (e.shiftKey) onSelect("range");
+    else if (e.ctrlKey || e.metaKey) onSelect("toggle");
+    else onOpen();
+  }
+  function handleKeydown(e: KeyboardEvent): void {
+    if (e.key === "Enter") onOpen();
+    else if (e.key === " ") { e.preventDefault(); onSelect("toggle"); }
+  }
 
   function relative(ts: number): string {
     const diff = Date.now() - ts;
@@ -36,14 +54,24 @@
   class:is-unread={thread.unread}
   class:is-open={isOpen}
   class:is-pinned={pinned}
-  onclick={onOpen}
+  class:is-selected={selected}
+  class:selection-active={selectionActive}
+  onclick={handleClick}
   role="button"
   tabindex="0"
-  onkeydown={(e) => (e.key === "Enter" ? onOpen() : null)}
+  onkeydown={handleKeydown}
+  // A shift-click would otherwise also start a text selection across rows.
+  onmousedown={(e) => { if (e.shiftKey) e.preventDefault(); }}
   oncontextmenu={(e) => { e.preventDefault(); onContextMenu(e); }}
   draggable="true"
   ondragstart={(e) => e.dataTransfer?.setData(THREAD_DRAG_TYPE, thread.threadId)}
 >
+  <input
+    type="checkbox" class="oe-row-check" aria-label="Select conversation: {thread.subject}"
+    checked={selected}
+    onclick={(e) => { e.stopPropagation(); onSelect(e.shiftKey ? "range" : "toggle"); }}
+    onkeydown={(e) => e.stopPropagation()}
+  />
   <div class="oe-thread-line1">
     <span class="oe-thread-sender">{sender}</span>
     <span class="oe-thread-date">{relative(thread.lastDate)}</span>

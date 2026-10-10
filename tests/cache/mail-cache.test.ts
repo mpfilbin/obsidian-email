@@ -79,6 +79,34 @@ describe("MailCache", () => {
     expect(stored.from).toEqual({ email: "" });
   });
 
+  describe("setUnread", () => {
+    it("changes only `unread`, leaving every other field alone", async () => {
+      await cache.upsertMessages("a1", [msg("m1", { subject: "Keep", mailboxIds: ["INBOX", "X"], flagged: true, unread: true })]);
+      await cache.setUnread("a1", [{ id: "m1", unread: false }]);
+      const [stored] = await cache.listMailboxMessages("a1", "INBOX");
+      expect(stored).toMatchObject({ unread: false, subject: "Keep", mailboxIds: ["INBOX", "X"], flagged: true });
+    });
+
+    it("writes each message's own value in one call", async () => {
+      await cache.upsertMessages("a1", [msg("m1", { unread: true }), msg("m2", { unread: false })]);
+      await cache.setUnread("a1", [{ id: "m1", unread: false }, { id: "m2", unread: true }]);
+      const rows = await cache.listMailboxMessages("a1", "INBOX");
+      expect(Object.fromEntries(rows.map((m) => [m.id, m.unread]))).toEqual({ m1: false, m2: true });
+    });
+
+    it("never creates a row for an uncached id, and scopes to the account", async () => {
+      await cache.upsertMessages("a1", [msg("m1", { unread: true })]);
+      await cache.upsertMessages("a2", [msg("m1", { unread: true })]);
+      await cache.setUnread("a1", [{ id: "ghost", unread: false }, { id: "m1", unread: false }]);
+      expect(await cache.getThreadMessages("a1", "ghost")).toEqual([]);
+      expect((await cache.listMailboxMessages("a2", "INBOX"))[0].unread).toBe(true);
+    });
+
+    it("an empty list is a no-op", async () => {
+      await expect(cache.setUnread("a1", [])).resolves.toBeUndefined();
+    });
+  });
+
   describe("setFlagState", () => {
     it("writes flag, due date and completion together, leaving other fields alone", async () => {
       await cache.upsertMessages("a1", [msg("m1", { subject: "Keep me", mailboxIds: ["INBOX", "X"] })]);

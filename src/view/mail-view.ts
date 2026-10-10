@@ -26,6 +26,23 @@ export interface ThreadMenuActions {
 
 export type ThreadContextMenuHandler = (evt: MouseEvent, actions: ThreadMenuActions) => void;
 
+/** What the right-click menu offers when several conversations are selected. */
+export interface BulkMenuActions {
+  /** How many conversations are selected. */
+  count: number;
+  /** Every mailbox except the active one — the Move destinations. */
+  candidates: Mailbox[];
+  /** Archive is offered (not in Drafts, Archive or Trash). */
+  showArchive: boolean;
+  onMarkRead: () => void;
+  onMarkUnread: () => void;
+  onMove: (destinationMailboxId: string) => void;
+  onArchive: () => void;
+  onDelete: () => void;
+}
+
+export type BulkContextMenuHandler = (evt: MouseEvent, actions: BulkMenuActions) => void;
+
 export type MailboxContextMenuHandler = (
   evt: MouseEvent,
   currentName: string,
@@ -50,6 +67,7 @@ export class MailView extends ItemView {
     private onThreadContextMenu: ThreadContextMenuHandler,
     private onMailboxContextMenu: MailboxContextMenuHandler,
     private noteCommands: NoteCommands,
+    private onBulkContextMenu: BulkContextMenuHandler,
   ) {
     super(leaf);
   }
@@ -75,6 +93,7 @@ export class MailView extends ItemView {
         onAddAccount: this.onAddAccount,
         onThreadContextMenu: this.onThreadContextMenu,
         onMailboxContextMenu: this.onMailboxContextMenu,
+        onBulkContextMenu: this.onBulkContextMenu,
         noteCommands: this.noteCommands,
       },
     });

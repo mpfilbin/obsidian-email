@@ -10,6 +10,7 @@ import type { SettingsStore } from "../settings/settings-store";
 import { sanitizeEmailHtml } from "../render/html-sanitizer";
 import { defaultNoteFilename, emailToNote } from "../render/email-to-note";
 import { messageToPrintHtml } from "../render/message-to-print-html";
+import { mapSettledLimit } from "../util/concurrency";
 
 export interface ThreadView {
   threadId: string;
@@ -76,6 +77,11 @@ export interface ViewState {
   threads: ThreadView[];
   /** The active account's pinned conversation ids. */
   pinnedThreadIds: string[];
+  /** Threads ticked for a bulk action. Always a subset of `threads`: it is
+   *  pruned whenever the list changes and cleared on navigation. */
+  selectedThreadIds: string[];
+  /** The last thread ticked on its own — where a shift-click range starts. */
+  selectionAnchorId: string | null;
   hasMore: boolean;
   loadingList: boolean;
   /** Mirrors `prefs.autoLoadImages`; drives the renderer's `allowRemote`. */
@@ -131,6 +137,10 @@ export interface ViewModelDeps {
 }
 
 const PAGE = 50;
+/** Simultaneous server calls during a bulk action — see `mapSettledLimit`. */
+const BULK_CONCURRENCY = 5;
+const BULK_VERB = { Deleted: "delete", Archived: "archive", Moved: "move" } as const;
+const NO_SELECTION = { selectedThreadIds: [] as string[], selectionAnchorId: null };
 
 const CONTACTS_GRANT_HINT =
   "Contacts access hasn't been granted — use “Grant contacts access” in the Contacts view.";
@@ -209,7 +219,7 @@ function sameSnapshot(a: ComposerSnapshot, b: ComposerSnapshot): boolean {
 export class ViewModel {
   private state: ViewState = {
     accounts: [], activeAccountId: null, mailboxes: [], activeMailboxId: null, flaggedActive: false,
-    threads: [], pinnedThreadIds: [], hasMore: false, loadingList: false, autoLoadImages: false,
+    threads: [], pinnedThreadIds: [], selectedThreadIds: [], selectionAnchorId: null, hasMore: false, loadingList: false, autoLoadImages: false,
     search: { query: "", active: false },
     openThreadId: null, openMessages: [],
     ribbonEnabled: true, ribbonCollapsedByDefault: false,
@@ -280,6 +290,16 @@ export class ViewModel {
 
   private set(patch: Partial<ViewState>): void {
     this.state = { ...this.state, ...patch };
+    // A selection can only name threads that are on screen: whenever the list
+    // is replaced, drop whatever fell out of it.
+    if (patch.threads && !patch.selectedThreadIds && this.state.selectedThreadIds.length) {
+      const present = new Set(patch.threads.map((t) => t.threadId));
+      const kept = this.state.selectedThreadIds.filter((id) => present.has(id));
+      if (kept.length !== this.state.selectedThreadIds.length) {
+        const anchor = this.state.selectionAnchorId;
+        this.state = { ...this.state, selectedThreadIds: kept, selectionAnchorId: anchor && kept.includes(anchor) ? anchor : null };
+      }
+    }
     for (const fn of [...this.listeners]) fn(this.state);
   }
 
@@ -326,6 +346,7 @@ export class ViewModel {
     this.set({
       activeAccountId: id,
       flaggedActive: false,
+      ...NO_SELECTION,
       mailboxes: sortMailboxes(mailboxes),
       activeMailboxId: inbox?.id ?? null,
       search: { query: "", active: false },
@@ -368,7 +389,7 @@ export class ViewModel {
 
   async selectMailbox(id: string): Promise<void> {
     this.flaggedToken = undefined;
-    this.set({ activeMailboxId: id, flaggedActive: false, search: { query: "", active: false }, composer: null });
+    this.set({ activeMailboxId: id, flaggedActive: false, search: { query: "", active: false }, composer: null, ...NO_SELECTION });
     this.providerListToken = undefined;
     this.providerListExhausted = false;
     await this.reloadList();
@@ -379,7 +400,7 @@ export class ViewModel {
    *  backfilled into the cache). */
   async selectFlagged(): Promise<void> {
     this.flaggedToken = undefined;
-    this.set({ flaggedActive: true, search: { query: "", active: false }, composer: null });
+    this.set({ flaggedActive: true, search: { query: "", active: false }, composer: null, ...NO_SELECTION });
     await this.reloadList();
     await this.fetchFlagged(false);
   }
@@ -827,34 +848,43 @@ export class ViewModel {
     await this.actOnMessage(messageId, (provider) => provider.archiveMessage(messageId));
   }
 
-  private async actOnThread(
-    threadId: string,
+  /** Runs `action` on every cached message of every given thread (a bounded
+   *  number at a time), then drops the ones that succeeded from the cache and
+   *  repaints. One thread is just the one-element case, so row buttons, the
+   *  context menu and the bulk bar all share this path and its notices. */
+  private async actOnThreads(
+    threadIds: string[],
     action: (provider: MailProvider, id: string) => Promise<void>,
     pastTense: "Deleted" | "Archived" | "Moved",
   ): Promise<void> {
     const acct = this.state.activeAccountId;
     const provider = acct ? this.deps.getProvider(acct) : undefined;
     if (!acct || !provider) return;
+    const ids = [...new Set(threadIds)];
+    if (ids.length === 0) return;
+    const many = ids.length > 1;
     try {
-      const messages = await this.deps.cache.getThreadMessages(acct, threadId);
-      // Nothing cached under this threadId — a search hit whose conversation
+      const messages = (await Promise.all(ids.map((id) => this.deps.cache.getThreadMessages(acct, id)))).flat();
+      // Nothing cached under these threadIds — a search hit whose conversation
       // was never independently cached, say. There is nothing to act on, and
       // the partial-failure notice below can't fire for an empty input, so say
       // so explicitly rather than appearing to do nothing at all.
       if (messages.length === 0) {
-        this.deps.showNotice("Couldn't find any messages in that thread.");
+        this.deps.showNotice(many ? "Couldn't find any messages in those threads." : "Couldn't find any messages in that thread.");
         return;
       }
-      const results = await Promise.allSettled(messages.map((m) => action(provider, m.id)));
+      const results = await mapSettledLimit(messages, BULK_CONCURRENCY, (m) => action(provider, m.id));
       const succeededIds = messages.filter((_, i) => results[i].status === "fulfilled").map((m) => m.id);
       const failedCount = results.length - succeededIds.length;
       if (succeededIds.length) await this.deps.cache.deleteMessages(acct, succeededIds);
-      if (this.state.openThreadId === threadId) this.closeThread();
+      const acted = new Set(ids);
+      this.set({ selectedThreadIds: this.state.selectedThreadIds.filter((id) => !acted.has(id)) });
+      if (this.state.openThreadId && acted.has(this.state.openThreadId)) this.closeThread();
       await this.reloadListUnlessSearching();
       if (failedCount > 0) {
         this.deps.showNotice(
           succeededIds.length === 0
-            ? `Couldn't ${pastTense.toLowerCase()} this thread.`
+            ? `Couldn't ${BULK_VERB[pastTense]} ${many ? "those threads" : "this thread"}.`
             : `${pastTense} ${succeededIds.length} of ${messages.length} messages — ${failedCount} failed.`,
         );
       }
@@ -867,18 +897,145 @@ export class ViewModel {
   }
 
   async deleteThread(threadId: string): Promise<void> {
-    await this.actOnThread(threadId, (provider, id) => provider.deleteMessage(id), "Deleted");
+    await this.deleteThreads([threadId]);
   }
 
   async archiveThread(threadId: string): Promise<void> {
-    await this.actOnThread(threadId, (provider, id) => provider.archiveMessage(id), "Archived");
+    await this.archiveThreads([threadId]);
   }
 
-  /** Moves every message in the thread to `destinationMailboxId` (an id from
-   *  `state.mailboxes`) — used by both drag-and-drop and the row context
-   *  menu's "Move" command. */
   async moveThread(threadId: string, destinationMailboxId: string): Promise<void> {
-    await this.actOnThread(threadId, (provider, id) => provider.moveMessage(id, destinationMailboxId), "Moved");
+    await this.moveThreads([threadId], destinationMailboxId);
+  }
+
+  async deleteThreads(threadIds: string[]): Promise<void> {
+    await this.actOnThreads(threadIds, (provider, id) => provider.deleteMessage(id), "Deleted");
+  }
+
+  async archiveThreads(threadIds: string[]): Promise<void> {
+    await this.actOnThreads(threadIds, (provider, id) => provider.archiveMessage(id), "Archived");
+  }
+
+  async moveThreads(threadIds: string[], destinationMailboxId: string): Promise<void> {
+    await this.actOnThreads(threadIds, (provider, id) => provider.moveMessage(id, destinationMailboxId), "Moved");
+  }
+
+  // --- Selection ----------------------------------------------------------
+
+  /** Ticks or unticks one thread, and makes it the anchor for a later
+   *  shift-click range. Ignores a thread that isn't on screen. */
+  toggleThreadSelection(threadId: string): void {
+    if (!this.state.threads.some((t) => t.threadId === threadId)) return;
+    const selected = new Set(this.state.selectedThreadIds);
+    if (!selected.delete(threadId)) selected.add(threadId);
+    this.set({ selectedThreadIds: [...selected], selectionAnchorId: threadId });
+  }
+
+  /** Ticks every thread between the anchor and `threadId` (inclusive), keeping
+   *  what was already ticked. With no usable anchor it just ticks `threadId`. */
+  selectThreadRange(threadId: string): void {
+    const order = this.state.threads.map((t) => t.threadId);
+    const to = order.indexOf(threadId);
+    if (to === -1) return;
+    const from = this.state.selectionAnchorId ? order.indexOf(this.state.selectionAnchorId) : -1;
+    if (from === -1) {
+      this.set({ selectedThreadIds: [...new Set([...this.state.selectedThreadIds, threadId])], selectionAnchorId: threadId });
+      return;
+    }
+    const range = order.slice(Math.min(from, to), Math.max(from, to) + 1);
+    this.set({ selectedThreadIds: [...new Set([...this.state.selectedThreadIds, ...range])] });
+  }
+
+  /** Ticks every thread currently loaded in the list. */
+  selectAllThreads(): void {
+    this.set({ selectedThreadIds: this.state.threads.map((t) => t.threadId), selectionAnchorId: null });
+  }
+
+  clearSelection(): void {
+    if (this.state.selectedThreadIds.length === 0 && this.state.selectionAnchorId === null) return;
+    this.set({ ...NO_SELECTION });
+  }
+
+  // --- Read / unread ------------------------------------------------------
+
+  /** Marks conversations read or unread.
+   *
+   *  Read: every unread message in each thread. Unread: just the NEWEST message
+   *  of a thread that has none unread — the one the user would read next —
+   *  leaving the rest of the history as it was; a thread that is already
+   *  unread is left alone. Optimistic like flags: the cache and visible rows
+   *  change first, and whatever the server rejects is restored. */
+  async markThreadsRead(threadIds: string[], read: boolean): Promise<void> {
+    const acct = this.state.activeAccountId;
+    const provider = acct ? this.deps.getProvider(acct) : undefined;
+    if (!acct || !provider) return;
+    const ids = [...new Set(threadIds)];
+    if (ids.length === 0) return;
+    try {
+      const threads = await Promise.all(ids.map((id) => this.deps.cache.getThreadMessages(acct, id)));
+      if (threads.every((t) => t.length === 0)) {
+        this.deps.showNotice(ids.length > 1 ? "Couldn't find any messages in those threads." : "Couldn't find any messages in that thread.");
+        return;
+      }
+      const targets: MessageSummary[] = [];
+      for (const msgs of threads) {
+        if (msgs.length === 0) continue;
+        if (read) targets.push(...msgs.filter((m) => m.unread));
+        else if (!msgs.some((m) => m.unread)) targets.push(msgs[msgs.length - 1]);
+      }
+      const acted = new Set(ids);
+      this.set({ selectedThreadIds: this.state.selectedThreadIds.filter((id) => !acted.has(id)) });
+      if (targets.length === 0) return; // already in the requested state
+
+      const write = (list: Array<{ id: string; unread: boolean }>) => this.deps.cache.setUnread(acct, list);
+      await write(targets.map((m) => ({ id: m.id, unread: !read })));
+      this.applyReadChange(acct, targets.map((m) => ({ id: m.id, unread: !read })));
+      const results = await mapSettledLimit(targets, BULK_CONCURRENCY, (m) => provider.setMessageRead(m.id, read));
+      const failed = targets.filter((_, i) => results[i].status === "rejected");
+      if (failed.length > 0) {
+        const back = failed.map((m) => ({ id: m.id, unread: m.unread }));
+        await write(back);
+        this.applyReadChange(acct, back);
+        const firstError = (results.find((r) => r.status === "rejected") as PromiseRejectedResult).reason;
+        const what = read ? "read" : "unread";
+        this.deps.showNotice(
+          failed.length === targets.length
+            ? this.errorMessage(firstError)
+            : `Marked ${targets.length - failed.length} of ${targets.length} messages ${what} — ${failed.length} failed.`,
+        );
+      }
+      await this.refreshUnreadCounts(acct, provider);
+    } catch (err) {
+      this.deps.showNotice(this.errorMessage(err));
+    }
+  }
+
+  /** Mirrors a read-state change into the rows already on screen (search
+   *  results aren't derived from the cache, so they can't just be reloaded). */
+  private applyReadChange(acct: string, changes: Array<{ id: string; unread: boolean }>): void {
+    if (acct !== this.state.activeAccountId) return; // the user switched accounts mid-flight
+    const byId = new Map(changes.map((c) => [c.id, c.unread]));
+    const patch = (m: MessageSummary): MessageSummary => (byId.has(m.id) ? { ...m, unread: byId.get(m.id)! } : m);
+    this.set({
+      threads: this.state.threads.map((t) => {
+        if (!t.messages.some((m) => byId.has(m.id))) return t;
+        const messages = t.messages.map(patch);
+        return { ...t, messages, unread: messages.some((m) => m.unread) };
+      }),
+      openMessages: this.state.openMessages.map((o) => (byId.has(o.summary.id) ? { ...o, summary: patch(o.summary) } : o)),
+    });
+  }
+
+  /** The folder badges come from the server's per-folder counts, which a
+   *  read-state change makes stale until the next sync — refresh them now.
+   *  Best effort: the badge catching up later is not worth a notice. */
+  private async refreshUnreadCounts(acct: string, provider: MailProvider): Promise<void> {
+    try {
+      await this.deps.cache.putMailboxes(acct, await provider.listMailboxes());
+      await this.refreshMailboxes(acct);
+    } catch {
+      /* ignore */
+    }
   }
 
   /** Clears the flag on every message in the thread if ANY of them is flagged,
@@ -1177,6 +1334,7 @@ export class ViewModel {
       const page = await provider.search(query);
       this.set({
         search: { query, active: true },
+        ...NO_SELECTION,
         threads: groupThreads(page.items, this.deps.settings.pinnedThreadIds(acct), { floatPinned: false }),
         pinnedThreadIds: [...this.deps.settings.pinnedThreadIds(acct)],
         hasMore: false,
@@ -1189,7 +1347,7 @@ export class ViewModel {
   }
 
   async clearSearch(): Promise<void> {
-    this.set({ search: { query: "", active: false } });
+    this.set({ search: { query: "", active: false }, ...NO_SELECTION });
     await this.reloadList();
   }
 

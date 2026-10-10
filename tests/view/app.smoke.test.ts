@@ -36,6 +36,7 @@ function fakeVm(state: Partial<ViewState> = {}): ViewModel {
     hasMore: false, loadingList: false, autoLoadImages: false,
     search: { query: "", active: false },
     openThreadId: null, openMessages: [], pinnedThreadIds: [], flaggedActive: false,
+    selectedThreadIds: [], selectionAnchorId: null,
     composer: null, mode: "mail",
     contacts: [], contactsStatus: "idle", contactSearch: "", selectedContactId: null, contactEdit: null,
     ribbonEnabled: true, ribbonCollapsedByDefault: false,
@@ -70,6 +71,8 @@ function fakeVm(state: Partial<ViewState> = {}): ViewModel {
     send: vi.fn(), saveDraft: vi.fn(), discardDraft: vi.fn(), closeComposer: vi.fn(),
     deleteMessage: vi.fn(), archiveMessage: vi.fn(), deleteThread: vi.fn(), archiveThread: vi.fn(),
     toggleThreadFlag: vi.fn(), flagThread: vi.fn(), flagThreadCustom: vi.fn(), completeThreadFlag: vi.fn(), toggleMessageFlag: vi.fn(), toggleThreadPin: vi.fn(),
+    toggleThreadSelection: vi.fn(), selectThreadRange: vi.fn(), selectAllThreads: vi.fn(), clearSelection: vi.fn(),
+    deleteThreads: vi.fn(), archiveThreads: vi.fn(), moveThreads: vi.fn(), markThreadsRead: vi.fn(),
     moveThread: vi.fn(), requestCreateMailbox: vi.fn(), renameMailbox: vi.fn(), deleteMailbox: vi.fn(),
     requestRenameMailbox: vi.fn(), requestAttachNote: vi.fn(), saveMessageToVault: vi.fn(), printMessage: vi.fn(),
     removeComposerAttachment: vi.fn(),
@@ -95,6 +98,7 @@ const appProps = (vm: ViewModel, over: object = {}) => ({
   onAddAccount: () => {},
   onThreadContextMenu: () => {},
   onMailboxContextMenu: () => {},
+  onBulkContextMenu: () => {},
   noteCommands: { composeFromNote: vi.fn(), composeWithNoteAttached: vi.fn() },
   ...over,
 });
@@ -1466,6 +1470,372 @@ describe("App — follow-up flags", () => {
     click(tomorrow!);
     expect(vm.flagThread).toHaveBeenCalledWith("t1", expect.any(Number));
     done();
+  });
+});
+
+describe("App — multi-select and bulk actions", () => {
+  const mountApp = (vm: ViewModel, over: object = {}) => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const app = mount(App, { target: host, props: appProps(vm, over) });
+    flushSync();
+    return { host, done: () => { unmount(app); host.remove(); } };
+  };
+  const click = (el: Element | null) => { (el as HTMLElement).click(); flushSync(); };
+  const three = () => [threadView("t1", "m1", "One"), threadView("t2", "m2", "Two"), threadView("t3", "m3", "Three")];
+  const boxes: Mailbox[] = [
+    { id: "INBOX", name: "Inbox", kind: "inbox" },
+    { id: "ARCHIVE", name: "Archive", kind: "archive" },
+    { id: "P", name: "Projects", kind: "custom" },
+  ];
+  const withSelection = (over: Partial<ViewState> = {}) =>
+    fakeVm({ threads: three(), mailboxes: boxes, selectedThreadIds: ["t1", "t2"], ...over });
+  const bar = (host: HTMLElement) => host.querySelector<HTMLElement>(".oe-bulk-bar");
+  const action = (host: HTMLElement, name: string) => host.querySelector<HTMLElement>(`.oe-bulk-bar [data-action="${name}"]`);
+  const rightClick = (el: Element) => { el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })); flushSync(); };
+
+  it("shows the bulk bar only while something is selected", () => {
+    const none = mountApp(fakeVm({ threads: three() }));
+    expect(bar(none.host)).toBeNull();
+    none.done();
+    const some = mountApp(withSelection());
+    expect(bar(some.host)).not.toBeNull();
+    expect(some.host.querySelector(".oe-bulk-count")!.textContent).toBe("2 selected");
+    some.done();
+  });
+
+  it("ticks rows with Ctrl-click and Shift-click, and a plain click still opens", () => {
+    const vm = fakeVm({ threads: three() });
+    const { host, done } = mountApp(vm);
+    const rows = host.querySelectorAll<HTMLElement>(".oe-thread-row");
+    rows[0].dispatchEvent(new MouseEvent("click", { bubbles: true, ctrlKey: true }));
+    expect(vm.toggleThreadSelection).toHaveBeenCalledWith("t1");
+    rows[2].dispatchEvent(new MouseEvent("click", { bubbles: true, shiftKey: true }));
+    expect(vm.selectThreadRange).toHaveBeenCalledWith("t3");
+    expect(vm.openThread).not.toHaveBeenCalled();
+    rows[1].dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(vm.openThread).toHaveBeenCalledWith("t2");
+    done();
+  });
+
+  it("Select all and Clear drive the view-model", () => {
+    const vm = withSelection();
+    const { host, done } = mountApp(vm);
+    click(action(host, "select-all"));
+    expect(vm.selectAllThreads).toHaveBeenCalledOnce();
+    click(action(host, "clear"));
+    expect(vm.clearSelection).toHaveBeenCalledOnce();
+    done();
+  });
+
+  it("Escape in the list drops the selection, but not when nothing is selected", () => {
+    const vm = withSelection();
+    const { host, done } = mountApp(vm);
+    host.querySelector(".oe-list-col")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(vm.clearSelection).toHaveBeenCalledOnce();
+    done();
+    const idle = fakeVm({ threads: three() });
+    const b = mountApp(idle);
+    b.host.querySelector(".oe-list-col")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(idle.clearSelection).not.toHaveBeenCalled();
+    b.done();
+  });
+
+  it("Unread and Read mark the selected conversations", () => {
+    const vm = withSelection();
+    const { host, done } = mountApp(vm);
+    click(action(host, "mark-unread"));
+    expect(vm.markThreadsRead).toHaveBeenLastCalledWith(["t1", "t2"], false);
+    click(action(host, "mark-read"));
+    expect(vm.markThreadsRead).toHaveBeenLastCalledWith(["t1", "t2"], true);
+    done();
+  });
+
+  it("Archive archives the selection, and is absent in Archive / Drafts / Trash", () => {
+    const vm = withSelection();
+    const { host, done } = mountApp(vm);
+    click(action(host, "archive"));
+    expect(vm.archiveThreads).toHaveBeenCalledWith(["t1", "t2"]);
+    done();
+    for (const kind of ["archive", "drafts", "trash"] as const) {
+      const other = fakeVm({
+        threads: three(), selectedThreadIds: ["t1"], activeMailboxId: "X",
+        mailboxes: [{ id: "X", name: "X", kind }, { id: "INBOX", name: "Inbox", kind: "inbox" }],
+      });
+      const b = mountApp(other);
+      expect(action(b.host, "archive"), kind).toBeNull();
+      b.done();
+    }
+  });
+
+  it("Move sends the selection to the chosen folder, and lists every other folder", () => {
+    const vm = withSelection();
+    const { host, done } = mountApp(vm);
+    const select = host.querySelector<HTMLSelectElement>('.oe-bulk-bar select[data-action="move"]')!;
+    expect([...select.options].slice(1).map((o) => o.value)).toEqual(["ARCHIVE", "P"]);
+    select.value = "P";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(vm.moveThreads).toHaveBeenCalledWith(["t1", "t2"], "P");
+    done();
+  });
+
+  it("Delete outside Trash deletes at once, with no prompt", () => {
+    const vm = withSelection();
+    const { host, done } = mountApp(vm);
+    click(action(host, "delete"));
+    expect(vm.deleteThreads).toHaveBeenCalledWith(["t1", "t2"]);
+    expect(host.querySelector(".oe-composer-prompt")).toBeNull();
+    done();
+  });
+
+  it("Delete in Trash asks first — naming the count — and only deletes once confirmed", () => {
+    const vm = withSelection({
+      activeMailboxId: "TRASH",
+      mailboxes: [{ id: "TRASH", name: "Deleted Items", kind: "trash" }, ...boxes],
+    });
+    const { host, done } = mountApp(vm);
+    click(action(host, "delete"));
+    expect(vm.deleteThreads).not.toHaveBeenCalled();
+    expect(host.querySelector(".oe-composer-prompt p")!.textContent).toBe("Permanently delete these 2 threads? This can't be undone.");
+    click(host.querySelector(".oe-delete-confirm"));
+    expect(vm.deleteThreads).toHaveBeenCalledWith(["t1", "t2"]);
+    done();
+  });
+
+  it("Delete while a search is showing also asks first, and Cancel deletes nothing", () => {
+    const vm = withSelection({ search: { query: "q", active: true } });
+    const { host, done } = mountApp(vm);
+    click(action(host, "delete"));
+    expect(host.querySelector(".oe-composer-prompt")).not.toBeNull();
+    click(host.querySelector(".oe-delete-cancel"));
+    expect(vm.deleteThreads).not.toHaveBeenCalled();
+    expect(host.querySelector(".oe-composer-prompt")).toBeNull();
+    done();
+  });
+
+  it("a single-thread delete confirmation keeps its singular wording", () => {
+    const vm = fakeVm({
+      threads: three(), selectedThreadIds: [], activeMailboxId: "TRASH",
+      mailboxes: [{ id: "TRASH", name: "Deleted Items", kind: "trash" }],
+    });
+    const { host, done } = mountApp(vm);
+    click(host.querySelector('.oe-thread-row [data-action="delete"]'));
+    expect(host.querySelector(".oe-composer-prompt p")!.textContent).toBe("Permanently delete this thread? This can't be undone.");
+    done();
+  });
+
+  it("archive / move / delete go through the unsaved-composer prompt; mark read does not", () => {
+    const vm = withSelection();
+    (vm.hasUnsavedComposerContent as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    const { host, done } = mountApp(vm);
+    click(action(host, "mark-read"));
+    expect(vm.markThreadsRead).toHaveBeenCalledOnce();
+    click(action(host, "archive"));
+    expect(vm.archiveThreads).not.toHaveBeenCalled();
+    expect(host.querySelector(".oe-composer-prompt")).not.toBeNull();
+    click(host.querySelector(".oe-composer-prompt-discard"));
+    expect(vm.discardDraft).toHaveBeenCalledOnce();
+    done();
+  });
+
+  it("acting on a selection that includes the open thread still sends the whole selection", () => {
+    const vm = withSelection({ openThreadId: "t2", openMessages: [{ summary: three()[1].messages[0] }] });
+    const { host, done } = mountApp(vm);
+    expect(host.querySelector(".oe-reading-pane")).not.toBeNull();
+    click(action(host, "archive"));
+    expect(vm.archiveThreads).toHaveBeenCalledWith(["t1", "t2"]);
+    done();
+  });
+
+  describe("ribbon Manage buttons", () => {
+    const ribbonBtn = (host: HTMLElement, name: string) => host.querySelector<HTMLButtonElement>(`.oe-ribbon [data-action="${name}"]`)!;
+    const openMessage = { summary: three()[2].messages[0] };
+
+    it("are disabled with nothing selected or open, and enabled once something is ticked", () => {
+      const idle = mountApp(fakeVm({ threads: three(), mailboxes: boxes }));
+      for (const name of ["archive", "delete", "move"]) expect(ribbonBtn(idle.host, name).disabled, name).toBe(true);
+      idle.done();
+      const ticked = mountApp(withSelection());
+      for (const name of ["archive", "delete", "move"]) expect(ribbonBtn(ticked.host, name).disabled, name).toBe(false);
+      ticked.done();
+    });
+
+    it("Archive archives the whole selection", () => {
+      const vm = withSelection();
+      const { host, done } = mountApp(vm);
+      click(ribbonBtn(host, "archive"));
+      expect(vm.archiveThreads).toHaveBeenCalledWith(["t1", "t2"]);
+      expect(vm.archiveMessage).not.toHaveBeenCalled();
+      done();
+    });
+
+    it("Delete deletes the whole selection, with no prompt outside Deleted Items / search", () => {
+      const vm = withSelection();
+      const { host, done } = mountApp(vm);
+      click(ribbonBtn(host, "delete"));
+      expect(vm.deleteThreads).toHaveBeenCalledWith(["t1", "t2"]);
+      expect(vm.deleteMessage).not.toHaveBeenCalled();
+      expect(host.querySelector(".oe-composer-prompt")).toBeNull();
+      done();
+    });
+
+    it("Delete in Deleted Items asks first, naming the count, then deletes the selection", () => {
+      const vm = withSelection({ activeMailboxId: "TRASH", mailboxes: [{ id: "TRASH", name: "Deleted Items", kind: "trash" }, ...boxes] });
+      const { host, done } = mountApp(vm);
+      click(ribbonBtn(host, "delete"));
+      expect(vm.deleteThreads).not.toHaveBeenCalled();
+      expect(host.querySelector(".oe-composer-prompt p")!.textContent).toBe("Permanently delete these 2 threads? This can't be undone.");
+      click(host.querySelector(".oe-delete-confirm"));
+      expect(vm.deleteThreads).toHaveBeenCalledWith(["t1", "t2"]);
+      done();
+    });
+
+    it("Move moves the whole selection to the chosen folder", () => {
+      const vm = withSelection();
+      const { host, done } = mountApp(vm);
+      click(ribbonBtn(host, "move"));
+      click(document.querySelector('.oe-ribbon-menu [data-option="P"]'));
+      expect(vm.moveThreads).toHaveBeenCalledWith(["t1", "t2"], "P");
+      expect(vm.moveThread).not.toHaveBeenCalled();
+      done();
+    });
+
+    it("the selection wins over the open conversation", () => {
+      const vm = withSelection({ openThreadId: "t3", openMessages: [openMessage] });
+      const { host, done } = mountApp(vm);
+      click(ribbonBtn(host, "archive"));
+      click(ribbonBtn(host, "delete"));
+      expect(vm.archiveThreads).toHaveBeenCalledWith(["t1", "t2"]);
+      expect(vm.deleteThreads).toHaveBeenCalledWith(["t1", "t2"]);
+      expect(vm.archiveMessage).not.toHaveBeenCalled();
+      expect(vm.deleteMessage).not.toHaveBeenCalled();
+      done();
+    });
+
+    it("with nothing ticked they still act on the open conversation (unchanged)", () => {
+      const vm = fakeVm({ threads: three(), mailboxes: boxes, openThreadId: "t3", openMessages: [openMessage] });
+      const { host, done } = mountApp(vm);
+      click(ribbonBtn(host, "archive"));
+      expect(vm.archiveMessage).toHaveBeenCalledWith("m3");
+      expect(vm.archiveThreads).not.toHaveBeenCalled();
+      done();
+    });
+
+    it("Archive stays disabled in Deleted Items even with a selection; Delete does not", () => {
+      const vm = withSelection({ activeMailboxId: "TRASH", mailboxes: [{ id: "TRASH", name: "Deleted Items", kind: "trash" }, ...boxes] });
+      const { host, done } = mountApp(vm);
+      expect(ribbonBtn(host, "archive").disabled).toBe(true);
+      expect(ribbonBtn(host, "delete").disabled).toBe(false);
+      done();
+    });
+
+    it("Move with nothing ticked still moves the open conversation (unchanged)", () => {
+      const vm = fakeVm({ threads: three(), mailboxes: boxes, openThreadId: "t3", openMessages: [openMessage] });
+      const { host, done } = mountApp(vm);
+      click(ribbonBtn(host, "move"));
+      click(document.querySelector('.oe-ribbon-menu [data-option="P"]'));
+      expect(vm.moveThread).toHaveBeenCalledWith("t3", "P");
+      expect(vm.moveThreads).not.toHaveBeenCalled();
+      done();
+    });
+
+    it("goes through the unsaved-composer prompt like the bar does", () => {
+      const vm = withSelection();
+      (vm.hasUnsavedComposerContent as ReturnType<typeof vi.fn>).mockReturnValue(true);
+      const { host, done } = mountApp(vm);
+      click(ribbonBtn(host, "archive"));
+      expect(vm.archiveThreads).not.toHaveBeenCalled();
+      expect(host.querySelector(".oe-composer-prompt")).not.toBeNull();
+      done();
+    });
+  });
+
+  describe("closing the reading pane when the open conversation is acted on", () => {
+    const grid = (host: HTMLElement) => host.querySelector<HTMLElement>(".oe-grid")!.getAttribute("style") ?? "";
+    const open = (thread: string) => ({ openThreadId: thread, openMessages: [{ summary: three().find((t) => t.threadId === thread)!.messages[0] }] });
+    const doMove = (host: HTMLElement) => {
+      const select = host.querySelector<HTMLSelectElement>('.oe-bulk-bar select[data-action="move"]')!;
+      select.value = "P";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+      flushSync();
+    };
+    const actions: Array<[string, (host: HTMLElement) => void]> = [
+      ["Archive", (host) => click(action(host, "archive"))],
+      ["Delete", (host) => click(action(host, "delete"))],
+      ["Move", doMove],
+    ];
+
+    for (const [name, run] of actions) {
+      it(`${name} collapses the pane when the open conversation is among the selection`, () => {
+        const vm = withSelection(open("t2"));
+        const { host, done } = mountApp(vm);
+        expect(grid(host)).toContain("340px");
+        run(host);
+        expect(grid(host)).toMatch(/0px 0px;/);
+        done();
+      });
+
+      it(`${name} leaves the pane open when the open conversation isn't selected`, () => {
+        const vm = withSelection(open("t3"));
+        const { host, done } = mountApp(vm);
+        run(host);
+        expect(grid(host)).toContain("340px");
+        expect(grid(host)).not.toMatch(/0px 0px;/);
+        done();
+      });
+    }
+
+    it("the right-click menu's actions collapse it too", () => {
+      const onBulkContextMenu = vi.fn();
+      const vm = withSelection(open("t1"));
+      const { host, done } = mountApp(vm, { onBulkContextMenu });
+      rightClick(host.querySelectorAll(".oe-thread-row")[0]);
+      const [, a] = onBulkContextMenu.mock.calls[0];
+      a.onMove("P");
+      flushSync();
+      expect(grid(host)).toMatch(/0px 0px;/);
+      done();
+    });
+  });
+
+  it("right-clicking a row inside a multi-selection opens the bulk menu for the whole selection", () => {
+    const onBulkContextMenu = vi.fn();
+    const onThreadContextMenu = vi.fn();
+    const vm = withSelection();
+    const { host, done } = mountApp(vm, { onBulkContextMenu, onThreadContextMenu });
+    rightClick(host.querySelectorAll(".oe-thread-row")[1]);
+    expect(onThreadContextMenu).not.toHaveBeenCalled();
+    const [, actions] = onBulkContextMenu.mock.calls[0];
+    expect(actions.count).toBe(2);
+    expect(actions.candidates.map((b: Mailbox) => b.id)).toEqual(["ARCHIVE", "P"]);
+    expect(actions.showArchive).toBe(true);
+    actions.onMarkUnread();
+    expect(vm.markThreadsRead).toHaveBeenLastCalledWith(["t1", "t2"], false);
+    actions.onMarkRead();
+    expect(vm.markThreadsRead).toHaveBeenLastCalledWith(["t1", "t2"], true);
+    actions.onMove("P");
+    expect(vm.moveThreads).toHaveBeenCalledWith(["t1", "t2"], "P");
+    actions.onArchive();
+    expect(vm.archiveThreads).toHaveBeenCalledWith(["t1", "t2"]);
+    actions.onDelete();
+    expect(vm.deleteThreads).toHaveBeenCalledWith(["t1", "t2"]);
+    done();
+  });
+
+  it("right-clicking a row outside the selection, or with a single row selected, opens the normal menu", () => {
+    const onBulkContextMenu = vi.fn();
+    const onThreadContextMenu = vi.fn();
+    const multi = withSelection();
+    const a = mountApp(multi, { onBulkContextMenu, onThreadContextMenu });
+    rightClick(a.host.querySelectorAll(".oe-thread-row")[2]); // t3 isn't selected
+    expect(onThreadContextMenu).toHaveBeenCalledOnce();
+    a.done();
+    const single = fakeVm({ threads: three(), selectedThreadIds: ["t1"] });
+    const b = mountApp(single, { onBulkContextMenu, onThreadContextMenu });
+    rightClick(b.host.querySelectorAll(".oe-thread-row")[0]);
+    expect(onThreadContextMenu).toHaveBeenCalledTimes(2);
+    expect(onBulkContextMenu).not.toHaveBeenCalled();
+    b.done();
   });
 });
 

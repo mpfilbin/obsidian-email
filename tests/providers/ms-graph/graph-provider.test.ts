@@ -467,6 +467,26 @@ describe("GraphProvider contacts", () => {
   });
 });
 
+describe("GraphProvider read state", () => {
+  const make = (req: ReturnType<typeof vi.fn>) =>
+    new GraphProvider({ http: { request: req }, getAccessToken: async () => "at" });
+
+  it("setMessageRead PATCHes isRead on the message", async () => {
+    const req = vi.fn(async () => resp({}));
+    const p = make(req);
+    await p.setMessageRead("M1", true);
+    await p.setMessageRead("M1", false);
+    expect(req.mock.calls[0][0].url).toBe("https://graph.microsoft.com/v1.0/me/messages/M1");
+    expect(req.mock.calls[0][0].method).toBe("PATCH");
+    expect(JSON.parse(req.mock.calls[0][0].body)).toEqual({ isRead: true });
+    expect(JSON.parse(req.mock.calls[1][0].body)).toEqual({ isRead: false });
+  });
+
+  it("a 403 on setMessageRead is an AuthError (mail semantics)", async () => {
+    await expect(make(vi.fn(async () => resp({}, 403))).setMessageRead("M1", true)).rejects.toBeInstanceOf(AuthError);
+  });
+});
+
 describe("GraphProvider flags", () => {
   const make = (req: ReturnType<typeof vi.fn>) =>
     new GraphProvider({ http: { request: req }, getAccessToken: async () => "at" });

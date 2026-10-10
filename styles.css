@@ -314,3 +314,35 @@
 .oe-pin svg { width: 12px; height: 12px; }
 /* Pinned rows read as one group at the top of the list. */
 .oe-thread-row.is-pinned { box-shadow: inset 3px 0 0 var(--interactive-accent); }
+
+/* --- Multi-select ------------------------------------------------------- */
+/* Room for the checkbox, which is invisible until the row is hovered or focused
+   — or, once anything is ticked, on every row, so the selection is obvious.
+   The checkbox rules are `.oe-thread-row > .oe-row-check` (two classes) on
+   purpose: Obsidian's own `input[type='checkbox']` rule sets `position:
+   relative`, and a single-class selector loses to it, which drops the box into
+   the row's flow on top of the sender. */
+.oe-thread-row { position: relative; padding-left: 30px; box-sizing: border-box; }
+.oe-thread-row > .oe-row-check { position: absolute; left: 8px; top: 11px; margin: 0; opacity: 0; cursor: pointer; }
+.oe-thread-row:hover > .oe-row-check,
+.oe-thread-row:focus-within > .oe-row-check,
+.oe-thread-row.selection-active > .oe-row-check,
+.oe-thread-row > .oe-row-check:checked { opacity: 1; }
+.oe-thread-row.is-selected { background: var(--background-modifier-active-hover, var(--background-modifier-hover)); }
+.oe-bulk-bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 10px;
+  border-bottom: 1px solid var(--background-modifier-border); background: var(--background-secondary);
+}
+.oe-bulk-count { font-size: 12px; font-weight: var(--font-semibold, 600); margin-right: auto; }
+.oe-bulk-bar button {
+  display: inline-flex; align-items: center; gap: 4px; height: auto; padding: 3px 8px; font-size: 12px;
+  background: transparent; border: 1px solid var(--background-modifier-border); border-radius: 4px;
+  color: var(--text-muted); cursor: pointer;
+}
+.oe-bulk-bar button:hover { color: var(--text-normal); }
+.oe-bulk-bar [data-action="delete"]:hover { color: var(--text-error); }
+.oe-bulk-clear { padding: 3px 7px; }
+/* The Move menu keeps Obsidian's `.dropdown` look — its chevron is a background
+   image with its own size/position/padding, which a `background:` or `padding:`
+   shorthand here would wreck — so only its size is adjusted to match the buttons. */
+.oe-bulk-bar select.dropdown { height: auto; padding-top: 3px; padding-bottom: 3px; font-size: 12px; }

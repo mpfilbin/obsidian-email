@@ -18,7 +18,7 @@ function ctx(over: Partial<RibbonContext> = {}): RibbonContext {
   return {
     hasAccount: true, hasOpenThread: true, hasTargetMessage: true, mailboxKind: "inbox",
     otherMailboxes: [{ id: "ARCH", name: "Archive" }, { id: "P", name: "Project" }],
-    readingPaneCollapsed: false, syncing: false, searchOpen: false, composerMode: null, composerSending: false, openThreadFlagged: false, openThreadPinned: false,
+    readingPaneCollapsed: false, syncing: false, searchOpen: false, composerMode: null, composerSending: false, openThreadFlagged: false, openThreadPinned: false, selectedCount: 0,
     mode: "mail", hasSelectedContact: false, selectedContactHasEmail: false, contactEditing: false, contactsBlocked: false, contactsSyncing: false,
     actions: actions(), ...over,
   };
