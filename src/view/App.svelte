@@ -464,7 +464,9 @@
     {/if}
   </section>
   <Resizer label="Resize mailbox list" onDrag={resizeMailboxes} />
-  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <!-- The column itself isn't interactive: this only catches Escape bubbling up
+       from the rows, bar and search field inside it (all focusable). -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
   <section class="oe-list-col" onkeydown={onListKeydown}>
     {#if inContacts}
       <ContactList
