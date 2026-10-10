@@ -154,6 +154,22 @@ export class MailCache {
     await tx.done;
   }
 
+  /** Sets the unread state on already-cached messages and nothing else — same
+   *  never-create, skip-uncached rules as `setFlagged`, for the same reasons
+   *  (an optimistic write followed by a rollback after a server round-trip). */
+  async setUnread(accountId: string, entries: Array<{ id: string; unread: boolean }>): Promise<void> {
+    if (!entries.length) return;
+    const tx = this.db.transaction("messages", "readwrite");
+    await Promise.all(
+      entries.map(async ({ id, unread }) => {
+        const row = await tx.store.get(key(accountId, id));
+        if (!row) return;
+        await tx.store.put({ ...row, unread });
+      }),
+    );
+    await tx.done;
+  }
+
   /** Writes the whole follow-up state (flag, due date, completion) onto
    *  already-cached messages — same never-create, skip-uncached rules as
    *  `setFlagged`. Used for optimistic writes and for restoring each message's

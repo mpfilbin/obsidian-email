@@ -198,6 +198,17 @@ describe("FakeProvider flags", () => {
     expect((await p.listFlaggedMessages()).items).toEqual([]);
   });
 
+  it("setMessageRead flips unread and syncSince reports it as an upsert", async () => {
+    const p = new FakeProvider({ mailboxes: [{ id: "INBOX", name: "Inbox", kind: "inbox" }] });
+    p.addMessage(msg("m1", 1)); // seeded unread
+    const cursor = await p.initialCursor();
+    await p.setMessageRead("m1", true);
+    expect((await p.syncSince(cursor)).upserts.find((u) => u.id === "m1")).toMatchObject({ unread: false });
+    await p.setMessageRead("m1", false);
+    expect((await p.listMessages("INBOX")).items[0].unread).toBe(true);
+    await expect(p.setMessageRead("nope", true)).rejects.toThrow(/no such message/);
+  });
+
   it("setMessageFlag stores a due date only while flagged; clearing drops it", async () => {
     const p = new FakeProvider({ mailboxes: [{ id: "INBOX", name: "Inbox", kind: "inbox" }] });
     p.addMessage(msg("m1", 1));

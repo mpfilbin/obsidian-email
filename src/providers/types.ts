@@ -158,6 +158,9 @@ export interface MailProvider {
   /** Moves a message to the Archive well-known folder. */
   archiveMessage(id: string): Promise<void>;
 
+  /** Marks a message read (`true`) or unread (`false`) on the server. */
+  setMessageRead(id: string, read: boolean): Promise<void>;
+
   /** Moves a message to an arbitrary mailbox (by its Mailbox.id). */
   moveMessage(id: string, destinationMailboxId: string): Promise<void>;
 

@@ -216,6 +216,10 @@ export class GraphProvider implements MailProvider, ContactsProvider {
     await this.request<void>(`/me/messages/${id}/move`, "POST", { destinationId: "archive" });
   }
 
+  async setMessageRead(id: string, read: boolean): Promise<void> {
+    await this.request<void>(`/me/messages/${id}`, "PATCH", { isRead: read });
+  }
+
   async moveMessage(id: string, destinationMailboxId: string): Promise<void> {
     await this.request<void>(`/me/messages/${id}/move`, "POST", { destinationId: destinationMailboxId });
   }

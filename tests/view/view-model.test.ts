@@ -2409,3 +2409,390 @@ describe("ViewModel — attachments, search failure, missing draft", () => {
     expect(vm.getState().composer).toBeNull();
   });
 });
+
+describe("ViewModel — multi-select and bulk actions", () => {
+  type Ctx = Awaited<ReturnType<typeof build>>;
+  const read = (id: string, thread: string, date: number): MessageSummary => ({ ...sum(id, thread, date), unread: false });
+  async function seed(c: Ctx, msgs: MessageSummary[]) {
+    await c.cache.putMailboxes("a1", await c.provider.listMailboxes());
+    await c.cache.upsertMessages("a1", msgs);
+    for (const m of msgs) c.provider.addMessage(m);
+    await c.vm.init();
+  }
+  const ids = (c: Ctx) => c.vm.getState().selectedThreadIds;
+  const threadIds = (c: Ctx) => c.vm.getState().threads.map((t) => t.threadId);
+  const cachedIds = async (c: Ctx) => (await c.cache.listMailboxMessages("a1", "INBOX", { limit: 100 })).map((m) => m.id).sort();
+
+  describe("selection", () => {
+    // Newest first in the list: t5 t4 t3 t2 t1.
+    const five = (): MessageSummary[] => [1, 2, 3, 4, 5].map((n) => sum(`m${n}`, `t${n}`, n));
+
+    it("starts empty", async () => {
+      const c = await build();
+      await seed(c, five());
+      expect(ids(c)).toEqual([]);
+      expect(c.vm.getState().selectionAnchorId).toBeNull();
+    });
+
+    it("toggleThreadSelection ticks and unticks, and makes the thread the anchor", async () => {
+      const c = await build();
+      await seed(c, five());
+      c.vm.toggleThreadSelection("t2");
+      c.vm.toggleThreadSelection("t4");
+      expect(ids(c)).toEqual(["t2", "t4"]);
+      expect(c.vm.getState().selectionAnchorId).toBe("t4");
+      c.vm.toggleThreadSelection("t2");
+      expect(ids(c)).toEqual(["t4"]);
+    });
+
+    it("ignores a thread that isn't on screen", async () => {
+      const c = await build();
+      await seed(c, five());
+      c.vm.toggleThreadSelection("nope");
+      c.vm.selectThreadRange("nope");
+      expect(ids(c)).toEqual([]);
+    });
+
+    it("selectThreadRange ticks everything between the anchor and the target, in either direction", async () => {
+      const c = await build();
+      await seed(c, five());
+      expect(threadIds(c)).toEqual(["t5", "t4", "t3", "t2", "t1"]);
+      c.vm.toggleThreadSelection("t4");
+      c.vm.selectThreadRange("t2");
+      expect([...ids(c)].sort()).toEqual(["t2", "t3", "t4"]);
+      c.vm.clearSelection();
+      c.vm.toggleThreadSelection("t2");
+      c.vm.selectThreadRange("t5");
+      expect([...ids(c)].sort()).toEqual(["t2", "t3", "t4", "t5"]);
+    });
+
+    it("selectThreadRange keeps what was already ticked and leaves the anchor where it was", async () => {
+      const c = await build();
+      await seed(c, five());
+      c.vm.toggleThreadSelection("t1");
+      c.vm.toggleThreadSelection("t5");
+      c.vm.selectThreadRange("t3"); // t5 (anchor) .. t3
+      expect([...ids(c)].sort()).toEqual(["t1", "t3", "t4", "t5"]);
+      expect(c.vm.getState().selectionAnchorId).toBe("t5");
+    });
+
+    it("selectThreadRange with no anchor just ticks the target and anchors on it", async () => {
+      const c = await build();
+      await seed(c, five());
+      c.vm.selectThreadRange("t3");
+      expect(ids(c)).toEqual(["t3"]);
+      expect(c.vm.getState().selectionAnchorId).toBe("t3");
+    });
+
+    it("selectAllThreads ticks every loaded thread; clearSelection empties it", async () => {
+      const c = await build();
+      await seed(c, five());
+      c.vm.selectAllThreads();
+      expect(ids(c)).toHaveLength(5);
+      c.vm.clearSelection();
+      expect(ids(c)).toEqual([]);
+      expect(c.vm.getState().selectionAnchorId).toBeNull();
+    });
+
+    it("clearSelection with nothing selected doesn't emit a state change", async () => {
+      const c = await build();
+      await seed(c, five());
+      const listener = vi.fn();
+      c.vm.subscribe(listener);
+      listener.mockClear();
+      c.vm.clearSelection();
+      expect(listener).not.toHaveBeenCalled();
+    });
+
+    it("drops threads that leave the list, and the anchor with them", async () => {
+      const c = await build();
+      await seed(c, five());
+      c.vm.toggleThreadSelection("t1");
+      c.vm.toggleThreadSelection("t2");
+      await c.cache.deleteMessages("a1", ["m2"]);
+      await c.vm.refresh();
+      await c.vm.selectMailbox("INBOX"); // repaint from the cache
+      c.vm.toggleThreadSelection("t3");
+      expect(ids(c)).not.toContain("t2");
+    });
+
+    it("is cleared by navigation: another mailbox, the Flagged view, a search, clearing it", async () => {
+      const c = await build();
+      await seed(c, five());
+      const reselect = () => { c.vm.clearSelection(); c.vm.toggleThreadSelection("t1"); expect(ids(c)).toEqual(["t1"]); };
+      reselect();
+      await c.vm.selectMailbox("SENT");
+      expect(ids(c)).toEqual([]);
+      await c.vm.selectMailbox("INBOX");
+      reselect();
+      await c.vm.selectFlagged();
+      expect(ids(c)).toEqual([]);
+      await c.vm.selectMailbox("INBOX");
+      reselect();
+      c.provider.setSearchResults("q", [sum("m1", "t1", 1)]);
+      await c.vm.runSearch("q");
+      expect(ids(c)).toEqual([]);
+      c.vm.toggleThreadSelection("t1");
+      await c.vm.clearSearch();
+      expect(ids(c)).toEqual([]);
+    });
+  });
+
+  describe("bulk delete / archive / move", () => {
+    it("deleteThreads deletes every message of every selected thread, and only those", async () => {
+      const c = await build();
+      await seed(c, [sum("a1m", "ta", 1), sum("a2m", "ta", 2), sum("b1m", "tb", 3), sum("c1m", "tc", 4)]);
+      const spy = vi.spyOn(c.provider, "deleteMessage");
+      await c.vm.deleteThreads(["ta", "tb"]);
+      expect(spy.mock.calls.map((a) => a[0]).sort()).toEqual(["a1m", "a2m", "b1m"]);
+      expect(await cachedIds(c)).toEqual(["c1m"]);
+      expect(threadIds(c)).toEqual(["tc"]);
+      expect(c.showNotice).not.toHaveBeenCalled();
+    });
+
+    it("archiveThreads archives and moveThreads moves, each message once", async () => {
+      const c = await build();
+      await seed(c, [sum("m1", "t1", 1), sum("m2", "t2", 2), sum("m3", "t3", 3)]);
+      const archive = vi.spyOn(c.provider, "archiveMessage");
+      const move = vi.spyOn(c.provider, "moveMessage");
+      await c.vm.archiveThreads(["t1"]);
+      await c.vm.moveThreads(["t2", "t3"], "SENT");
+      expect(archive.mock.calls.map((a) => a[0])).toEqual(["m1"]);
+      expect(move.mock.calls.map((a) => [a[0], a[1]]).sort()).toEqual([["m2", "SENT"], ["m3", "SENT"]]);
+      expect(await cachedIds(c)).toEqual([]);
+    });
+
+    it("clears the acted-on threads from the selection but keeps the rest ticked", async () => {
+      const c = await build();
+      await seed(c, [sum("m1", "t1", 1), sum("m2", "t2", 2), sum("m3", "t3", 3)]);
+      c.vm.selectAllThreads();
+      await c.vm.deleteThreads(["t1", "t2"]);
+      expect(ids(c)).toEqual(["t3"]);
+    });
+
+    it("closes the reading pane when the open thread is among them", async () => {
+      const c = await build();
+      await seed(c, [sum("m1", "t1", 1), sum("m2", "t2", 2)]);
+      await c.vm.openThread("t2");
+      await c.vm.deleteThreads(["t1", "t2"]);
+      expect(c.vm.getState().openThreadId).toBeNull();
+    });
+
+    it("leaves the reading pane alone when the open thread isn't among them", async () => {
+      const c = await build();
+      await seed(c, [sum("m1", "t1", 1), sum("m2", "t2", 2)]);
+      await c.vm.openThread("t2");
+      await c.vm.deleteThreads(["t1"]);
+      expect(c.vm.getState().openThreadId).toBe("t2");
+    });
+
+    it("treats a repeated thread id as one", async () => {
+      const c = await build();
+      await seed(c, [sum("m1", "t1", 1)]);
+      const spy = vi.spyOn(c.provider, "deleteMessage");
+      await c.vm.deleteThreads(["t1", "t1"]);
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+
+    it("an empty selection does nothing", async () => {
+      const c = await build();
+      await seed(c, [sum("m1", "t1", 1)]);
+      const spy = vi.spyOn(c.provider, "deleteMessage");
+      await c.vm.deleteThreads([]);
+      expect(spy).not.toHaveBeenCalled();
+      expect(c.showNotice).not.toHaveBeenCalled();
+    });
+
+    it("reports a partial failure across threads, and keeps the failed message in the cache", async () => {
+      const c = await build();
+      await seed(c, [sum("m1", "t1", 1), sum("m2", "t2", 2), sum("m3", "t3", 3), sum("m4", "t3", 4)]);
+      vi.spyOn(c.provider, "deleteMessage").mockImplementation(async (id: string) => { if (id === "m2") throw new Error("boom"); });
+      await c.vm.deleteThreads(["t1", "t2", "t3"]);
+      expect(c.showNotice).toHaveBeenCalledWith("Deleted 3 of 4 messages — 1 failed.");
+      expect(await cachedIds(c)).toEqual(["m2"]);
+    });
+
+    it("says 'those threads' when everything fails, and 'this thread' for a single one", async () => {
+      const c = await build();
+      await seed(c, [sum("m1", "t1", 1), sum("m2", "t2", 2)]);
+      vi.spyOn(c.provider, "archiveMessage").mockRejectedValue(new Error("boom"));
+      await c.vm.archiveThreads(["t1", "t2"]);
+      expect(c.showNotice).toHaveBeenLastCalledWith("Couldn't archive those threads.");
+      await c.vm.archiveThreads(["t1"]);
+      expect(c.showNotice).toHaveBeenLastCalledWith("Couldn't archive this thread.");
+    });
+
+    it("toasts when none of the threads has anything cached", async () => {
+      const c = await build();
+      await seed(c, [sum("m1", "t1", 1)]);
+      await c.vm.deleteThreads(["nope", "nada"]);
+      expect(c.showNotice).toHaveBeenCalledWith("Couldn't find any messages in those threads.");
+      await c.vm.deleteThreads(["nope"]);
+      expect(c.showNotice).toHaveBeenLastCalledWith("Couldn't find any messages in that thread.");
+    });
+
+    it("keeps at most a handful of server calls in flight at once", async () => {
+      const c = await build();
+      const many = Array.from({ length: 24 }, (_, i) => sum(`m${i}`, `t${i}`, i));
+      await seed(c, many);
+      let inFlight = 0; let peak = 0;
+      vi.spyOn(c.provider, "deleteMessage").mockImplementation(async () => {
+        peak = Math.max(peak, ++inFlight);
+        await new Promise((r) => setTimeout(r, 1));
+        inFlight--;
+      });
+      await c.vm.deleteThreads(many.map((m) => m.threadId));
+      expect(peak).toBeGreaterThan(1);
+      expect(peak).toBeLessThanOrEqual(5);
+      expect(await cachedIds(c)).toEqual([]);
+    });
+  });
+
+  describe("mark read / unread", () => {
+    const unreadOf = async (c: Ctx, thread: string) => (await c.cache.getThreadMessages("a1", thread)).map((m) => m.unread);
+
+    it("marking read touches only the unread messages, and the rows show it", async () => {
+      const c = await build();
+      await seed(c, [sum("m1", "t1", 1), read("m2", "t1", 2), sum("m3", "t2", 3)]);
+      const spy = vi.spyOn(c.provider, "setMessageRead");
+      await c.vm.markThreadsRead(["t1", "t2"], true);
+      expect(spy.mock.calls.map((a) => [a[0], a[1]]).sort()).toEqual([["m1", true], ["m3", true]]);
+      expect(await unreadOf(c, "t1")).toEqual([false, false]);
+      expect(c.vm.getState().threads.every((t) => !t.unread)).toBe(true);
+      expect(c.showNotice).not.toHaveBeenCalled();
+    });
+
+    it("marking unread flags just the newest message of a fully-read thread", async () => {
+      const c = await build();
+      await seed(c, [read("m1", "t1", 1), read("m2", "t1", 2), read("m3", "t2", 3)]);
+      const spy = vi.spyOn(c.provider, "setMessageRead");
+      await c.vm.markThreadsRead(["t1", "t2"], false);
+      expect(spy.mock.calls.map((a) => [a[0], a[1]]).sort()).toEqual([["m2", false], ["m3", false]]);
+      expect(await unreadOf(c, "t1")).toEqual([false, true]);
+      expect(c.vm.getState().threads.every((t) => t.unread)).toBe(true);
+    });
+
+    it("marking unread leaves a thread that is already unread alone", async () => {
+      const c = await build();
+      await seed(c, [read("m1", "t1", 1), sum("m2", "t1", 2), read("m3", "t2", 3)]);
+      const spy = vi.spyOn(c.provider, "setMessageRead");
+      await c.vm.markThreadsRead(["t1", "t2"], false);
+      expect(spy.mock.calls.map((a) => a[0])).toEqual(["m3"]);
+    });
+
+    it("does nothing — and says nothing — when everything is already in the requested state", async () => {
+      const c = await build();
+      await seed(c, [read("m1", "t1", 1), sum("m2", "t2", 2)]);
+      const spy = vi.spyOn(c.provider, "setMessageRead");
+      await c.vm.markThreadsRead(["t1"], true);
+      await c.vm.markThreadsRead(["t2"], false);
+      expect(spy).not.toHaveBeenCalled();
+      expect(c.showNotice).not.toHaveBeenCalled();
+    });
+
+    it("updates the cache and rows optimistically, before the server answers", async () => {
+      const c = await build();
+      await seed(c, [sum("m1", "t1", 1)]);
+      let release!: () => void;
+      vi.spyOn(c.provider, "setMessageRead").mockImplementation(() => new Promise<void>((res) => { release = res; }));
+      const pending = c.vm.markThreadsRead(["t1"], true);
+      await vi.waitFor(() => expect(c.vm.getState().threads[0].unread).toBe(false));
+      expect(await unreadOf(c, "t1")).toEqual([false]);
+      release();
+      await pending;
+      expect(c.showNotice).not.toHaveBeenCalled();
+    });
+
+    it("rolls a total failure back and toasts the reason", async () => {
+      const c = await build();
+      await seed(c, [sum("m1", "t1", 1), sum("m2", "t2", 2)]);
+      vi.spyOn(c.provider, "setMessageRead").mockRejectedValue(new Error("boom"));
+      await c.vm.markThreadsRead(["t1", "t2"], true);
+      expect(await unreadOf(c, "t1")).toEqual([true]);
+      expect(c.vm.getState().threads.every((t) => t.unread)).toBe(true);
+      expect(c.showNotice).toHaveBeenCalledWith("boom");
+    });
+
+    it("rolls back only the failed messages and reports N of M", async () => {
+      const c = await build();
+      await seed(c, [sum("m1", "t1", 1), sum("m2", "t2", 2)]);
+      vi.spyOn(c.provider, "setMessageRead").mockImplementation(async (id: string) => { if (id === "m2") throw new Error("boom"); });
+      await c.vm.markThreadsRead(["t1", "t2"], true);
+      expect(await unreadOf(c, "t1")).toEqual([false]);
+      expect(await unreadOf(c, "t2")).toEqual([true]);
+      expect(c.showNotice).toHaveBeenCalledWith("Marked 1 of 2 messages read — 1 failed.");
+    });
+
+    it("a rollback restores each message's own prior state", async () => {
+      const c = await build();
+      await seed(c, [read("m1", "t1", 1), sum("m2", "t2", 2)]);
+      vi.spyOn(c.provider, "setMessageRead").mockRejectedValue(new Error("boom"));
+      await c.vm.markThreadsRead(["t1"], false); // m1 read -> unread, fails
+      await c.vm.markThreadsRead(["t2"], true);  // m2 unread -> read, fails
+      expect(await unreadOf(c, "t1")).toEqual([false]);
+      expect(await unreadOf(c, "t2")).toEqual([true]);
+    });
+
+    it("a rollback never resurrects a message deleted while the PATCH was in flight", async () => {
+      const c = await build();
+      await seed(c, [sum("m1", "t1", 1)]);
+      vi.spyOn(c.provider, "setMessageRead").mockImplementation(async (id: string) => {
+        await c.cache.deleteMessages("a1", [id]);
+        throw new Error("boom");
+      });
+      await c.vm.markThreadsRead(["t1"], true);
+      expect(await c.cache.getThreadMessages("a1", "m1")).toEqual([]);
+      expect(await cachedIds(c)).toEqual([]);
+    });
+
+    it("clears the acted-on threads from the selection", async () => {
+      const c = await build();
+      await seed(c, [sum("m1", "t1", 1), sum("m2", "t2", 2)]);
+      c.vm.selectAllThreads();
+      await c.vm.markThreadsRead(["t1"], true);
+      expect(ids(c)).toEqual(["t2"]);
+    });
+
+    it("updates a search-result row in place (search results aren't cache-derived)", async () => {
+      const c = await build();
+      await seed(c, [sum("m1", "t1", 1)]);
+      c.provider.setSearchResults("q", [sum("m1", "t1", 1)]);
+      await c.vm.runSearch("q");
+      await c.vm.markThreadsRead(["t1"], true);
+      expect(c.vm.getState().search.active).toBe(true);
+      expect(c.vm.getState().threads[0].unread).toBe(false);
+    });
+
+    it("also updates the open thread's messages", async () => {
+      const c = await build();
+      await seed(c, [sum("m1", "t1", 1)]);
+      await c.vm.openThread("t1");
+      await c.vm.markThreadsRead(["t1"], true);
+      expect(c.vm.getState().openMessages[0].summary.unread).toBe(false);
+    });
+
+    it("toasts for threads with nothing cached", async () => {
+      const c = await build();
+      await seed(c, [sum("m1", "t1", 1)]);
+      await c.vm.markThreadsRead(["nope", "nada"], true);
+      expect(c.showNotice).toHaveBeenCalledWith("Couldn't find any messages in those threads.");
+      await c.vm.markThreadsRead(["nope"], true);
+      expect(c.showNotice).toHaveBeenLastCalledWith("Couldn't find any messages in that thread.");
+    });
+
+    it("refreshes the folder unread badges afterwards, and a failure there is silent", async () => {
+      const c = await build();
+      await seed(c, [sum("m1", "t1", 1), sum("m2", "t2", 2)]);
+      const list = vi.spyOn(c.provider, "listMailboxes").mockResolvedValue([
+        { id: "INBOX", name: "Inbox", kind: "inbox", unreadCount: 1 },
+        { id: "SENT", name: "Sent", kind: "sent" },
+      ]);
+      await c.vm.markThreadsRead(["t1"], true);
+      expect(list).toHaveBeenCalled();
+      expect(c.vm.getState().mailboxes.find((m) => m.id === "INBOX")?.unreadCount).toBe(1);
+      list.mockRejectedValue(new Error("offline"));
+      await c.vm.markThreadsRead(["t2"], true);
+      expect(c.showNotice).not.toHaveBeenCalled();
+    });
+  });
+});
