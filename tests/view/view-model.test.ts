@@ -2801,3 +2801,135 @@ describe("ViewModel — multi-select and bulk actions", () => {
     });
   });
 });
+
+describe("ViewModel — selection pruning, guards and error paths", () => {
+  type Ctx = Awaited<ReturnType<typeof build>>;
+  async function seed(c: Ctx, msgs: MessageSummary[]) {
+    await c.cache.putMailboxes("a1", await c.provider.listMailboxes());
+    await c.cache.upsertMessages("a1", msgs);
+    for (const m of msgs) c.provider.addMessage(m);
+    await c.vm.init();
+  }
+  const three = () => [sum("m1", "t1", 1), sum("m2", "t2", 2), sum("m3", "t3", 3)];
+  const ids = (c: Ctx) => c.vm.getState().selectedThreadIds;
+
+  describe("a selection only ever names threads that are on screen", () => {
+    // Pinning repaints the list from the cache without navigating, so it is how
+    // a list is replaced here while the selection stays put.
+    const repaintWithout = async (c: Ctx, messageId: string) => {
+      await c.cache.deleteMessages("a1", [messageId]);
+      await c.vm.toggleThreadPin("t3");
+    };
+
+    it("drops a ticked thread that disappears from the list (deleted elsewhere), keeping the rest and the anchor", async () => {
+      const c = await build();
+      await seed(c, three());
+      c.vm.toggleThreadSelection("t2");
+      c.vm.toggleThreadSelection("t1"); // anchor = t1
+      await repaintWithout(c, "m2");
+      expect(c.vm.getState().threads.map((t) => t.threadId).sort()).toEqual(["t1", "t3"]);
+      expect(ids(c)).toEqual(["t1"]);
+      expect(c.vm.getState().selectionAnchorId).toBe("t1");
+    });
+
+    it("forgets the anchor when the anchor thread is the one that disappears", async () => {
+      const c = await build();
+      await seed(c, three());
+      c.vm.toggleThreadSelection("t1");
+      c.vm.toggleThreadSelection("t2"); // anchor = t2
+      await repaintWithout(c, "m2");
+      expect(ids(c)).toEqual(["t1"]);
+      expect(c.vm.getState().selectionAnchorId).toBeNull();
+    });
+
+    it("leaves the selection untouched when every ticked thread is still there", async () => {
+      const c = await build();
+      await seed(c, three());
+      c.vm.toggleThreadSelection("t1");
+      await repaintWithout(c, "m2");
+      expect(ids(c)).toEqual(["t1"]);
+      expect(c.vm.getState().selectionAnchorId).toBe("t1");
+    });
+
+    it("empties the selection when every ticked thread disappears", async () => {
+      const c = await build();
+      await seed(c, three());
+      c.vm.toggleThreadSelection("t2");
+      await repaintWithout(c, "m2");
+      expect(ids(c)).toEqual([]);
+      expect(c.vm.getState().selectionAnchorId).toBeNull();
+    });
+  });
+
+  describe("without an active account", () => {
+    it("bulk actions and read-state changes do nothing — and say nothing", async () => {
+      const c = await build(); // never initialised
+      const spies = [
+        vi.spyOn(c.provider, "deleteMessage"), vi.spyOn(c.provider, "archiveMessage"),
+        vi.spyOn(c.provider, "moveMessage"), vi.spyOn(c.provider, "setMessageRead"),
+      ];
+      await c.vm.deleteThreads(["t1"]);
+      await c.vm.archiveThreads(["t1"]);
+      await c.vm.moveThreads(["t1"], "SENT");
+      await c.vm.markThreadsRead(["t1"], true);
+      for (const spy of spies) expect(spy).not.toHaveBeenCalled();
+      expect(c.showNotice).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("markThreadsRead edge cases", () => {
+    it("an empty selection does nothing", async () => {
+      const c = await build();
+      await seed(c, three());
+      const spy = vi.spyOn(c.provider, "setMessageRead");
+      await c.vm.markThreadsRead([], true);
+      expect(spy).not.toHaveBeenCalled();
+      expect(c.showNotice).not.toHaveBeenCalled();
+    });
+
+    it("skips a thread with nothing cached but still handles the others, without a notice", async () => {
+      const c = await build();
+      await seed(c, [{ ...sum("m1", "t1", 1), unread: false }, sum("m2", "t2", 2)]);
+      const spy = vi.spyOn(c.provider, "setMessageRead");
+      await c.vm.markThreadsRead(["t1", "ghost"], false);
+      expect(spy.mock.calls).toEqual([["m1", false]]);
+      expect(c.showNotice).not.toHaveBeenCalled();
+    });
+
+    it("toasts instead of throwing when the cache can't be read", async () => {
+      const c = await build();
+      await seed(c, three());
+      vi.spyOn(c.cache, "getThreadMessages").mockRejectedValue(new Error("boom"));
+      await expect(c.vm.markThreadsRead(["t1"], true)).resolves.toBeUndefined();
+      expect(c.showNotice).toHaveBeenCalledWith("boom");
+    });
+
+    it("a failure that lands after the user switched account restores the cache but leaves the new account's rows alone", async () => {
+      const c = await build();
+      await c.settings.addAccount({ id: "a2", email: "a2@x.com", provider: "ms-graph", clientId: "c", addedAt: 0 });
+      await seed(c, three());
+      let fail!: (e: Error) => void;
+      vi.spyOn(c.provider, "setMessageRead").mockImplementation(() => new Promise<void>((_res, rej) => { fail = rej; }));
+      const pending = c.vm.markThreadsRead(["t1"], true);
+      await vi.waitFor(() => expect(c.vm.getState().threads.find((t) => t.threadId === "t1")?.unread).toBe(false));
+      await c.vm.selectAccount("a2");
+      const rowsAfterSwitch = c.vm.getState().threads;
+      fail(new Error("boom"));
+      await pending;
+      expect(c.vm.getState().activeAccountId).toBe("a2");
+      // The rollback was written to a1's cache...
+      expect((await c.cache.getThreadMessages("a1", "t1")).map((m) => m.unread)).toEqual([true]);
+      // ...but not painted onto whatever the view now shows.
+      expect(c.vm.getState().threads).toBe(rowsAfterSwitch);
+      expect(c.showNotice).toHaveBeenCalledWith("boom");
+    });
+  });
+
+  it("toggleThreadFlag toasts instead of throwing when the cache can't be read", async () => {
+    const c = await build();
+    await seed(c, three());
+    vi.spyOn(c.cache, "getThreadMessages").mockRejectedValue(new Error("boom"));
+    await expect(c.vm.toggleThreadFlag("t1")).resolves.toBeUndefined();
+    expect(c.showNotice).toHaveBeenCalledWith("boom");
+  });
+});

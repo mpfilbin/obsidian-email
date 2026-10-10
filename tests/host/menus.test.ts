@@ -122,6 +122,23 @@ describe("thread context menu", () => {
   });
 });
 
+describe("follow-up presets use the real clock by default", () => {
+  it("offers Today / Tomorrow / Next week / Custom date… when no clock is injected", () => {
+    const menus: FakeMenu[] = [];
+    const { showThreadContextMenu } = makeMenus({
+      newMenu: () => { const m = new FakeMenu(); menus.push(m); return m; },
+      openExternal: vi.fn(), promptFolderRename: vi.fn(),
+    });
+    const onFlagFollowUp = vi.fn();
+    showThreadContextMenu(evt(), actions({ onFlagFollowUp }));
+    menus[0].click("Follow up");
+    expect(menus[1].titles()).toEqual(["Today", "Tomorrow", "Next week", "Custom date…"]);
+    menus[1].click("Today");
+    const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
+    expect(onFlagFollowUp).toHaveBeenCalledWith(midnight.getTime());
+  });
+});
+
 describe("bulk context menu", () => {
   const bulk = (over: Partial<BulkMenuActions> = {}): BulkMenuActions => ({
     count: 3,

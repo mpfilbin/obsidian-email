@@ -317,6 +317,16 @@ describe("ThreadRow multi-select", () => {
     a.done();
   });
 
+  it("ignores keys that aren't Enter or Space", () => {
+    const a = mountRow();
+    for (const key of ["a", "Tab", "ArrowDown", "Escape"]) {
+      a.row.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+    }
+    expect(a.props.onSelect).not.toHaveBeenCalled();
+    expect(a.props.onOpen).not.toHaveBeenCalled();
+    a.done();
+  });
+
   it("a Shift-mousedown doesn't start a text selection across rows", () => {
     const a = mountRow();
     const down = new MouseEvent("mousedown", { bubbles: true, cancelable: true, shiftKey: true });

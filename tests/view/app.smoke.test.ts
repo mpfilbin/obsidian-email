@@ -1729,6 +1729,16 @@ describe("App — multi-select and bulk actions", () => {
       done();
     });
 
+    it("Move with nothing ticked still moves the open conversation (unchanged)", () => {
+      const vm = fakeVm({ threads: three(), mailboxes: boxes, openThreadId: "t3", openMessages: [openMessage] });
+      const { host, done } = mountApp(vm);
+      click(ribbonBtn(host, "move"));
+      click(document.querySelector('.oe-ribbon-menu [data-option="P"]'));
+      expect(vm.moveThread).toHaveBeenCalledWith("t3", "P");
+      expect(vm.moveThreads).not.toHaveBeenCalled();
+      done();
+    });
+
     it("goes through the unsaved-composer prompt like the bar does", () => {
       const vm = withSelection();
       (vm.hasUnsavedComposerContent as ReturnType<typeof vi.fn>).mockReturnValue(true);
@@ -1736,6 +1746,54 @@ describe("App — multi-select and bulk actions", () => {
       click(ribbonBtn(host, "archive"));
       expect(vm.archiveThreads).not.toHaveBeenCalled();
       expect(host.querySelector(".oe-composer-prompt")).not.toBeNull();
+      done();
+    });
+  });
+
+  describe("closing the reading pane when the open conversation is acted on", () => {
+    const grid = (host: HTMLElement) => host.querySelector<HTMLElement>(".oe-grid")!.getAttribute("style") ?? "";
+    const open = (thread: string) => ({ openThreadId: thread, openMessages: [{ summary: three().find((t) => t.threadId === thread)!.messages[0] }] });
+    const doMove = (host: HTMLElement) => {
+      const select = host.querySelector<HTMLSelectElement>('.oe-bulk-bar select[data-action="move"]')!;
+      select.value = "P";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+      flushSync();
+    };
+    const actions: Array<[string, (host: HTMLElement) => void]> = [
+      ["Archive", (host) => click(action(host, "archive"))],
+      ["Delete", (host) => click(action(host, "delete"))],
+      ["Move", doMove],
+    ];
+
+    for (const [name, run] of actions) {
+      it(`${name} collapses the pane when the open conversation is among the selection`, () => {
+        const vm = withSelection(open("t2"));
+        const { host, done } = mountApp(vm);
+        expect(grid(host)).toContain("340px");
+        run(host);
+        expect(grid(host)).toMatch(/0px 0px;/);
+        done();
+      });
+
+      it(`${name} leaves the pane open when the open conversation isn't selected`, () => {
+        const vm = withSelection(open("t3"));
+        const { host, done } = mountApp(vm);
+        run(host);
+        expect(grid(host)).toContain("340px");
+        expect(grid(host)).not.toMatch(/0px 0px;/);
+        done();
+      });
+    }
+
+    it("the right-click menu's actions collapse it too", () => {
+      const onBulkContextMenu = vi.fn();
+      const vm = withSelection(open("t1"));
+      const { host, done } = mountApp(vm, { onBulkContextMenu });
+      rightClick(host.querySelectorAll(".oe-thread-row")[0]);
+      const [, a] = onBulkContextMenu.mock.calls[0];
+      a.onMove("P");
+      flushSync();
+      expect(grid(host)).toMatch(/0px 0px;/);
       done();
     });
   });
