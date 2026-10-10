@@ -86,7 +86,7 @@ export default class EmailPlugin extends Plugin {
     const pickNoteAttachment = makePickNoteAttachment(noteHost);
     const noteCommands = makeNoteCommands(noteHost);
 
-    const { showLinkContextMenu, showMailboxContextMenu, showThreadContextMenu } = makeMenus({
+    const { showLinkContextMenu, showMailboxContextMenu, showThreadContextMenu, showBulkContextMenu } = makeMenus({
       newMenu: () => new Menu(),
       openExternal,
       promptFolderRename,
@@ -105,7 +105,7 @@ export default class EmailPlugin extends Plugin {
     this.registerView(
       MAIL_VIEW_TYPE,
       (leaf) =>
-        new MailView(leaf, ctx.vm, () => this.openSettings(), showThreadContextMenu, showMailboxContextMenu, noteCommands),
+        new MailView(leaf, ctx.vm, () => this.openSettings(), showThreadContextMenu, showMailboxContextMenu, noteCommands, showBulkContextMenu),
     );
 
     this.addRibbonIcon("mail", "Open mail", () => void this.activateView());

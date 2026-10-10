@@ -96,4 +96,39 @@ describe("MessageList smoke", () => {
     expect(host.textContent).toContain("No flagged messages");
     unmount(app);
   });
+
+  it("marks the selected rows, shows every checkbox once anything is ticked, and reports row selection", () => {
+    const onSelectThread = vi.fn();
+    const host = document.createElement("div");
+    const app = mount(MessageList, {
+      target: host,
+      props: {
+        threads: [thread("t1"), thread("t2")], openThreadId: null, hasMore: false, loading: false,
+        onOpen: () => {}, onLoadMore: () => {}, selectedIds: ["t2"], onSelectThread,
+      },
+    });
+    flushSync();
+    const rows = host.querySelectorAll<HTMLElement>(".oe-thread-row");
+    expect([...rows].map((r) => r.classList.contains("is-selected"))).toEqual([false, true]);
+    expect([...rows].every((r) => r.classList.contains("selection-active"))).toBe(true);
+    host.querySelector<HTMLElement>(".oe-thread-row")!.dispatchEvent(new MouseEvent("click", { bubbles: true, ctrlKey: true }));
+    expect(onSelectThread).toHaveBeenCalledWith("t1", "toggle");
+    rows[1].dispatchEvent(new MouseEvent("click", { bubbles: true, shiftKey: true }));
+    expect(onSelectThread).toHaveBeenCalledWith("t2", "range");
+    unmount(app);
+  });
+
+  it("shows no selection chrome when nothing is selected", () => {
+    const host = document.createElement("div");
+    const app = mount(MessageList, {
+      target: host,
+      props: { threads: [thread("t1")], openThreadId: null, hasMore: false, loading: false, onOpen: () => {}, onLoadMore: () => {} },
+    });
+    flushSync();
+    const row = host.querySelector<HTMLElement>(".oe-thread-row")!;
+    expect(row.classList.contains("is-selected")).toBe(false);
+    expect(row.classList.contains("selection-active")).toBe(false);
+    unmount(app);
+  });
 });
+

@@ -2,10 +2,11 @@
   import type { ViewModel, ViewState } from "./view-model";
   import Ribbon from "./ribbon/Ribbon.svelte";
   import type { RibbonContext } from "./ribbon/registry";
-  import type { NoteCommands, ThreadMenuActions } from "./mail-view";
+  import type { BulkMenuActions, NoteCommands, ThreadMenuActions } from "./mail-view";
   import AccountSwitcher from "./components/AccountSwitcher.svelte";
   import MailboxList from "./components/MailboxList.svelte";
   import MessageList from "./components/MessageList.svelte";
+  import BulkActionBar from "./components/BulkActionBar.svelte";
   import ReadingPane from "./components/ReadingPane.svelte";
   import SearchBar from "./components/SearchBar.svelte";
   import AddressBook from "./components/AddressBook.svelte";
@@ -16,7 +17,7 @@
   import { clampPaneWidths, loadPaneWidths, savePaneWidths, type PaneWidths } from "./pane-layout";
   import { showSyncingToast } from "./refresh-toast";
 
-  let { vm, onAddAccount, onThreadContextMenu, onMailboxContextMenu, noteCommands }: {
+  let { vm, onAddAccount, onThreadContextMenu, onMailboxContextMenu, onBulkContextMenu, noteCommands }: {
     vm: ViewModel;
     onAddAccount: () => void;
     /** Shows the host's native context menu (built in main.ts, since it
@@ -31,6 +32,9 @@
       onRename: (newName: string) => void,
       onDelete: () => void,
     ) => void;
+    /** Shows the host's context menu for several selected conversations
+     *  (Mark read/unread, Move, Archive, Delete). */
+    onBulkContextMenu: (evt: MouseEvent, actions: BulkMenuActions) => void;
     /** Vault-note → email flows, owned by main.ts and shared with the command palette. */
     noteCommands: NoteCommands;
   } = $props();
@@ -154,7 +158,7 @@
     pendingContactSwitch = null;
   }
 
-  let pendingDelete = $state<{ label: string; run: () => void } | null>(null);
+  let pendingDelete = $state<{ label: string; run: () => void; count?: number } | null>(null);
 
   // Delete is the only action that's ever irreversible (permanently deleting
   // from Trash — see MailProvider.deleteMessage's doc comment). Everywhere
@@ -169,9 +173,9 @@
   // individual message lives, so the only safe default is to confirm every
   // delete while a search is showing. `isTrashMailbox` keeps its original
   // meaning (the active mailbox's kind); this is a second, independent trigger.
-  function requestDelete(label: string, run: () => void): void {
+  function requestDelete(label: string, run: () => void, count = 1): void {
     if (pendingSwitch) return; // one prompt at a time — don't queue a delete-confirm behind an active switch prompt
-    if (isTrashMailbox || state.search.active) pendingDelete = { label, run };
+    if (isTrashMailbox || state.search.active) pendingDelete = { label, run, count };
     else run();
   }
   function confirmDelete(): void {
@@ -234,6 +238,47 @@
       vm.moveThread(threadId, destinationMailboxId);
       if (closes) setReadingPaneCollapsed(true);
     });
+  }
+
+  // --- Bulk actions on the ticked conversations ---------------------------
+  // Archive / Move / Delete are navigation-like (they close the reading pane
+  // when the open thread is among them), so they pass through the same
+  // unsaved-composer guard and delete confirmation as the single-row actions.
+  // Mark read / unread change nothing on screen but the rows, so they don't.
+  const showBulkArchive = $derived(!isDraftsMailbox && !isArchiveMailbox && !isTrashMailbox);
+  const closesAny = (ids: string[]): boolean => state.openThreadId !== null && ids.includes(state.openThreadId);
+
+  function bulkMarkRead(ids: string[], read: boolean): void {
+    void vm.markThreadsRead(ids, read);
+  }
+  function bulkArchive(ids: string[]): void {
+    requestRowAction(() => {
+      const closes = closesAny(ids);
+      void vm.archiveThreads(ids);
+      if (closes) setReadingPaneCollapsed(true);
+    });
+  }
+  function bulkMove(ids: string[], destinationMailboxId: string): void {
+    requestRowAction(() => {
+      const closes = closesAny(ids);
+      void vm.moveThreads(ids, destinationMailboxId);
+      if (closes) setReadingPaneCollapsed(true);
+    });
+  }
+  function bulkDelete(ids: string[]): void {
+    requestRowAction(() => requestDelete("thread", () => {
+      const closes = closesAny(ids);
+      void vm.deleteThreads(ids);
+      if (closes) setReadingPaneCollapsed(true);
+    }, ids.length));
+  }
+  function selectThread(threadId: string, mode: "toggle" | "range"): void {
+    if (mode === "range") vm.selectThreadRange(threadId);
+    else vm.toggleThreadSelection(threadId);
+  }
+  // Escape drops the selection (when focus is anywhere in the list column).
+  function onListKeydown(e: KeyboardEvent): void {
+    if (e.key === "Escape" && state.selectedThreadIds.length > 0) vm.clearSelection();
   }
 
   // Whether the search field is showing above the message list — view-only
@@ -419,7 +464,8 @@
     {/if}
   </section>
   <Resizer label="Resize mailbox list" onDrag={resizeMailboxes} />
-  <section class="oe-list-col">
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <section class="oe-list-col" onkeydown={onListKeydown}>
     {#if inContacts}
       <ContactList
         contacts={visibleContacts}
@@ -438,7 +484,24 @@
           onClose={closeSearch}
         />
       {/if}
+      {#if state.selectedThreadIds.length > 0}
+        <BulkActionBar
+          count={state.selectedThreadIds.length}
+          total={state.threads.length}
+          {moveTargets}
+          showArchive={showBulkArchive}
+          onSelectAll={() => vm.selectAllThreads()}
+          onClear={() => vm.clearSelection()}
+          onMarkRead={() => bulkMarkRead(state.selectedThreadIds, true)}
+          onMarkUnread={() => bulkMarkRead(state.selectedThreadIds, false)}
+          onArchive={() => bulkArchive(state.selectedThreadIds)}
+          onDelete={() => bulkDelete(state.selectedThreadIds)}
+          onMove={(destinationId) => bulkMove(state.selectedThreadIds, destinationId)}
+        />
+      {/if}
       <MessageList
+        selectedIds={state.selectedThreadIds}
+        onSelectThread={selectThread}
         threads={state.threads}
         openThreadId={state.openThreadId}
         hasMore={state.hasMore}
@@ -451,7 +514,23 @@
         {isTrashMailbox}
         onArchiveThread={(id) => requestRowAction(() => { const closes = closesOpenThread(id); vm.archiveThread(id); if (closes) setReadingPaneCollapsed(true); })}
         onDeleteThread={(id) => requestRowAction(() => requestDelete("thread", () => { const closes = closesOpenThread(id); vm.deleteThread(id); if (closes) setReadingPaneCollapsed(true); }))}
-        onThreadContextMenu={(evt, id) =>
+        onThreadContextMenu={(evt, id) => {
+          // Right-clicking a row inside a multi-selection acts on the whole
+          // selection; right-clicking any other row acts on just that row.
+          if (state.selectedThreadIds.length > 1 && state.selectedThreadIds.includes(id)) {
+            const selected = [...state.selectedThreadIds];
+            onBulkContextMenu(evt, {
+              count: selected.length,
+              candidates: moveTargets,
+              showArchive: showBulkArchive,
+              onMarkRead: () => bulkMarkRead(selected, true),
+              onMarkUnread: () => bulkMarkRead(selected, false),
+              onMove: (destinationId) => bulkMove(selected, destinationId),
+              onArchive: () => bulkArchive(selected),
+              onDelete: () => bulkDelete(selected),
+            });
+            return;
+          }
           onThreadContextMenu(evt, {
             candidates: moveTargets,
             onMove: (destinationId) => moveThread(id, destinationId),
@@ -462,7 +541,8 @@
             onCompleteFlag: () => { void vm.completeThreadFlag(id); },
             pinned: state.pinnedThreadIds.includes(id),
             onTogglePin: () => { void vm.toggleThreadPin(id); },
-          })}
+          });
+        }}
         onToggleFlag={(id) => { void vm.toggleThreadFlag(id); }}
         onTogglePin={(id) => { void vm.toggleThreadPin(id); }}
       />
@@ -513,7 +593,11 @@
     </div>
   {:else if pendingDelete}
     <div class="oe-composer-prompt">
-      <p>Permanently delete this {pendingDelete.label}? This can't be undone.</p>
+      {#if (pendingDelete.count ?? 1) > 1}
+        <p>Permanently delete these {pendingDelete.count} {pendingDelete.label}s? This can't be undone.</p>
+      {:else}
+        <p>Permanently delete this {pendingDelete.label}? This can't be undone.</p>
+      {/if}
       <button type="button" class="oe-delete-confirm" onclick={confirmDelete}>Delete</button>
       <button type="button" class="oe-delete-cancel" onclick={cancelDelete}>Cancel</button>
     </div>

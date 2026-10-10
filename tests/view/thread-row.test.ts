@@ -228,3 +228,103 @@ describe("ThreadRow pinning", () => {
     unmount(app);
   });
 });
+
+describe("ThreadRow multi-select", () => {
+  const mountRow = (over: Record<string, unknown> = {}) => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const props = baseProps({ onSelect: vi.fn(), ...over });
+    const app = mount(ThreadRow, { target: host, props });
+    flushSync();
+    const row = host.querySelector<HTMLElement>(".oe-thread-row")!;
+    return { host, row, props: props as ReturnType<typeof baseProps> & { onSelect: ReturnType<typeof vi.fn> }, done: () => { unmount(app); host.remove(); } };
+  };
+  const click = (el: Element, init: MouseEventInit = {}) => { el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, ...init })); flushSync(); };
+
+  it("has a labelled checkbox that reflects `selected`", () => {
+    const a = mountRow();
+    const box = a.host.querySelector<HTMLInputElement>(".oe-row-check")!;
+    expect(box.type).toBe("checkbox");
+    expect(box.getAttribute("aria-label")).toBe("Select conversation: Hello");
+    expect(box.checked).toBe(false);
+    expect(a.row.classList.contains("is-selected")).toBe(false);
+    a.done();
+    const b = mountRow({ selected: true });
+    expect(b.host.querySelector<HTMLInputElement>(".oe-row-check")!.checked).toBe(true);
+    expect(b.row.classList.contains("is-selected")).toBe(true);
+    b.done();
+  });
+
+  it("marks every row when any row is ticked", () => {
+    const a = mountRow({ selectionActive: true });
+    expect(a.row.classList.contains("selection-active")).toBe(true);
+    a.done();
+    const b = mountRow();
+    expect(b.row.classList.contains("selection-active")).toBe(false);
+    b.done();
+  });
+
+  it("clicking the checkbox toggles the row without opening it", () => {
+    const a = mountRow();
+    click(a.host.querySelector(".oe-row-check")!);
+    expect(a.props.onSelect).toHaveBeenCalledWith("toggle");
+    expect(a.props.onOpen).not.toHaveBeenCalled();
+    a.done();
+  });
+
+  it("shift-clicking the checkbox ticks a range", () => {
+    const a = mountRow();
+    click(a.host.querySelector(".oe-row-check")!, { shiftKey: true });
+    expect(a.props.onSelect).toHaveBeenCalledWith("range");
+    expect(a.props.onOpen).not.toHaveBeenCalled();
+    a.done();
+  });
+
+  it("Ctrl-click and Cmd-click on the row toggle it instead of opening it", () => {
+    for (const mod of [{ ctrlKey: true }, { metaKey: true }]) {
+      const a = mountRow();
+      click(a.row, mod);
+      expect(a.props.onSelect).toHaveBeenCalledWith("toggle");
+      expect(a.props.onOpen).not.toHaveBeenCalled();
+      a.done();
+    }
+  });
+
+  it("Shift-click on the row ticks a range instead of opening it", () => {
+    const a = mountRow();
+    click(a.row, { shiftKey: true });
+    expect(a.props.onSelect).toHaveBeenCalledWith("range");
+    expect(a.props.onOpen).not.toHaveBeenCalled();
+    a.done();
+  });
+
+  it("a plain click still opens the row and selects nothing", () => {
+    const a = mountRow();
+    click(a.row);
+    expect(a.props.onOpen).toHaveBeenCalledOnce();
+    expect(a.props.onSelect).not.toHaveBeenCalled();
+    a.done();
+  });
+
+  it("Space toggles the row (and is not left to scroll the list); Enter opens it", () => {
+    const a = mountRow();
+    const space = new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true });
+    a.row.dispatchEvent(space);
+    expect(space.defaultPrevented).toBe(true);
+    expect(a.props.onSelect).toHaveBeenCalledWith("toggle");
+    a.row.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(a.props.onOpen).toHaveBeenCalledOnce();
+    a.done();
+  });
+
+  it("a Shift-mousedown doesn't start a text selection across rows", () => {
+    const a = mountRow();
+    const down = new MouseEvent("mousedown", { bubbles: true, cancelable: true, shiftKey: true });
+    a.row.dispatchEvent(down);
+    expect(down.defaultPrevented).toBe(true);
+    const plain = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+    a.row.dispatchEvent(plain);
+    expect(plain.defaultPrevented).toBe(false);
+    a.done();
+  });
+});

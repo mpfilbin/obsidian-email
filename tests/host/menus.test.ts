@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { makeMenus, type MenuItemLike, type MenuLike } from "../../src/host/menus";
-import type { ThreadMenuActions } from "../../src/view/mail-view";
+import type { BulkMenuActions, ThreadMenuActions } from "../../src/view/mail-view";
 
 interface RecordedItem { title: string; icon?: string; warning?: boolean; click: () => void }
 class FakeMenu implements MenuLike {
@@ -119,5 +119,56 @@ describe("thread context menu", () => {
     const e = evt();
     showThreadContextMenu(e, actions());
     expect(menus[0].shown).toEqual({ kind: "mouse", evt: e });
+  });
+});
+
+describe("bulk context menu", () => {
+  const bulk = (over: Partial<BulkMenuActions> = {}): BulkMenuActions => ({
+    count: 3,
+    candidates: [{ id: "A", name: "Archive", kind: "archive" }, { id: "P", name: "Project", kind: "custom" }] as never,
+    showArchive: true,
+    onMarkRead: vi.fn(), onMarkUnread: vi.fn(), onMove: vi.fn(), onArchive: vi.fn(), onDelete: vi.fn(),
+    ...over,
+  });
+
+  it("offers Mark as unread / Mark as read / Move / Archive / Delete, shown at the click", () => {
+    const { showBulkContextMenu, menus } = setup();
+    const e = evt();
+    showBulkContextMenu(e, bulk());
+    expect(menus[0].titles()).toEqual(["Mark as unread", "Mark as read", "Move", "Archive", "Delete"]);
+    expect(menus[0].shown).toEqual({ kind: "mouse", evt: e });
+    expect(menus[0].items.map((i) => i.icon)).toEqual(["mail", "mail-open", "folder-input", "archive", "trash-2"]);
+  });
+
+  it("each item calls its action; Delete is a warning item", () => {
+    const a = bulk();
+    const { showBulkContextMenu, menus } = setup();
+    showBulkContextMenu(evt(), a);
+    menus[0].click("Mark as unread");
+    menus[0].click("Mark as read");
+    menus[0].click("Archive");
+    menus[0].click("Delete");
+    expect(a.onMarkUnread).toHaveBeenCalledOnce();
+    expect(a.onMarkRead).toHaveBeenCalledOnce();
+    expect(a.onArchive).toHaveBeenCalledOnce();
+    expect(a.onDelete).toHaveBeenCalledOnce();
+    expect(menus[0].items.find((i) => i.title === "Delete")!.warning).toBe(true);
+  });
+
+  it("Move chains a folder menu at the original click position", () => {
+    const a = bulk();
+    const { showBulkContextMenu, menus } = setup();
+    showBulkContextMenu(evt(12, 34), a);
+    menus[0].click("Move");
+    expect(menus[1].titles()).toEqual(["Archive", "Project"]);
+    expect(menus[1].shown).toEqual({ kind: "position", x: 12, y: 34 });
+    menus[1].click("Project");
+    expect(a.onMove).toHaveBeenCalledWith("P");
+  });
+
+  it("leaves out Archive where it isn't offered, and Move when there is nowhere to move to", () => {
+    const { showBulkContextMenu, menus } = setup();
+    showBulkContextMenu(evt(), bulk({ showArchive: false, candidates: [] }));
+    expect(menus[0].titles()).toEqual(["Mark as unread", "Mark as read", "Delete"]);
   });
 });

@@ -13,6 +13,8 @@ export const ACTION_ICON = {
   flag: "flag",
   unflag: "flag-off",
   complete: "check-circle",
+  markRead: "mail-open",
+  markUnread: "mail",
   followUp: "calendar-clock",
   pin: "pin",
   unpin: "pin-off",
