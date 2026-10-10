@@ -1647,6 +1647,99 @@ describe("App — multi-select and bulk actions", () => {
     done();
   });
 
+  describe("ribbon Manage buttons", () => {
+    const ribbonBtn = (host: HTMLElement, name: string) => host.querySelector<HTMLButtonElement>(`.oe-ribbon [data-action="${name}"]`)!;
+    const openMessage = { summary: three()[2].messages[0] };
+
+    it("are disabled with nothing selected or open, and enabled once something is ticked", () => {
+      const idle = mountApp(fakeVm({ threads: three(), mailboxes: boxes }));
+      for (const name of ["archive", "delete", "move"]) expect(ribbonBtn(idle.host, name).disabled, name).toBe(true);
+      idle.done();
+      const ticked = mountApp(withSelection());
+      for (const name of ["archive", "delete", "move"]) expect(ribbonBtn(ticked.host, name).disabled, name).toBe(false);
+      ticked.done();
+    });
+
+    it("Archive archives the whole selection", () => {
+      const vm = withSelection();
+      const { host, done } = mountApp(vm);
+      click(ribbonBtn(host, "archive"));
+      expect(vm.archiveThreads).toHaveBeenCalledWith(["t1", "t2"]);
+      expect(vm.archiveMessage).not.toHaveBeenCalled();
+      done();
+    });
+
+    it("Delete deletes the whole selection, with no prompt outside Deleted Items / search", () => {
+      const vm = withSelection();
+      const { host, done } = mountApp(vm);
+      click(ribbonBtn(host, "delete"));
+      expect(vm.deleteThreads).toHaveBeenCalledWith(["t1", "t2"]);
+      expect(vm.deleteMessage).not.toHaveBeenCalled();
+      expect(host.querySelector(".oe-composer-prompt")).toBeNull();
+      done();
+    });
+
+    it("Delete in Deleted Items asks first, naming the count, then deletes the selection", () => {
+      const vm = withSelection({ activeMailboxId: "TRASH", mailboxes: [{ id: "TRASH", name: "Deleted Items", kind: "trash" }, ...boxes] });
+      const { host, done } = mountApp(vm);
+      click(ribbonBtn(host, "delete"));
+      expect(vm.deleteThreads).not.toHaveBeenCalled();
+      expect(host.querySelector(".oe-composer-prompt p")!.textContent).toBe("Permanently delete these 2 threads? This can't be undone.");
+      click(host.querySelector(".oe-delete-confirm"));
+      expect(vm.deleteThreads).toHaveBeenCalledWith(["t1", "t2"]);
+      done();
+    });
+
+    it("Move moves the whole selection to the chosen folder", () => {
+      const vm = withSelection();
+      const { host, done } = mountApp(vm);
+      click(ribbonBtn(host, "move"));
+      click(document.querySelector('.oe-ribbon-menu [data-option="P"]'));
+      expect(vm.moveThreads).toHaveBeenCalledWith(["t1", "t2"], "P");
+      expect(vm.moveThread).not.toHaveBeenCalled();
+      done();
+    });
+
+    it("the selection wins over the open conversation", () => {
+      const vm = withSelection({ openThreadId: "t3", openMessages: [openMessage] });
+      const { host, done } = mountApp(vm);
+      click(ribbonBtn(host, "archive"));
+      click(ribbonBtn(host, "delete"));
+      expect(vm.archiveThreads).toHaveBeenCalledWith(["t1", "t2"]);
+      expect(vm.deleteThreads).toHaveBeenCalledWith(["t1", "t2"]);
+      expect(vm.archiveMessage).not.toHaveBeenCalled();
+      expect(vm.deleteMessage).not.toHaveBeenCalled();
+      done();
+    });
+
+    it("with nothing ticked they still act on the open conversation (unchanged)", () => {
+      const vm = fakeVm({ threads: three(), mailboxes: boxes, openThreadId: "t3", openMessages: [openMessage] });
+      const { host, done } = mountApp(vm);
+      click(ribbonBtn(host, "archive"));
+      expect(vm.archiveMessage).toHaveBeenCalledWith("m3");
+      expect(vm.archiveThreads).not.toHaveBeenCalled();
+      done();
+    });
+
+    it("Archive stays disabled in Deleted Items even with a selection; Delete does not", () => {
+      const vm = withSelection({ activeMailboxId: "TRASH", mailboxes: [{ id: "TRASH", name: "Deleted Items", kind: "trash" }, ...boxes] });
+      const { host, done } = mountApp(vm);
+      expect(ribbonBtn(host, "archive").disabled).toBe(true);
+      expect(ribbonBtn(host, "delete").disabled).toBe(false);
+      done();
+    });
+
+    it("goes through the unsaved-composer prompt like the bar does", () => {
+      const vm = withSelection();
+      (vm.hasUnsavedComposerContent as ReturnType<typeof vi.fn>).mockReturnValue(true);
+      const { host, done } = mountApp(vm);
+      click(ribbonBtn(host, "archive"));
+      expect(vm.archiveThreads).not.toHaveBeenCalled();
+      expect(host.querySelector(".oe-composer-prompt")).not.toBeNull();
+      done();
+    });
+  });
+
   it("right-clicking a row inside a multi-selection opens the bulk menu for the whole selection", () => {
     const onBulkContextMenu = vi.fn();
     const onThreadContextMenu = vi.fn();

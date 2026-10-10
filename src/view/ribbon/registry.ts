@@ -52,6 +52,9 @@ export interface RibbonContext {
   openThreadFlagged: boolean;
   /** The open thread is pinned. */
   openThreadPinned: boolean;
+  /** Conversations ticked in the list. Archive, Delete and Move act on them
+   *  (in preference to the open conversation) whenever any are. */
+  selectedCount: number;
   mailboxKind: MailboxKind | null;
   /** Every mailbox except the active one — the Move destinations. */
   otherMailboxes: RibbonMailboxOption[];
@@ -100,7 +103,8 @@ export const TABS: { id: TabId; label: string }[] = [
 
 const kindIs = (c: RibbonContext, ...kinds: MailboxKind[]) => c.mailboxKind !== null && kinds.includes(c.mailboxKind);
 const canRespond = (c: RibbonContext) => c.hasTargetMessage && !kindIs(c, "drafts", "trash");
-const canArchive = (c: RibbonContext) => c.hasTargetMessage && !kindIs(c, "archive", "drafts", "trash");
+const archivable = (c: RibbonContext) => !kindIs(c, "archive", "drafts", "trash");
+const canArchive = (c: RibbonContext) => (c.selectedCount > 0 || c.hasTargetMessage) && archivable(c);
 const composing = (c: RibbonContext) => c.composerMode !== null;
 const canAct = (c: RibbonContext) => composing(c) && !c.composerSending;
 
@@ -119,9 +123,9 @@ const BASE_COMMANDS: RibbonCommand[] = [
   { id: "archive", tab: "home", group: "Manage", icon: ACTION_ICON.archive, label: "Archive",
     enabled: canArchive, run: (c) => c.actions.archive() },
   { id: "delete", tab: "home", group: "Manage", icon: ACTION_ICON.delete, label: "Delete",
-    enabled: (c) => c.hasTargetMessage, run: (c) => c.actions.deleteMessage() },
+    enabled: (c) => c.selectedCount > 0 || c.hasTargetMessage, run: (c) => c.actions.deleteMessage() },
   { id: "move", tab: "home", group: "Manage", icon: "folder-input", label: "Move",
-    enabled: (c) => c.hasOpenThread && c.otherMailboxes.length > 0,
+    enabled: (c) => (c.selectedCount > 0 || c.hasOpenThread) && c.otherMailboxes.length > 0,
     options: (c) => c.otherMailboxes.map((m) => ({ id: m.id, label: m.name, run: () => c.actions.move(m.id) })) },
   { id: "close-pane", tab: "home", group: "Manage", icon: ACTION_ICON.collapse, label: "Close pane",
     enabled: (c) => !c.readingPaneCollapsed, run: (c) => c.actions.closePane() },

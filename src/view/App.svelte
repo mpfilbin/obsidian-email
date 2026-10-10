@@ -302,6 +302,7 @@
     hasTargetMessage: !paneShowsComposer && targetMessageId !== null,
     openThreadFlagged: state.openMessages.some((m) => m.summary.flagged),
     openThreadPinned: state.openThreadId !== null && state.pinnedThreadIds.includes(state.openThreadId),
+    selectedCount: state.selectedThreadIds.length,
     mailboxKind: activeMailbox?.kind ?? null,
     otherMailboxes: moveTargets.map((m) => ({ id: m.id, name: m.name })),
     readingPaneCollapsed,
@@ -321,17 +322,24 @@
       replyAll: () => { const id = targetMessageId; if (id) requestSwitch(() => vm.openReply(id, "replyAll")); },
       forward: () => { const id = targetMessageId; if (id) requestSwitch(() => vm.openForward(id)); },
       editDraft: () => { const id = targetMessageId; if (id) requestSwitch(() => vm.openDraftForEdit(id)); },
+      // With conversations ticked, Archive / Delete / Move act on them; otherwise
+      // on the open conversation / expanded message, as before.
       archive: () => {
+        if (state.selectedThreadIds.length > 0) { bulkArchive([...state.selectedThreadIds]); return; }
         const id = targetMessageId;
         if (!id) return;
         requestRowAction(() => { const closes = closesOpenMessage(id); vm.archiveMessage(id); if (closes) setReadingPaneCollapsed(true); });
       },
       deleteMessage: () => {
+        if (state.selectedThreadIds.length > 0) { bulkDelete([...state.selectedThreadIds]); return; }
         const id = targetMessageId;
         if (!id) return;
         requestRowAction(() => requestDelete("message", () => { const closes = closesOpenMessage(id); vm.deleteMessage(id); if (closes) setReadingPaneCollapsed(true); }));
       },
-      move: (destinationId) => { if (state.openThreadId) moveThread(state.openThreadId, destinationId); },
+      move: (destinationId) => {
+        if (state.selectedThreadIds.length > 0) { bulkMove([...state.selectedThreadIds], destinationId); return; }
+        if (state.openThreadId) moveThread(state.openThreadId, destinationId);
+      },
       closePane: () => requestSwitch(() => { vm.closeThread(); setReadingPaneCollapsed(true); }),
       refresh: () => { void vm.refresh(); },
       toggleSearch: () => { if (searchOpen) closeSearch(); else searchOpen = true; },

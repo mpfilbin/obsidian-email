@@ -118,7 +118,9 @@ Tick conversations to act on many at once:
   conversation loaded in the list), **Unread**, **Read**, **Archive**, a
   **Move to…** menu, **Delete**, and a clear (✕) button. **Escape** also clears
   the selection. Right-clicking a row inside the selection offers the same
-  actions.
+  actions. The ribbon's **Archive**, **Delete** and **Move** buttons (Home ›
+  Manage) also act on the selection whenever anything is ticked, in preference
+  to the open conversation.
 - **Read** marks every unread message in each conversation as read. **Unread**
   marks the conversation's newest message unread (a conversation that is already
   unread is left alone). Folder unread counts update afterwards.
