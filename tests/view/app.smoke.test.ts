@@ -570,7 +570,7 @@ describe("App.svelte — delete/archive wiring", () => {
     unmount(app);
   });
 
-  it("deleting the currently open thread collapses the reading pane, same as the ribbon's Close pane", () => {
+  it("deleting the currently open thread keeps the reading pane open", () => {
     const deleteThread = vi.fn();
     const vm = fakeVm({ openThreadId: "t1" });
     Object.assign(vm, { deleteThread });
@@ -583,8 +583,8 @@ describe("App.svelte — delete/archive wiring", () => {
     host.querySelector<HTMLElement>('.oe-thread-actions [data-action="delete"]')!.click();
     expect(deleteThread).toHaveBeenCalledWith("t1");
     flushSync();
-    expect(gridStyle()).not.toContain("340px");
-    expect(gridStyle()).toMatch(/0px 0px;/);
+    expect(gridStyle()).toContain("340px");
+    expect(gridStyle()).not.toMatch(/0px 0px;/);
     unmount(app);
   });
 
@@ -605,7 +605,7 @@ describe("App.svelte — delete/archive wiring", () => {
     unmount(app);
   });
 
-  it("deleting the currently open message collapses the reading pane", () => {
+  it("deleting the currently open message keeps the reading pane open", () => {
     const deleteMessage = vi.fn();
     const vm = fakeVm({
       openThreadId: "t1",
@@ -624,8 +624,8 @@ describe("App.svelte — delete/archive wiring", () => {
     host.querySelector<HTMLElement>('.oe-ribbon [data-action="delete"]')!.click();
     expect(deleteMessage).toHaveBeenCalledWith("m1");
     flushSync();
-    expect(gridStyle()).not.toContain("340px");
-    expect(gridStyle()).toMatch(/0px 0px;/);
+    expect(gridStyle()).toContain("340px");
+    expect(gridStyle()).not.toMatch(/0px 0px;/);
     unmount(app);
   });
 
@@ -1750,7 +1750,7 @@ describe("App — multi-select and bulk actions", () => {
     });
   });
 
-  describe("closing the reading pane when the open conversation is acted on", () => {
+  describe("keeping the reading pane open when the open conversation is acted on", () => {
     const grid = (host: HTMLElement) => host.querySelector<HTMLElement>(".oe-grid")!.getAttribute("style") ?? "";
     const open = (thread: string) => ({ openThreadId: thread, openMessages: [{ summary: three().find((t) => t.threadId === thread)!.messages[0] }] });
     const doMove = (host: HTMLElement) => {
@@ -1766,12 +1766,13 @@ describe("App — multi-select and bulk actions", () => {
     ];
 
     for (const [name, run] of actions) {
-      it(`${name} collapses the pane when the open conversation is among the selection`, () => {
+      it(`${name} keeps the pane open when the open conversation is among the selection`, () => {
         const vm = withSelection(open("t2"));
         const { host, done } = mountApp(vm);
         expect(grid(host)).toContain("340px");
         run(host);
-        expect(grid(host)).toMatch(/0px 0px;/);
+        expect(grid(host)).toContain("340px");
+        expect(grid(host)).not.toMatch(/0px 0px;/);
         done();
       });
 
@@ -1785,7 +1786,7 @@ describe("App — multi-select and bulk actions", () => {
       });
     }
 
-    it("the right-click menu's actions collapse it too", () => {
+    it("the right-click menu's actions keep it open too", () => {
       const onBulkContextMenu = vi.fn();
       const vm = withSelection(open("t1"));
       const { host, done } = mountApp(vm, { onBulkContextMenu });
@@ -1793,7 +1794,8 @@ describe("App — multi-select and bulk actions", () => {
       const [, a] = onBulkContextMenu.mock.calls[0];
       a.onMove("P");
       flushSync();
-      expect(grid(host)).toMatch(/0px 0px;/);
+      expect(grid(host)).toContain("340px");
+      expect(grid(host)).not.toMatch(/0px 0px;/);
       done();
     });
   });
