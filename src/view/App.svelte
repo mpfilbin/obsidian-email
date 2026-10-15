@@ -218,58 +218,43 @@
     requestSwitch(run);
   }
 
-  // Archiving/deleting the currently open thread or message makes the
-  // ViewModel call closeThread() internally — collapse the reading pane too
-  // in that case, exactly as if the floating close button had been clicked,
-  // rather than leaving it open-but-empty. Checked against `state` before
-  // the (async) provider call runs, since closeThread() only fires after
-  // that call resolves.
-  const closesOpenThread = (threadId: string): boolean => threadId === state.openThreadId;
-  const closesOpenMessage = (messageId: string): boolean =>
-    state.openMessages.some((m) => m.summary.id === messageId);
+  // Archiving/deleting/moving the open conversation empties the reading pane
+  // (the ViewModel calls closeThread()) but leaves it open; only the explicit
+  // Close button collapses it.
 
   // Shared by drag-and-drop (MailboxList's onDropThread) and the row context
   // menu's "Move" command — same guards as archive/delete: the unsaved-
-  // composer prompt via requestRowAction, and collapsing the reading pane if
-  // the moved thread was the open one.
+  // composer prompt via requestRowAction (the reading pane stays open, emptied,
+  // if the moved thread was the open one).
   function moveThread(threadId: string, destinationMailboxId: string): void {
     requestRowAction(() => {
-      const closes = closesOpenThread(threadId);
       vm.moveThread(threadId, destinationMailboxId);
-      if (closes) setReadingPaneCollapsed(true);
     });
   }
 
   // --- Bulk actions on the ticked conversations ---------------------------
-  // Archive / Move / Delete are navigation-like (they close the reading pane
+  // Archive / Move / Delete are navigation-like (they empty the reading pane
   // when the open thread is among them), so they pass through the same
   // unsaved-composer guard and delete confirmation as the single-row actions.
   // Mark read / unread change nothing on screen but the rows, so they don't.
   const showBulkArchive = $derived(!isDraftsMailbox && !isArchiveMailbox && !isTrashMailbox);
-  const closesAny = (ids: string[]): boolean => state.openThreadId !== null && ids.includes(state.openThreadId);
 
   function bulkMarkRead(ids: string[], read: boolean): void {
     void vm.markThreadsRead(ids, read);
   }
   function bulkArchive(ids: string[]): void {
     requestRowAction(() => {
-      const closes = closesAny(ids);
       void vm.archiveThreads(ids);
-      if (closes) setReadingPaneCollapsed(true);
     });
   }
   function bulkMove(ids: string[], destinationMailboxId: string): void {
     requestRowAction(() => {
-      const closes = closesAny(ids);
       void vm.moveThreads(ids, destinationMailboxId);
-      if (closes) setReadingPaneCollapsed(true);
     });
   }
   function bulkDelete(ids: string[]): void {
     requestRowAction(() => requestDelete("thread", () => {
-      const closes = closesAny(ids);
       void vm.deleteThreads(ids);
-      if (closes) setReadingPaneCollapsed(true);
     }, ids.length));
   }
   function selectThread(threadId: string, mode: "toggle" | "range"): void {
@@ -328,13 +313,13 @@
         if (state.selectedThreadIds.length > 0) { bulkArchive([...state.selectedThreadIds]); return; }
         const id = targetMessageId;
         if (!id) return;
-        requestRowAction(() => { const closes = closesOpenMessage(id); vm.archiveMessage(id); if (closes) setReadingPaneCollapsed(true); });
+        requestRowAction(() => { vm.archiveMessage(id); });
       },
       deleteMessage: () => {
         if (state.selectedThreadIds.length > 0) { bulkDelete([...state.selectedThreadIds]); return; }
         const id = targetMessageId;
         if (!id) return;
-        requestRowAction(() => requestDelete("message", () => { const closes = closesOpenMessage(id); vm.deleteMessage(id); if (closes) setReadingPaneCollapsed(true); }));
+        requestRowAction(() => requestDelete("message", () => { vm.deleteMessage(id); }));
       },
       move: (destinationId) => {
         if (state.selectedThreadIds.length > 0) { bulkMove([...state.selectedThreadIds], destinationId); return; }
@@ -522,8 +507,8 @@
         {isDraftsMailbox}
         {isArchiveMailbox}
         {isTrashMailbox}
-        onArchiveThread={(id) => requestRowAction(() => { const closes = closesOpenThread(id); vm.archiveThread(id); if (closes) setReadingPaneCollapsed(true); })}
-        onDeleteThread={(id) => requestRowAction(() => requestDelete("thread", () => { const closes = closesOpenThread(id); vm.deleteThread(id); if (closes) setReadingPaneCollapsed(true); }))}
+        onArchiveThread={(id) => requestRowAction(() => { vm.archiveThread(id); })}
+        onDeleteThread={(id) => requestRowAction(() => requestDelete("thread", () => { vm.deleteThread(id); }))}
         onThreadContextMenu={(evt, id) => {
           // Right-clicking a row inside a multi-selection acts on the whole
           // selection; right-clicking any other row acts on just that row.
