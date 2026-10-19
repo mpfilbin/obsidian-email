@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { MailCache } from "../../src/cache/mail-cache";
-import type { MessageSummary } from "../../src/providers/types";
+import type { MessageHeader, MessageSummary } from "../../src/providers/types";
 
 let n = 0;
 const freshName = () => `test-db-${Date.now()}-${n++}`;
@@ -49,6 +49,22 @@ describe("MailCache", () => {
     await cache.pruneAccount("a1", Date.now());
     expect(await cache.getBody("a1", "b0")).toBeUndefined();
     expect(await cache.getBody("a1", "b204")).toBeTruthy();
+  });
+
+  it("getBody normalizes a body cached before headers became an ordered list", async () => {
+    // Simulates a row written by a pre-upgrade plugin version, where
+    // `headers` was a `{ [name]: value }` map rather than `MessageHeader[]`.
+    const legacy = { "message-id": "<abc@x.com>" } as unknown as MessageHeader[];
+    await cache.putBody("a1", { id: "m1", html: null, text: "x", attachments: [], headers: legacy });
+    expect(await cache.getBody("a1", "m1")).toEqual({
+      id: "m1", html: null, text: "x", attachments: [], headers: [{ name: "message-id", value: "<abc@x.com>" }],
+    });
+  });
+
+  it("getBody normalizes a body cached before the headers field existed at all", async () => {
+    const legacy = { id: "m1", html: null, text: "x", attachments: [] } as unknown as Parameters<MailCache["putBody"]>[1];
+    await cache.putBody("a1", legacy);
+    expect((await cache.getBody("a1", "m1"))?.headers).toEqual([]);
   });
 
   it("prunes summaries older than the retention window when over the per-mailbox cap", async () => {
