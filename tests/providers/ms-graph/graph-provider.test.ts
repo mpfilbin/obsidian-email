@@ -37,16 +37,29 @@ describe("GraphProvider", () => {
     expect(req.mock.calls[0][0].url).toBe("https://graph.microsoft.com/v1.0/me/messages?$skiptoken=S2");
   });
 
-  it("getMessageBody expands attachments and maps the body", async () => {
+  it("getMessageBody expands attachments, selects internetMessageHeaders, and maps the body", async () => {
     const req = vi.fn(async () => resp({
       id: "M1", body: { contentType: "html", content: "<p>hi</p>" },
+      // Two `Received` headers (one per hop) — the mapped list must keep both
+      // rather than collapsing them, as a map keyed by header name would.
+      internetMessageHeaders: [
+        { name: "Received", value: "from hop1" },
+        { name: "Received", value: "from hop2" },
+        { name: "Message-ID", value: "<abc@x.com>" },
+      ],
       attachments: [{ id: "A1", name: "r.pdf", contentType: "application/pdf", size: 3, isInline: false }],
     }));
     const p = new GraphProvider({ http: { request: req }, getAccessToken: async () => "at" });
     const body = await p.getMessageBody("M1");
-    expect(req.mock.calls[0][0].url).toBe("https://graph.microsoft.com/v1.0/me/messages/M1?$expand=attachments");
+    const url: string = req.mock.calls[0][0].url;
+    expect(url).toBe("https://graph.microsoft.com/v1.0/me/messages/M1?$expand=attachments&$select=id,body,internetMessageHeaders");
     expect(body.html).toBe("<p>hi</p>");
     expect(body.attachments.map((a) => a.id)).toEqual(["A1"]);
+    expect(body.headers).toEqual([
+      { name: "Received", value: "from hop1" },
+      { name: "Received", value: "from hop2" },
+      { name: "Message-ID", value: "<abc@x.com>" },
+    ]);
   });
 
   it("getAttachment decodes the base64 contentBytes into an ArrayBuffer", async () => {

@@ -96,7 +96,7 @@ export class FakeProvider implements MailProvider, ContactsProvider {
   }
 
   async getMessageBody(id: string): Promise<MessageBody> {
-    return this.bodies[id] ?? { id, html: null, text: `body ${id}`, attachments: [], headers: {} };
+    return this.bodies[id] ?? { id, html: null, text: `body ${id}`, attachments: [], headers: [] };
   }
 
   async getAttachment(): Promise<ArrayBuffer> {

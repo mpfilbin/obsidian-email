@@ -63,7 +63,11 @@ describe("mapGraphBody", () => {
     const b = mapGraphBody(fx("message-full.json"));
     expect(b.html).toBe("<p>Hello <b>world</b></p>");
     expect(b.text).toBeNull();
-    expect(b.headers["message-id"]).toBe("<abc@ex>");
+    expect(b.headers).toEqual([
+      { name: "Received", value: "from hop1" },
+      { name: "Received", value: "from hop2" },
+      { name: "Message-ID", value: "<abc@ex>" },
+    ]);
     expect(b.attachments).toEqual([
       { id: "ATT1", filename: "report.pdf", mimeType: "application/pdf", size: 2048, inline: false, contentId: undefined },
       { id: "ATT2", filename: "logo.png", mimeType: "image/png", size: 512, inline: true, contentId: "logo42" },

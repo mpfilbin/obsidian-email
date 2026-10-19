@@ -78,12 +78,19 @@ export interface AttachmentMeta {
   contentId?: string;
 }
 
+export interface MessageHeader {
+  name: string;
+  value: string;
+}
+
 export interface MessageBody {
   id: string;
   html: string | null;
   text: string | null;
   attachments: AttachmentMeta[];
-  headers: Record<string, string>;
+  // An ordered list, not a map keyed by name — a header like `Received` can
+  // repeat (once per hop), and a map would silently keep only the last one.
+  headers: MessageHeader[];
 }
 
 export interface Page<T> {

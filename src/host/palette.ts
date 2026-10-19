@@ -30,6 +30,7 @@ export interface PaletteHost {
     hasUnsavedComposerContent(): boolean;
     setMode(mode: "mail" | "contacts"): void;
     printMessage(messageId: string): Promise<void>;
+    viewMessageHeaders(messageId: string): Promise<void>;
   };
 }
 
@@ -66,6 +67,16 @@ export function buildPaletteCommands(host: PaletteHost): PaletteCommand[] {
         const target = printTargetMessageId(vm.getState());
         if (checking) return target !== undefined;
         if (target !== undefined) void vm.printMessage(target);
+        return true;
+      },
+    },
+    {
+      id: "view-message-headers",
+      name: "View email headers",
+      checkCallback: (checking) => {
+        const target = printTargetMessageId(vm.getState());
+        if (checking) return target !== undefined;
+        if (target !== undefined) void vm.viewMessageHeaders(target);
         return true;
       },
     },

@@ -1,9 +1,21 @@
 import type { IDBPDatabase } from "idb";
-import type { FlagState, Mailbox, MessageBody, MessageSummary, MessageSummaryPatch } from "../providers/types";
+import type { FlagState, Mailbox, MessageBody, MessageHeader, MessageSummary, MessageSummaryPatch } from "../providers/types";
 import { RETENTION, openMailDb, type MailDb, type StoredMessage } from "./schema";
 
 const DAY_MS = 24 * 3600 * 1000;
 const key = (accountId: string, id: string) => `${accountId}/${id}`;
+
+/** A body cached before `headers` became an ordered list stored it as a
+ *  `{ [name]: value }` map (or didn't have the field at all) — normalize
+ *  whatever shape is on disk into the current `MessageHeader[]` rather than
+ *  letting a stale row look like "no headers" or crash a `.map` over it. */
+function normalizeHeaders(headers: unknown): MessageHeader[] {
+  if (Array.isArray(headers)) return headers as MessageHeader[];
+  if (headers && typeof headers === "object") {
+    return Object.entries(headers as Record<string, string>).map(([name, value]) => ({ name, value }));
+  }
+  return [];
+}
 
 export class MailCache {
   private lastCachedAt = 0;
@@ -262,7 +274,7 @@ export class MailCache {
     const row = await this.db.get("bodies", key(accountId, id));
     if (!row) return undefined;
     const { key: _k, accountId: _a, cachedAt: _c, ...body } = row;
-    return body;
+    return { ...body, headers: normalizeHeaders(body.headers) };
   }
 
   /** `keepThreadIds` (the user's pinned conversations) and flagged messages

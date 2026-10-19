@@ -20,7 +20,7 @@ const open = (): ViewState["openMessages"] => [{
     unread: false, hasAttachments: true, flagged: false,
   },
   body: {
-    id: "m1", html: "<p>Body <b>text</b></p>", text: null, headers: {},
+    id: "m1", html: "<p>Body <b>text</b></p>", text: null, headers: [],
     attachments: [{ id: "a1", filename: "report.pdf", mimeType: "application/pdf", size: 10, inline: false }],
   },
 }];

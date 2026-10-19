@@ -107,13 +107,13 @@ export function mapGraphSummaryPatch(m: GraphMessage, folderId: string): Message
 
 export function mapGraphBody(m: GraphMessage): MessageBody {
   const isHtml = (m.body?.contentType ?? "").toLowerCase() === "html";
-  const headers: Record<string, string> = {};
-  for (const h of m.internetMessageHeaders ?? []) headers[h.name.toLowerCase()] = h.value;
   return {
     id: m.id,
     html: isHtml ? m.body?.content ?? null : null,
     text: !isHtml ? m.body?.content ?? null : null,
-    headers,
+    // Kept as the ordered, repeats-and-all list Graph sent — notably the
+    // Received chain, one header per hop — rather than a map keyed by name.
+    headers: (m.internetMessageHeaders ?? []).map((h) => ({ name: h.name, value: h.value })),
     attachments: (m.attachments ?? []).map((a): AttachmentMeta => ({
       id: a.id,
       filename: a.name ?? "attachment",

@@ -3,7 +3,7 @@ import { renderMessageBody } from "../../src/render/message-renderer";
 import type { MessageBody } from "../../src/providers/types";
 
 const body = (over: Partial<MessageBody> = {}): MessageBody => ({
-  id: "m1", html: null, text: null, attachments: [], headers: {}, ...over,
+  id: "m1", html: null, text: null, attachments: [], headers: [], ...over,
 });
 
 const deps = () => ({

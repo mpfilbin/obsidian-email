@@ -29,6 +29,7 @@ function setup(state: Record<string, unknown> = { composer: null, openMessages: 
     hasUnsavedComposerContent: vi.fn(() => unsaved),
     setMode: vi.fn(),
     printMessage: vi.fn(async () => {}),
+    viewMessageHeaders: vi.fn(async () => {}),
   };
   const host = {
     activateView: vi.fn(async () => {}),
@@ -41,13 +42,14 @@ function setup(state: Record<string, unknown> = { composer: null, openMessages: 
 }
 
 describe("buildPaletteCommands", () => {
-  it("registers the five palette commands", () => {
+  it("registers the six palette commands", () => {
     expect(setup().commands.map((c) => [c.id, c.name])).toEqual([
       ["open", "Open mail"],
       ["compose-from-note", "Create email from note"],
       ["compose-with-note-attached", "Create email with note attached"],
       ["open-contacts", "Open contacts"],
       ["print-message", "Print email"],
+      ["view-message-headers", "View email headers"],
     ]);
   });
 
@@ -106,6 +108,21 @@ describe("buildPaletteCommands", () => {
       const { cmd, vm } = setup({ composer: null, openMessages: [] });
       cmd("print-message").checkCallback!(false);
       expect(vm.printMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("view-message-headers", () => {
+    it("is available (checking) only when there's a message open", () => {
+      expect(setup().cmd("view-message-headers").checkCallback!(true)).toBe(true);
+      expect(setup({ composer: null, openMessages: [] }).cmd("view-message-headers").checkCallback!(true)).toBe(false);
+    });
+
+    it("views the newest message's headers when run, and does nothing while checking", () => {
+      const { cmd, vm } = setup({ composer: null, openMessages: open("m1", "m2") });
+      cmd("view-message-headers").checkCallback!(true);
+      expect(vm.viewMessageHeaders).not.toHaveBeenCalled();
+      expect(cmd("view-message-headers").checkCallback!(false)).toBe(true);
+      expect(vm.viewMessageHeaders).toHaveBeenCalledWith("m2");
     });
   });
 });

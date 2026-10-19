@@ -17,6 +17,10 @@ const SUMMARY_SELECT =
 // Flagged results are upserted into the cache, so unlike search they need the
 // message's real folder id.
 const FLAGGED_SELECT = `${SUMMARY_SELECT},parentFolderId`;
+// `internetMessageHeaders` isn't in Graph's default property set — opted in
+// here for the "view full headers" action. `body` is requested explicitly
+// because any `$select` narrows the response to just its listed fields.
+const BODY_SELECT = "id,body,internetMessageHeaders";
 const TOP = 25;
 const CONTACT_PAGE = 100;
 const MAX_CONTACT_PAGES = 500;
@@ -137,7 +141,9 @@ export class GraphProvider implements MailProvider, ContactsProvider {
   }
 
   async getMessageBody(id: string): Promise<MessageBody> {
-    return mapGraphBody(await this.get<GraphMessage>(`/me/messages/${id}?$expand=attachments`));
+    return mapGraphBody(
+      await this.get<GraphMessage>(`/me/messages/${id}?$expand=attachments&$select=${BODY_SELECT}`),
+    );
   }
 
   async getAttachment(messageId: string, attachmentId: string): Promise<ArrayBuffer> {

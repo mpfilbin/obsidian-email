@@ -337,6 +337,7 @@
       },
       saveToVault: () => { if (targetMessageId) void vm.saveMessageToVault(targetMessageId); },
       print: () => { if (targetMessageId) void vm.printMessage(targetMessageId); },
+      viewHeaders: () => { if (targetMessageId) void vm.viewMessageHeaders(targetMessageId); },
       emailFromNote: () => guarded(() => noteCommands.composeFromNote()),
       emailWithNoteAttached: () => guarded(() => noteCommands.composeWithNoteAttached()),
       send: () => { void vm.send(); },

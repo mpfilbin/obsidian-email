@@ -24,6 +24,7 @@ export interface RibbonActions {
   deleteFolder(): void;
   saveToVault(): void;
   print(): void;
+  viewHeaders(): void;
   emailFromNote(): void;
   emailWithNoteAttached(): void;
   send(): void;
@@ -131,6 +132,8 @@ const BASE_COMMANDS: RibbonCommand[] = [
     enabled: (c) => !c.readingPaneCollapsed, run: (c) => c.actions.closePane() },
   { id: "print", tab: "home", group: "Manage", icon: "printer", label: "Print",
     enabled: (c) => c.hasTargetMessage, run: (c) => c.actions.print() },
+  { id: "view-headers", tab: "home", group: "Manage", icon: "scroll-text", label: "View headers",
+    enabled: (c) => c.hasTargetMessage, run: (c) => c.actions.viewHeaders() },
   { id: "flag", tab: "home", group: "Mark", icon: ACTION_ICON.flag, label: "Flag",
     enabled: (c) => c.hasOpenThread, pressed: (c) => c.openThreadFlagged, run: (c) => c.actions.toggleFlag() },
   { id: "follow-up", tab: "home", group: "Mark", icon: ACTION_ICON.followUp, label: "Follow up",
@@ -198,7 +201,7 @@ const BASE_COMMANDS: RibbonCommand[] = [
 // Vault "email from note" commands stay live: composing switches back to mail.
 const MAIL_ONLY = new Set([
   "reply", "reply-all", "forward", "edit-draft", "archive", "delete", "move", "close-pane",
-  "flag", "follow-up", "complete-flag", "pin", "refresh", "search", "new-folder", "rename-folder", "delete-folder", "save-to-vault", "print",
+  "flag", "follow-up", "complete-flag", "pin", "refresh", "search", "new-folder", "rename-folder", "delete-folder", "save-to-vault", "print", "view-headers",
 ]);
 
 export const COMMANDS: RibbonCommand[] = BASE_COMMANDS.map((c) =>

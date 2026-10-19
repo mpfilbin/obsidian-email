@@ -3,7 +3,7 @@ import type { HttpClient } from "./providers/http";
 import type { HttpPost } from "./auth/oauth-client";
 import type { SecretStore } from "./auth/token-manager";
 import type { AccountConfig } from "./providers/provider-factory";
-import type { MailProvider, OutgoingAttachment, ProviderKind } from "./providers/types";
+import type { MailProvider, MessageHeader, OutgoingAttachment, ProviderKind } from "./providers/types";
 import type { Logger } from "./util/logger";
 import type { SettingsStore } from "./settings/settings-store";
 import { CursorStore } from "./cache/cursor-store";
@@ -34,6 +34,8 @@ export interface ContextHostDeps {
   /** Opens the OS print dialog on a standalone HTML document — the user can
    *  print it or choose "Save as PDF". */
   printHtml: (html: string) => void;
+  /** Displays a message's raw internet headers. */
+  showMessageHeaders: (subject: string, headers: MessageHeader[]) => void;
   /** Prompts the user for a new folder name. */
   promptFolderName: (onSubmit: (name: string) => void) => void;
   /** Prompts for a custom follow-up date. */
@@ -196,6 +198,7 @@ export class PluginContext {
       saveBlob: host.saveBlob,
       saveNote: host.saveNote,
       printHtml: host.printHtml,
+      showMessageHeaders: host.showMessageHeaders,
       promptFolderName: host.promptFolderName,
       promptFollowUpDate: host.promptFollowUpDate,
       promptFolderRename: host.promptFolderRename,

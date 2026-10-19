@@ -4,7 +4,11 @@
   "from": { "emailAddress": { "address": "jane@example.com" } },
   "toRecipients": [], "ccRecipients": [],
   "body": { "contentType": "html", "content": "<p>Hello <b>world</b></p>" },
-  "internetMessageHeaders": [{ "name": "Message-ID", "value": "<abc@ex>" }],
+  "internetMessageHeaders": [
+    { "name": "Received", "value": "from hop1" },
+    { "name": "Received", "value": "from hop2" },
+    { "name": "Message-ID", "value": "<abc@ex>" }
+  ],
   "attachments": [
     { "@odata.type": "#microsoft.graph.fileAttachment", "id": "ATT1", "name": "report.pdf",
       "contentType": "application/pdf", "size": 2048, "isInline": false },
