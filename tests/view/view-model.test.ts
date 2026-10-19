@@ -65,7 +65,7 @@ async function openDraftInReadingPane(ctx: Awaited<ReturnType<typeof build>>): P
     subject: "Draft subject", snippet: "", date: 1, unread: false, hasAttachments: false, flagged: false,
   }]);
   ctx.provider.getMessageBody = vi.fn().mockResolvedValue({
-    id, html: "<p>draft body</p>", text: null, attachments: [], headers: {},
+    id, html: "<p>draft body</p>", text: null, attachments: [], headers: [],
   });
   await ctx.vm.openThread("CONV-draft");
   return id;
@@ -165,7 +165,7 @@ describe("ViewModel", () => {
     await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
     await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1)]);
     await ctx.cache.putBody("a1", {
-      id: "m1", html: '<img src="cid:logo">', text: null, headers: {},
+      id: "m1", html: '<img src="cid:logo">', text: null, headers: [],
       attachments: [{ id: "att1", filename: "logo.png", mimeType: "image/png", size: 3, inline: true, contentId: "logo" }],
     });
     vi.spyOn(ctx.provider, "getAttachment").mockResolvedValue(new Uint8Array([1, 2, 3]).buffer);
@@ -1727,7 +1727,7 @@ describe("ViewModel — saveMessageToVault", () => {
       unread: false, hasAttachments: false, flagged: false,
     }]);
     ctx.provider.getMessageBody = vi.fn().mockResolvedValue({
-      id: "m1", html: "<p><b>Hi</b> there</p>", text: null, attachments: [], headers: {},
+      id: "m1", html: "<p><b>Hi</b> there</p>", text: null, attachments: [], headers: [],
     });
     await vm.openThread("t1");
 
@@ -1791,7 +1791,7 @@ describe("ViewModel — printMessage", () => {
     await vm.init();
     await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1)]);
     ctx.provider.getMessageBody = vi.fn().mockResolvedValue({
-      id: "m1", html: '<img src="https://tracker.example.com/pixel.gif">', text: null, attachments: [], headers: {},
+      id: "m1", html: '<img src="https://tracker.example.com/pixel.gif">', text: null, attachments: [], headers: [],
     });
     await vm.openThread("t1");
 
@@ -1814,7 +1814,7 @@ describe("ViewModel — printMessage", () => {
     await vm.init();
     await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1)]);
     ctx.provider.getMessageBody = vi.fn().mockResolvedValue({
-      id: "m1", html: '<img src="https://example.com/photo.png">', text: null, attachments: [], headers: {},
+      id: "m1", html: '<img src="https://example.com/photo.png">', text: null, attachments: [], headers: [],
     });
     await vm.openThread("t1");
 
@@ -1841,7 +1841,7 @@ describe("ViewModel — printMessage", () => {
       unread: false, hasAttachments: false, flagged: false,
     }]);
     ctx.provider.getMessageBody = vi.fn().mockResolvedValue({
-      id: "m1", html: "<p><b>Hi</b> there</p>", text: null, attachments: [], headers: {},
+      id: "m1", html: "<p><b>Hi</b> there</p>", text: null, attachments: [], headers: [],
     });
     await vm.openThread("t1");
 
@@ -1904,14 +1904,21 @@ describe("ViewModel — viewMessageHeaders", () => {
     await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
     await vm.init();
     await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1)]);
+    // Two `Received` headers (one per hop) to confirm the repeats survive
+    // rather than collapsing into one, as a map keyed by name would.
+    const headers = [
+      { name: "Received", value: "from hop1" },
+      { name: "Received", value: "from hop2" },
+      { name: "Message-ID", value: "<abc@x.com>" },
+    ];
     ctx.provider.getMessageBody = vi.fn().mockResolvedValue({
-      id: "m1", html: "<p>hi</p>", text: null, attachments: [], headers: { "message-id": "<abc@x.com>" },
+      id: "m1", html: "<p>hi</p>", text: null, attachments: [], headers,
     });
     await vm.openThread("t1");
 
     await vm.viewMessageHeaders("m1");
 
-    expect(showMessageHeaders).toHaveBeenCalledWith("s t1", { "message-id": "<abc@x.com>" });
+    expect(showMessageHeaders).toHaveBeenCalledWith("s t1", headers);
   });
 
   it("sets a notice instead of showing headers when the body never loaded and isn't cached", async () => {

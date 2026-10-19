@@ -17,7 +17,7 @@ function summary(over: Partial<MessageSummary> = {}): MessageSummary {
 
 describe("emailToNote", () => {
   it("writes sender/to/cc/subject/received/message_id as frontmatter", () => {
-    const note = emailToNote(summary(), { id: "m1", html: "<p>Hello</p>", text: null, attachments: [], headers: {} });
+    const note = emailToNote(summary(), { id: "m1", html: "<p>Hello</p>", text: null, attachments: [], headers: [] });
     expect(note).toContain('sender: "Jane Doe <jane@example.com>"');
     expect(note).toContain('to:\n  - "Michael <me@example.com>"');
     expect(note).toContain("cc: []");
@@ -29,7 +29,7 @@ describe("emailToNote", () => {
   it("converts the HTML body to Markdown", () => {
     const note = emailToNote(summary(), {
       id: "m1", html: "<h1>Title</h1><p>Some <b>bold</b> and a <a href=\"https://x.com\">link</a>.</p>",
-      text: null, attachments: [], headers: {},
+      text: null, attachments: [], headers: [],
     });
     expect(note).toContain("# Title");
     expect(note).toContain("**bold**");
@@ -39,14 +39,14 @@ describe("emailToNote", () => {
   });
 
   it("falls back to plain text when there is no HTML body", () => {
-    const note = emailToNote(summary(), { id: "m1", html: null, text: "Just plain text.", attachments: [], headers: {} });
+    const note = emailToNote(summary(), { id: "m1", html: null, text: "Just plain text.", attachments: [], headers: [] });
     expect(note).toContain("Just plain text.");
   });
 
   it("escapes quotes and colons in the subject/sender without breaking the YAML", () => {
     const note = emailToNote(
       summary({ subject: 'Re: "Q1" review: final', from: { name: 'Jane "JD" Doe', email: "jane@example.com" } }),
-      { id: "m1", html: "<p>x</p>", text: null, attachments: [], headers: {} },
+      { id: "m1", html: "<p>x</p>", text: null, attachments: [], headers: [] },
     );
     expect(note).toContain('subject: "Re: \\"Q1\\" review: final"');
     expect(note).toContain('sender: "Jane \\"JD\\" Doe <jane@example.com>"');
@@ -54,7 +54,7 @@ describe("emailToNote", () => {
 
   it("uses just the email address when the sender has no display name", () => {
     const note = emailToNote(summary({ from: { email: "noreply@example.com" } }), {
-      id: "m1", html: "<p>x</p>", text: null, attachments: [], headers: {},
+      id: "m1", html: "<p>x</p>", text: null, attachments: [], headers: [],
     });
     expect(note).toContain('sender: "noreply@example.com"');
   });

@@ -44,7 +44,7 @@ describe("MailCache", () => {
 
   it("stores and evicts bodies by LRU count", async () => {
     for (let i = 0; i < 205; i++) {
-      await cache.putBody("a1", { id: `b${i}`, html: null, text: "x", attachments: [], headers: {} });
+      await cache.putBody("a1", { id: `b${i}`, html: null, text: "x", attachments: [], headers: [] });
     }
     await cache.pruneAccount("a1", Date.now());
     expect(await cache.getBody("a1", "b0")).toBeUndefined();

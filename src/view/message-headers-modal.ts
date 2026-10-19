@@ -1,14 +1,8 @@
 import { App, Modal, Notice, Setting } from "obsidian";
+import type { MessageHeader } from "../providers/types";
 
-/** "Message-id" -> "Message-Id" — Graph's header names arrive in their own
- *  original casing, but this plugin's header map lowercases every key (so
- *  lookups are case-insensitive), so a display form is rebuilt here. */
-function displayName(key: string): string {
-  return key.split("-").map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w)).join("-");
-}
-
-function formatHeaders(headers: Record<string, string>): string {
-  return Object.entries(headers).map(([k, v]) => `${displayName(k)}: ${v}`).join("\n");
+function formatHeaders(headers: MessageHeader[]): string {
+  return headers.map((h) => `${h.name}: ${h.value}`).join("\n");
 }
 
 /** Read-only "view source"-style display of a message's raw internet
@@ -16,9 +10,9 @@ function formatHeaders(headers: Record<string, string>): string {
 export class MessageHeadersModal extends Modal {
   private text: string;
 
-  constructor(app: App, private subject: string, headers: Record<string, string>) {
+  constructor(app: App, private subject: string, headers: MessageHeader[]) {
     super(app);
-    this.text = Object.keys(headers).length ? formatHeaders(headers) : "No headers available for this message.";
+    this.text = headers.length ? formatHeaders(headers) : "No headers available for this message.";
   }
 
   onOpen(): void {
@@ -34,7 +28,10 @@ export class MessageHeadersModal extends Modal {
           .setCta()
           .setButtonText("Copy")
           .onClick(() => {
-            void navigator.clipboard.writeText(this.text).then(() => new Notice("Headers copied to clipboard."));
+            navigator.clipboard.writeText(this.text).then(
+              () => new Notice("Headers copied to clipboard."),
+              () => new Notice("Couldn't copy headers to the clipboard."),
+            );
           }),
       );
   }

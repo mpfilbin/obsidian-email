@@ -16,7 +16,7 @@ function summary(over: Partial<MessageSummary> = {}): MessageSummary {
 }
 
 function body(over: Partial<MessageBody> = {}): MessageBody {
-  return { id: "m1", html: null, text: null, attachments: [], headers: {}, ...over };
+  return { id: "m1", html: null, text: null, attachments: [], headers: [], ...over };
 }
 
 function attachment(over: Partial<AttachmentMeta> = {}): AttachmentMeta {

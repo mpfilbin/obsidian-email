@@ -1,4 +1,4 @@
-import type { Address, AttachmentMeta, Contact, ContactDraft, FlagState, Mailbox, MailProvider, MessageBody, MessageSummary, OutgoingAttachment, OutgoingMessage, ProviderKind } from "../providers/types";
+import type { Address, AttachmentMeta, Contact, ContactDraft, FlagState, Mailbox, MailProvider, MessageBody, MessageHeader, MessageSummary, OutgoingAttachment, OutgoingMessage, ProviderKind } from "../providers/types";
 import { AuthError, ContactsConsentRequired, supportsContacts } from "../providers/types";
 import type { MailCache } from "../cache/mail-cache";
 import type { SyncEngine, SyncStatus } from "../sync/sync-engine";
@@ -136,7 +136,7 @@ export interface ViewModelDeps {
   showNotice: (message: string) => void;
   /** Displays a message's raw internet headers (From/To/Subject/Message-ID,
    *  Received chain, etc.) for inspection. */
-  showMessageHeaders?: (subject: string, headers: Record<string, string>) => void;
+  showMessageHeaders?: (subject: string, headers: MessageHeader[]) => void;
 }
 
 const PAGE = 50;
