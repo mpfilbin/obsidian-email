@@ -10,6 +10,7 @@ import { SaveEmailModal } from "./view/save-email-modal";
 import { FolderNameModal } from "./view/folder-name-modal";
 import { FollowUpDateModal } from "./view/follow-up-date-modal";
 import { NotePickerModal } from "./view/note-picker-modal";
+import { MessageHeadersModal } from "./view/message-headers-modal";
 import { renderNoteToHtml } from "./view/note-to-html";
 import { printHtml } from "./view/print-html";
 import { makeFormPost } from "./host/http-post";
@@ -58,6 +59,9 @@ export default class EmailPlugin extends Plugin {
     const promptFollowUpDate = (onSubmit: (dueDate: number) => void): void => {
       new FollowUpDateModal(this.app, onSubmit).open();
     };
+    const showMessageHeaders = (subject: string, headers: Record<string, string>): void => {
+      new MessageHeadersModal(this.app, subject, headers).open();
+    };
 
     const saveBlob = makeSaveBlob({
       getAttachmentDir: () => settings.get().prefs.attachmentDir,
@@ -96,6 +100,7 @@ export default class EmailPlugin extends Plugin {
       settings,
       {
         http, secrets, post, openExternal, openEmailLink, showLinkContextMenu, saveBlob, saveNote, printHtml,
+        showMessageHeaders,
         promptFolderName, promptFollowUpDate, promptFolderRename, pickNoteAttachment, showNotice: notify,
       },
       logger,

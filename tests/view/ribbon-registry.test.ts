@@ -7,7 +7,7 @@ import {
 function actions(): RibbonActions {
   const names = [
     "newMessage", "reply", "replyAll", "forward", "editDraft", "archive", "deleteMessage", "move",
-    "closePane", "refresh", "toggleSearch", "newFolder", "renameFolder", "deleteFolder", "saveToVault", "print",
+    "closePane", "refresh", "toggleSearch", "newFolder", "renameFolder", "deleteFolder", "saveToVault", "print", "viewHeaders",
     "emailFromNote", "emailWithNoteAttached", "send", "saveDraft", "discardDraft", "attachNote",
     "toggleContacts", "newContact", "editContact", "deleteContact", "emailContact", "refreshContacts", "toggleFlag", "flagFollowUp", "flagCustomFollowUp", "completeFlag", "togglePin",
   ] as const;
@@ -95,6 +95,14 @@ describe("ribbon registry — Home enabled rules", () => {
     const c = ctx();
     cmd("print").run!(c);
     expect(c.actions.print).toHaveBeenCalledOnce();
+  });
+
+  it("View headers needs a target message and delegates to actions.viewHeaders", () => {
+    expect(enabled("view-headers", ctx())).toBe(true);
+    expect(enabled("view-headers", ctx({ hasTargetMessage: false }))).toBe(false);
+    const c = ctx();
+    cmd("view-headers").run!(c);
+    expect(c.actions.viewHeaders).toHaveBeenCalledOnce();
   });
 
   it("Refresh is disabled while syncing or with no account", () => {
@@ -187,7 +195,7 @@ describe("ribbon registry — contacts", () => {
 
   it("mail-only commands are disabled in contacts mode; compose entry points stay enabled", () => {
     const c = inContacts({ hasTargetMessage: true, hasOpenThread: true, mailboxKind: "custom" });
-    for (const id of ["reply", "reply-all", "forward", "archive", "delete", "move", "close-pane", "refresh", "search", "new-folder", "rename-folder", "delete-folder", "save-to-vault", "print"]) {
+    for (const id of ["reply", "reply-all", "forward", "archive", "delete", "move", "close-pane", "refresh", "search", "new-folder", "rename-folder", "delete-folder", "save-to-vault", "print", "view-headers"]) {
       expect(enabled(id, c), id).toBe(false);
     }
     for (const id of ["new-message", "email-from-note", "email-with-note-attached"]) {

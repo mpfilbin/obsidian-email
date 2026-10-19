@@ -75,6 +75,7 @@ function fakeVm(state: Partial<ViewState> = {}): ViewModel {
     deleteThreads: vi.fn(), archiveThreads: vi.fn(), moveThreads: vi.fn(), markThreadsRead: vi.fn(),
     moveThread: vi.fn(), requestCreateMailbox: vi.fn(), renameMailbox: vi.fn(), deleteMailbox: vi.fn(),
     requestRenameMailbox: vi.fn(), requestAttachNote: vi.fn(), saveMessageToVault: vi.fn(), printMessage: vi.fn(),
+    viewMessageHeaders: vi.fn(),
     removeComposerAttachment: vi.fn(),
     setMode: vi.fn(), searchContacts: vi.fn(), selectContact: vi.fn(), newContact: vi.fn(), editContact: vi.fn(),
     updateContactDraft: vi.fn(), saveContact: vi.fn(), cancelContactEdit: vi.fn(), deleteContact: vi.fn(),
@@ -646,6 +647,26 @@ describe("App.svelte — delete/archive wiring", () => {
 
     host.querySelector<HTMLElement>('.oe-ribbon [data-action="print"]')!.click();
     expect(printMessage).toHaveBeenCalledWith("m1");
+    unmount(app);
+  });
+
+  it("clicking View headers shows the currently open message's headers", () => {
+    const viewMessageHeaders = vi.fn();
+    const vm = fakeVm({
+      openThreadId: "t1",
+      openMessages: [{ summary: {
+        id: "m1", threadId: "t1", mailboxIds: ["INBOX"], from: { name: "Jane", email: "j@x.com" },
+        to: [], cc: [], subject: "Hello", snippet: "hi there", date: 1,
+        unread: true, hasAttachments: false, flagged: false,
+      } }],
+    });
+    Object.assign(vm, { viewMessageHeaders });
+    const host = document.createElement("div");
+    const app = mount(App, { target: host, props: appProps(vm) });
+    flushSync();
+
+    host.querySelector<HTMLElement>('.oe-ribbon [data-action="view-headers"]')!.click();
+    expect(viewMessageHeaders).toHaveBeenCalledWith("m1");
     unmount(app);
   });
 

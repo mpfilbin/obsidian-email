@@ -1890,6 +1890,68 @@ describe("ViewModel — printMessage", () => {
   });
 });
 
+describe("ViewModel — viewMessageHeaders", () => {
+  it("hands the host the open message's subject and headers", async () => {
+    const showMessageHeaders = vi.fn();
+    const ctx = await build();
+    const vm = new ViewModel({
+      ...contactDeps(() => ctx.provider),
+      cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
+      isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {}, printHtml: () => {},
+      promptFolderName: () => {}, promptFolderRename: () => {}, pickNoteAttachment: async () => undefined, showNotice: vi.fn(),
+      showMessageHeaders,
+    });
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await vm.init();
+    await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1)]);
+    ctx.provider.getMessageBody = vi.fn().mockResolvedValue({
+      id: "m1", html: "<p>hi</p>", text: null, attachments: [], headers: { "message-id": "<abc@x.com>" },
+    });
+    await vm.openThread("t1");
+
+    await vm.viewMessageHeaders("m1");
+
+    expect(showMessageHeaders).toHaveBeenCalledWith("s t1", { "message-id": "<abc@x.com>" });
+  });
+
+  it("sets a notice instead of showing headers when the body never loaded and isn't cached", async () => {
+    const showMessageHeaders = vi.fn();
+    const showNotice = vi.fn();
+    const ctx = await build();
+    const vm = new ViewModel({
+      ...contactDeps(() => ctx.provider),
+      cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
+      isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {}, printHtml: () => {},
+      promptFolderName: () => {}, promptFolderRename: () => {}, pickNoteAttachment: async () => undefined, showNotice,
+      showMessageHeaders,
+    });
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await vm.init();
+    await ctx.cache.upsertMessages("a1", [sum("m1", "t1", 1)]);
+    ctx.provider.getMessageBody = vi.fn().mockRejectedValue(new Error("network"));
+    await vm.openThread("t1");
+
+    await vm.viewMessageHeaders("m1");
+
+    expect(showMessageHeaders).not.toHaveBeenCalled();
+    expect(showNotice).toHaveBeenCalledWith(expect.stringMatching(/still loading/i));
+  });
+
+  it("does nothing for a message id that isn't currently open", async () => {
+    const showMessageHeaders = vi.fn();
+    const ctx = await build();
+    const vm = new ViewModel({
+      ...contactDeps(() => ctx.provider),
+      cache: ctx.cache, sync: ctx.sync, settings: ctx.settings, getProvider: () => ctx.provider,
+      isOnline: () => true, openExternal: () => {}, saveBlob: async () => {}, saveNote: () => {}, printHtml: () => {},
+      promptFolderName: () => {}, promptFolderRename: () => {}, pickNoteAttachment: async () => undefined, showNotice: vi.fn(),
+      showMessageHeaders,
+    });
+    await vm.viewMessageHeaders("does-not-exist");
+    expect(showMessageHeaders).not.toHaveBeenCalled();
+  });
+});
+
 describe("ViewModel — folder sync", () => {
   it("picks up a folder created elsewhere without switching accounts", async () => {
     const ctx = await build();

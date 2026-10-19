@@ -134,6 +134,9 @@ export interface ViewModelDeps {
   /** Shows a transient, auto-dismissing toast (Obsidian's own `Notice`) —
    *  used for one-off confirmations and errors instead of persistent state. */
   showNotice: (message: string) => void;
+  /** Displays a message's raw internet headers (From/To/Subject/Message-ID,
+   *  Received chain, etc.) for inspection. */
+  showMessageHeaders?: (subject: string, headers: Record<string, string>) => void;
 }
 
 const PAGE = 50;
@@ -1313,6 +1316,22 @@ export class ViewModel {
       }
     }
     this.deps.printHtml(messageToPrintHtml(found.summary, body, { allowRemote: this.state.autoLoadImages }));
+  }
+
+  /** Shows the given (already-open) message's raw internet headers. */
+  async viewMessageHeaders(messageId: string): Promise<void> {
+    const found = this.state.openMessages.find((m) => m.summary.id === messageId);
+    if (!found) return;
+    let body = found.body;
+    if (!body) {
+      const acct = this.state.activeAccountId;
+      body = acct ? await this.deps.cache.getBody(acct, messageId) : undefined;
+      if (!body) {
+        this.deps.showNotice("Message body still loading — try again in a moment.");
+        return;
+      }
+    }
+    this.deps.showMessageHeaders?.(found.summary.subject, body.headers);
   }
 
   async refresh(): Promise<void> {
