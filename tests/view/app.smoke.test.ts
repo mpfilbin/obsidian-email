@@ -126,7 +126,7 @@ describe("App.svelte smoke", () => {
 
   it("shows a persistent 'Refreshing…' toast while any account is syncing, hidden once idle", () => {
     const hide = vi.fn();
-    const noticeSpy = vi.spyOn(obsidian, "Notice").mockImplementation(() => ({ hide }) as never);
+    const noticeSpy = vi.spyOn(obsidian, "Notice").mockImplementation((function () { return { hide }; }) as never);
     const vm = fakeVm({ accounts: [{ id: "a1", email: "a1@x.com", provider: "ms-graph", status: "syncing" }] });
     const host = document.createElement("div");
     const app = mount(App, { target: host, props: appProps(vm) });
@@ -143,7 +143,7 @@ describe("App.svelte smoke", () => {
   });
 
   it("shows no toast when idle", () => {
-    const noticeSpy = vi.spyOn(obsidian, "Notice").mockImplementation(() => ({ hide: vi.fn() }) as never);
+    const noticeSpy = vi.spyOn(obsidian, "Notice").mockImplementation((function () { return { hide: vi.fn() }; }) as never);
     const app = mount(App, { target: document.createElement("div"), props: appProps(fakeVm()) });
     flushSync();
     expect(noticeSpy).not.toHaveBeenCalled();
