@@ -1,12 +1,12 @@
 {
   "name": "obsidian-email",
-  "version": "0.12.1",
+  "version": "0.12.2",
   "private": true,
   "description": "A full Microsoft 365 email client inside Obsidian.",
   "license": "MIT",
   "type": "module",
   "engines": {
-    "node": ">=24",
+    "node": ">=26",
     "npm": ">=11"
   },
   "scripts": {
@@ -19,7 +19,7 @@
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^4.0.4",
     "@tsconfig/svelte": "^5.0.4",
-    "@types/node": "^24",
+    "@types/node": "^26",
     "@types/turndown": "^5.0.6",
     "esbuild": "^0.28.2",
     "esbuild-svelte": "^0.8.2",
