@@ -149,7 +149,7 @@ Tick conversations to act on many at once:
 
 ## Development
 
-**Prerequisites:** Node.js **24+** and npm **11+**. The pinned version lives in
+**Prerequisites:** Node.js **26+** and npm **11+**. The pinned version lives in
 `.tool-versions` (`asdf install` picks it up); `npm install` enforces it via
 `engine-strict`. CI reads the same `.tool-versions` file.
 
