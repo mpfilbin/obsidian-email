@@ -54,3 +54,19 @@ if (typeof Range.prototype.getClientRects !== "function") {
   Range.prototype.getClientRects = () =>
     ({ length: 0, item: () => null, [Symbol.iterator]: function* () {} }) as unknown as DOMRectList;
 }
+
+// Node 25+ ships its own global `localStorage`, which stays unusable without
+// --localstorage-file and shadows jsdom's. Fall back to an in-memory Storage so
+// code reading/writing localStorage behaves as it does in Obsidian's Electron.
+if (typeof globalThis.localStorage?.clear !== "function") {
+  const data = new Map<string, string>();
+  const storage: Storage = {
+    get length() { return data.size; },
+    clear: () => data.clear(),
+    getItem: (key) => data.get(key) ?? null,
+    key: (index) => [...data.keys()][index] ?? null,
+    removeItem: (key) => { data.delete(key); },
+    setItem: (key, value) => { data.set(key, String(value)); },
+  };
+  Object.defineProperty(globalThis, "localStorage", { value: storage, configurable: true });
+}
