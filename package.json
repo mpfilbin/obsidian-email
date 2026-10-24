@@ -1,6 +1,6 @@
 {
   "name": "obsidian-email",
-  "version": "0.12.4",
+  "version": "0.12.5",
   "private": true,
   "description": "A full Microsoft 365 email client inside Obsidian.",
   "license": "MIT",
