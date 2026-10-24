@@ -1,6 +1,6 @@
 {
   "name": "obsidian-email",
-  "version": "0.12.2",
+  "version": "0.12.3",
   "private": true,
   "description": "A full Microsoft 365 email client inside Obsidian.",
   "license": "MIT",
@@ -28,7 +28,7 @@
     "obsidian": "^1.11.4",
     "svelte": "^5.0.0",
     "tslib": "^2.6.3",
-    "typescript": "^5.5.2",
+    "typescript": "^7.0.2",
     "vitest": "^2.0.0"
   },
   "dependencies": {
