@@ -80,7 +80,7 @@ was checked. **Accepted**: inherited from the platform or a deliberate trade-off
 
 Desktop only (`isDesktopOnly: true`). The code runs in Obsidian's Electron
 renderer, which has Node/Electron access (the plugin itself calls
-`require("electron")` in `src/main.ts:47`). **Any script execution in this renderer
+`require("electron")` in `src/main.ts:44`). **Any script execution in this renderer
 is full code execution on the user's machine.**
 
 ### 2.2 Assets
