@@ -107,7 +107,7 @@ describe("PluginContext", () => {
     const cursorOpen = vi
       .spyOn(CursorStore, "open")
       .mockRejectedValueOnce(new Error("idb blocked"));
-    const notice = vi.spyOn(obsidian, "Notice").mockImplementation((() => ({})) as never);
+    const notice = vi.spyOn(obsidian, "Notice").mockImplementation((function () { return {}; }) as never);
 
     const settings = await SettingsStore.load({ loadData: async () => null, saveData: async () => {} });
     await settings.addAccount({ id: "a1", email: "a1@g.com", provider: "ms-graph", clientId: "c", addedAt: 0 });
@@ -219,7 +219,7 @@ describe("PluginContext", () => {
     // openWithTimeout turns a never-settling open into a CacheOpenTimeout,
     // which the degraded path reports differently from a plain failure.
     const cacheOpen = vi.spyOn(MailCache, "open").mockReturnValue(new Promise(() => {}));
-    const notice = vi.spyOn(obsidian, "Notice").mockImplementation((() => ({})) as never);
+    const notice = vi.spyOn(obsidian, "Notice").mockImplementation((function () { return {}; }) as never);
     try {
       const settings = await SettingsStore.load({ loadData: async () => null, saveData: async () => {} });
       const ctx = await PluginContext.create(settings, { ...hostDeps(), cacheOpenTimeoutMs: 20 }, logger);
@@ -242,7 +242,7 @@ describe("PluginContext", () => {
     for (const [label, open] of cases) {
       it(`when the contacts open ${label}, mail stays persistent and contacts fall back to memory`, async () => {
         const contactOpen = vi.spyOn(ContactCache, "open").mockImplementation(open);
-        const notice = vi.spyOn(obsidian, "Notice").mockImplementation((() => ({})) as never);
+        const notice = vi.spyOn(obsidian, "Notice").mockImplementation((function () { return {}; }) as never);
         const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
         try {
           const settings = await SettingsStore.load({ loadData: async () => null, saveData: async () => {} });
