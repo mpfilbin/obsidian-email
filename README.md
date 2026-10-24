@@ -146,6 +146,9 @@ Tick conversations to act on many at once:
   `javascript:` URLs are stripped) before it is rendered.
 - **No telemetry.** The plugin talks only to Microsoft's APIs and to a
   `localhost` loopback address for the OAuth redirect.
+- A STRIDE **threat model**, including known gaps and the security invariants
+  the code is meant to uphold, is in
+  [`docs/security/threat-model.md`](docs/security/threat-model.md).
 
 ## Development
 
@@ -167,6 +170,10 @@ Other commands:
 - `npm test` — run the vitest suite.
 - `npm run typecheck` — `tsc --noEmit`.
 - `npm run build` — typecheck + production bundle (`main.js`).
+
+**Architectural changes** (new endpoints, scopes, storage, HTML sinks, CI or
+release steps) must be checked against, and update, the
+[threat model](docs/security/threat-model.md) — see its §1.2 for the full list.
 
 Design spec and implementation plan:
 
