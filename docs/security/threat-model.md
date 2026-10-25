@@ -3,8 +3,8 @@
 | | |
 |---|---|
 | **Method** | STRIDE, applied per component and per trust boundary, plus an active threat hunt (code review and proof-of-concept testing) |
-| **Version reviewed** | 0.12.5 (commit `3e3643c`) |
-| **Last updated** | 2026-10-24 |
+| **Version reviewed** | 0.12.6. Full analysis and all `file:line` citations are against 0.12.5 (commit `3e3643c`); `src/`, `styles.css` and the workflows are unchanged since, so the citations still hold |
+| **Last updated** | 2026-10-25 |
 | **Status** | Living document. Update it in the same PR as any change listed in [§1.2](#12-when-you-must-update-this-document) |
 
 ---
