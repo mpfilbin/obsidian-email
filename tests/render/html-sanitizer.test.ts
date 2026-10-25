@@ -133,7 +133,6 @@ describe("sanitizeEmailHtml — remote-content negative control", () => {
     ["img protocol-relative src", '<img src="//tracker.example/x.png">'],
     ["svg image href", '<svg><image href="https://tracker.example/x.png"></image></svg>'],
     ["svg image xlink:href", '<svg><image xlink:href="https://tracker.example/x.png"></image></svg>'],
-    ["svg use xlink:href", '<svg><use xlink:href="https://tracker.example/x.svg#i"></use></svg>'],
     ["video poster", '<video poster="https://tracker.example/x.jpg"></video>'],
     ["video src", '<video src="https://tracker.example/x.mp4"></video>'],
     ["audio src", '<audio src="https://tracker.example/x.mp3"></audio>'],
@@ -153,6 +152,22 @@ describe("sanitizeEmailHtml — remote-content negative control", () => {
       expect(r.html, `${label} leaked a protocol-relative tracker URL`).not.toContain("//tracker");
     });
   }
+});
+
+describe("sanitizeEmailHtml — svg <use>", () => {
+  // DOMPurify never allows <use> and deletes it outright, so no remote
+  // reference survives and there is nothing to offer to "load". DOMPurify
+  // 3.4.15 still ran attribute hooks on the element it was removing, which is
+  // what used to raise the banner here; 3.4.17 does not. The property that
+  // matters is that nothing leaks.
+  it.each([
+    ["xlink:href", '<svg><use xlink:href="https://tracker.example/x.svg#i"></use></svg>'],
+    ["href", '<svg><use href="https://tracker.example/x.svg#i"></use></svg>'],
+  ])("drops a <use> with a remote %s entirely", (_label, raw) => {
+    const r = clean(raw);
+    expect(r.html).not.toContain("<use");
+    expect(r.html).not.toContain("tracker");
+  });
 });
 
 describe("sanitizeEmailHtml — <style> elements", () => {

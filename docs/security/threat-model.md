@@ -3,8 +3,8 @@
 | | |
 |---|---|
 | **Method** | STRIDE, applied per component and per trust boundary, plus an active threat hunt (code review and proof-of-concept testing) |
-| **Version reviewed** | 0.12.5 (commit `3e3643c`) |
-| **Last updated** | 2026-10-24 |
+| **Version reviewed** | 0.12.6. Full analysis and all `file:line` citations are against 0.12.5 (commit `3e3643c`); `src/`, `styles.css` and the workflows are unchanged since, so the citations still hold |
+| **Last updated** | 2026-10-25 |
 | **Status** | Living document. Update it in the same PR as any change listed in [§1.2](#12-when-you-must-update-this-document) |
 
 ---
@@ -422,7 +422,7 @@ and only settle on a request whose `state` matches; keep listening until the tim
 
 | ID | Threat | Rating | Status | Notes | Rec. |
 |---|---|---|---|---|---|
-| E-1 | **Script execution in the privileged renderer.** Attacker HTML is assigned with `container.innerHTML = html` (`message-renderer.ts:68`) in Obsidian's own document (no iframe, no CSP, no Trusted Types). A DOMPurify bypass or mutation-XSS is therefore code execution with Node access. The configuration is customised (`ALLOWED_URI_REGEXP`, two hooks, `ADD_ATTR: xlink:href`), which enlarges the surface beyond stock DOMPurify. `npm audit` reports DOMPurify ≤ 3.4.16 as **critical** (5 advisories: `IN_PLACE`, `SAFE_FOR_TEMPLATES`, XHTML-mode SMIL). We use none of those options, so none is reachable today, but the installed 3.4.15 should be bumped to 3.4.17 | High | Partially mitigated | DOMPurify, forbidden tags, `ALLOW_DATA_ATTR: false`, URI allowlist, `target`/`rel` hook, plain-text path escapes, body `contain: content`. Gap: single layer | R-2, R-5 |
+| E-1 | **Script execution in the privileged renderer.** Attacker HTML is assigned with `container.innerHTML = html` (`message-renderer.ts:68`) in Obsidian's own document (no iframe, no CSP, no Trusted Types). A DOMPurify bypass or mutation-XSS is therefore code execution with Node access. The configuration is customised (`ALLOWED_URI_REGEXP`, two hooks, `ADD_ATTR: xlink:href`), which enlarges the surface beyond stock DOMPurify. `npm audit` reported DOMPurify ≤ 3.4.16 as **critical** (5 advisories: `IN_PLACE`, `SAFE_FOR_TEMPLATES`, XHTML-mode SMIL). We use none of those options, so none was reachable; 3.4.17 is now installed (0.12.6) and the production audit no longer reports it | High | Partially mitigated | DOMPurify, forbidden tags, `ALLOW_DATA_ATTR: false`, URI allowlist, `target`/`rel` hook, plain-text path escapes, body `contain: content`. Gap: single layer | R-2, R-5 |
 | E-2 | **Broad OAuth scopes** (`Mail.ReadWrite`, `Mail.Send`, `Contacts.ReadWrite`, `offline_access`, `User.Read`): any token theft or renderer compromise can read, send and delete all mail | Medium | Accepted | Needed for features; scopes are minimal for them. Re-evaluate if features are dropped | n/a |
 | E-3 | **Co-resident plugins share all privileges** (AS-1, AS-3): they can read secrets and the cache and call any API the plugin can | Medium | Accepted | Inherited from Obsidian's plugin model; document for users | R-13 |
 | E-4 | **Malicious release.** Anything that lets an attacker alter `main.js` (T-8) lands with A1 to A8 on every installed copy | High (impact) | Reasoned | Depends on branch protection (AS-5) and CI hygiene | R-7 |
@@ -446,7 +446,7 @@ Kept so nobody spends time re-chasing them. Revisit if the code in question chan
 
 | Package | Severity | Shipped in `main.js`? | Assessment |
 |---|---|---|---|
-| `dompurify` 3.4.15 (prod) | Critical | Yes | Advisories concern options we do not use (E-1). **Bump to 3.4.17** |
+| `dompurify` 3.4.17 (prod) | None (was Critical on 3.4.15) | Yes | Advisories concerned options we do not use (E-1). **Fixed in 0.12.6.** 3.4.17 also stopped running attribute hooks on elements it removes (see the 2026-10-25 review-log entry) |
 | `quill` 2.0.3 (prod) | Low | Yes | `getSemanticHTML` is not used. No fixed release exists. Watch for one |
 | `devalue` ≤ 5.9.2 (via `svelte`) | High | **No** (0 matches in the bundle) | Build-time only |
 | `moment` / `obsidian` (dev) | Moderate | No (type-only package) | Not shipped |
@@ -505,7 +505,7 @@ risk reduced per effort.
 |---|---|---|---|
 | **R-1** | Validate every outgoing request URL with `new URL()`: `https:` and origin `graph.microsoft.com` only; `encodeURIComponent` all path IDs; validate delta links and page tokens when read from the cache | T-1, T-2, V-2, V-9 | S |
 | **R-3** | Replace the `STYLE_BLOCK` regex with a linear scan; cap body size before sanitizing; add a hostile-input timing test | D-1, V-4 | S |
-| **R-5** | Bump `dompurify` to 3.4.17; keep Dependabot security updates on; add a CI step `npm audit --omit=dev --audit-level=high` | E-1, §5.8 | S |
+| **R-5** | ~~Bump `dompurify` to 3.4.17~~ (done in 0.12.6). Still open: keep Dependabot security updates on; add a CI step `npm audit --omit=dev --audit-level=high` | E-1, §5.8 | S |
 | **R-4** | Add a scheme allowlist inside `openExternal` (`http`, `https`, `mailto`) and confirm before anything else | I-6, V-5 | S |
 | **R-6** | Notes: sanitize with `allowRemote: false`, strip `class`, force the fence language to a safe set | T-4, V-6 | S |
 | **R-11** | Loopback: ignore requests without `code`/`error`; settle only on a matching `state` | D-2 | S |
@@ -564,3 +564,4 @@ The README's "Security notes" section makes user-facing promises. Status against
 | Date | Version | Change |
 |---|---|---|
 | 2026-10-24 | 0.12.5 | Initial model and threat hunt. Confirmed T-1, T-3, T-4, D-1, D-2; disproved N-1 to N-7 |
+| 2026-10-25 | 0.12.6 | `dompurify` 3.4.15 to 3.4.17 (R-5, E-1, §5.8). Behavioural note for T-3: 3.4.15 still ran `uponSanitizeAttribute` hooks on elements it was removing (e.g. `<svg><use xlink:href>`), and the plugin's banner flag relied on that quirk; 3.4.17 does not. The element is deleted either way, so nothing leaks, but it shows the flag-after-the-fact design is fragile: do not depend on hooks seeing removed nodes. The remote-content bypasses in T-3 are unchanged: `feImage href` / `xlink:href` still pass through 3.4.17 |
