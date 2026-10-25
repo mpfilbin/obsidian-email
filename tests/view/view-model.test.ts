@@ -261,8 +261,10 @@ describe("ViewModel", () => {
     await ctx.vm.init();
     await ctx.cache.upsertMessages("a1", [sum("m2", "t2", 5)]);
     ctx.sync.changes.emit({ accountId: "a1", mailboxIds: ["INBOX"], reason: "incremental" });
-    await new Promise((resolve) => setTimeout(resolve));
-    expect(ctx.vm.getState().threads.map((t) => t.threadId)).toEqual(["t2", "t1"]);
+    // The view model reloads in the background (`void this.reloadList()`), reading
+    // through IndexedDB over several ticks, so wait for the result: one
+    // macrotask is not enough on a loaded runner.
+    await vi.waitFor(() => expect(ctx.vm.getState().threads.map((t) => t.threadId)).toEqual(["t2", "t1"]));
   });
 
   describe("flagging", () => {
