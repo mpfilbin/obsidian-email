@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Method** | STRIDE, applied per component and per trust boundary, plus an active threat hunt (code review and proof-of-concept testing) |
-| **Version reviewed** | 0.12.9. Full analysis and all `file:line` citations are against 0.12.5 (commit `3e3643c`); `src/`, `styles.css` and the workflows are unchanged since, so the citations still hold |
+| **Version reviewed** | 0.12.11. Full analysis and all `file:line` citations are against 0.12.5 (commit `3e3643c`); `src/`, `styles.css` and the workflows are unchanged since, so the citations still hold |
 | **Last updated** | 2026-10-25 |
 | **Status** | Living document. Update it in the same PR as any change listed in [§1.2](#12-when-you-must-update-this-document) |
 
@@ -448,7 +448,7 @@ Kept so nobody spends time re-chasing them. Revisit if the code in question chan
 |---|---|---|---|
 | `dompurify` 3.4.17 (prod) | None (was Critical on 3.4.15) | Yes | Advisories concerned options we do not use (E-1). **Fixed in 0.12.6.** 3.4.17 also stopped running attribute hooks on elements it removes (see the 2026-10-25 review-log entry) |
 | `quill` 2.0.3 (prod) | Low | Yes | `getSemanticHTML` is not used. No fixed release exists. Watch for one |
-| `devalue` ≤ 5.9.2 (via `svelte`) | High | **No** (0 matches in the bundle) | Build-time only |
+| `devalue` 5.9.4 (via `svelte`) | None (was High on ≤ 5.9.2) | **No** (0 matches in the bundle) | Build-time only; cleared in 0.12.11 |
 | `moment` / `obsidian` (dev) | None (was Moderate) | No (type-only package) | Cleared in 0.12.9: `obsidian` 1.14.4 pulls `moment` 2.31.0 |
 
 ---
@@ -566,3 +566,4 @@ The README's "Security notes" section makes user-facing promises. Status against
 | 2026-10-24 | 0.12.5 | Initial model and threat hunt. Confirmed T-1, T-3, T-4, D-1, D-2; disproved N-1 to N-7 |
 | 2026-10-25 | 0.12.6 | `dompurify` 3.4.15 to 3.4.17 (R-5, E-1, §5.8). Behavioural note for T-3: 3.4.15 still ran `uponSanitizeAttribute` hooks on elements it was removing (e.g. `<svg><use xlink:href>`), and the plugin's banner flag relied on that quirk; 3.4.17 does not. The element is deleted either way, so nothing leaks, but it shows the flag-after-the-fact design is fragile: do not depend on hooks seeing removed nodes. The remote-content bypasses in T-3 are unchanged: `feImage href` / `xlink:href` still pass through 3.4.17 |
 | 2026-10-25 | 0.12.9 | Dependency posture only (§5.8): `obsidian` 1.13.1 to 1.14.4 clears the moderate `moment`/`obsidian` advisories (dev-only, not shipped). No change to threats, controls or citations |
+| 2026-10-25 | 0.12.11 | Dependency posture only (§5.8): `devalue` 5.9.2 to 5.9.4 (lockfile-only, transitive via `svelte`, not shipped) clears the high-severity finding. `npm audit` now reports only the low `quill` advisory (`getSemanticHTML` unused; no fixed release exists). No change to threats, controls or citations |
