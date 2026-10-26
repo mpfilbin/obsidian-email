@@ -910,7 +910,12 @@ export class ViewModel {
     const many = ids.length > 1;
     let op: PendingOp | undefined;
     try {
-      const messages = (await Promise.all(ids.map((id) => this.deps.cache.getThreadMessages(acct, id)))).flat();
+      const cached = (await Promise.all(ids.map((id) => this.deps.cache.getThreadMessages(acct, id)))).flat();
+      // A message already on its way as a single-message op (the ribbon's
+      // Delete on one expanded message) mustn't be sent a second time.
+      const messageInFlight = pendingMessageIds(this.state);
+      const messages = cached.filter((m) => !messageInFlight.has(m.id));
+      if (messages.length === 0 && cached.length > 0) return;
       // Nothing cached under these threadIds — a search hit whose conversation
       // was never independently cached, say. There is nothing to act on, and
       // the partial-failure notice below can't fire for an empty input, so say

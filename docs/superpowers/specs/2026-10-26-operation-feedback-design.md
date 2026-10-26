@@ -44,14 +44,18 @@ array are unchanged; omitting the callback is identical to today, so the
 mark-read path is untouched. A throwing callback must not break the pool —
 it is wrapped in try/catch and ignored.
 
-### Operation state (`src/view/view-model.ts`)
+### Operation state (`src/view/pending-ops.ts`, `src/view/view-model.ts`)
+
+The type, the derived helpers, the toast text and `OPERATION_TOAST_DELAY_MS`
+live in `src/view/pending-ops.ts` (pure, no `"obsidian"` import) to keep
+`view-model.ts` from growing; the view-model owns the state and the
+transitions.
 
 ```ts
 export interface PendingOp {
   id: string;                         // unique per run (counter, not a message id)
   accountId: string;
-  verb: "Deleting" | "Archiving" | "Moving";
-  pastTense: "Deleted" | "Archived" | "Moved";
+  pastTense: "Deleted" | "Archived" | "Moved"; // the progress verb is derived from it
   destinationLabel?: string;          // moves only: the target mailbox's name
   threadIds: string[];                // rows to mark pending (empty for single-message ops)
   messageIds: string[];               // every message the op will touch
@@ -70,7 +74,7 @@ export interface PendingOp {
   `this.set({ pendingOps })` (immutable replace, like the rest of the state).
 - `actOnMessage` (reading-pane single delete/archive) registers an op with
   `threadIds: []` and one `messageId`.
-- Derived helpers exported next to `groupThreads`:
+- Derived helpers exported from `pending-ops.ts`:
   `pendingThreadIds(state): Set<string>` and `pendingMessageIds(state):
   Set<string>`, both filtered to `state.activeAccountId` — an op started
   before an account switch keeps running (and keeps its toast) but must not
@@ -79,7 +83,9 @@ export interface PendingOp {
   op for that account before doing anything, and `actOnMessage` returns early
   for a pending message. This prevents double-sends from a double click, and
   a delete racing an archive on the same thread. If everything was filtered
-  out it returns silently.
+  out it returns silently. `actOnThreads` also skips any *message* already in
+  flight as a single-message op (the ribbon's Delete on one expanded message),
+  so a thread-level action on the same conversation can't send it twice.
 - The selection is cleared of the acted threads **at start** instead of after
   completion, so the bulk bar disappears and cannot be re-triggered. Failed
   threads stay in the list, unticked, as they do today.
@@ -105,9 +111,9 @@ not lose the pending marking.
 
 The view-model never imports `"obsidian"`; it only calls `deps.showNotice`.
 To know whether the toast was shown, the **view** owns the toast (below) and
-the view-model decides purely on elapsed time: `actOnThreads` records the start
-time and applies the same `OPERATION_TOAST_DELAY_MS` constant (exported from
-`view-model.ts`) when choosing whether to send the success notice.
+the view-model decides purely on elapsed time: `actOnThreads`/`actOnMessage`
+record the start time and apply the same `OPERATION_TOAST_DELAY_MS` constant
+(from `pending-ops.ts`) when choosing whether to send the success notice.
 
 ## UI
 
@@ -145,29 +151,30 @@ export function showOperationToast(text: string): OperationToast
 
 - New prop `pending?: boolean`, passed from `MessageList` using
   `pendingThreadIds`.
-- When pending: `is-pending` class (dimmed, no pointer events on the hover
-  action buttons), `aria-busy="true"`, a small spinner (Lucide `loader`
-  rendered with the existing `icon` action) in place of the hover buttons, the
+- When pending: `is-pending` class (dimmed), `aria-busy="true"`, a small
+  spinner with a "Working…" label (Lucide `loader` rendered with the existing
+  `icon` action) in place of the hover buttons, the
   select checkbox disabled, `draggable` off, and click/Enter/Space inert — the
   thread is about to disappear, so opening it would race the reload.
 - The row's context menu is suppressed while pending.
 
-### Reading pane (`ReadingPane.svelte`, `MessageBlock.svelte`)
+### Reading pane
 
-- `MessageBlock` gets `pending?: boolean` (from `pendingMessageIds`): its
-  Delete/Archive controls are disabled and show the spinner. The rest of the
-  pane stays usable.
-- If the open thread's row is pending (a thread-level action from the list or
-  ribbon), the pane's header actions are disabled the same way; reading remains
-  possible.
+No change. `MessageBlock` has no delete/archive controls of its own — those
+actions live in the ribbon — so there is nothing to disable in the pane, and
+reading a pending conversation stays possible.
 
 ### Bulk bar and ribbon
 
 - Because selection is cleared at start, the bulk bar needs no change.
-- The ribbon's Archive/Delete/Move `enabled` predicates (in
-  `view/ribbon/registry.ts`) gain `!c.openThreadPending`; `RibbonContext` gains
-  `openThreadPending`, computed in `App.svelte`. Row buttons and the context
-  menu are covered by the re-entry guard and the row's inert state.
+- The ribbon's Archive/Delete `enabled` predicates (in
+  `view/ribbon/registry.ts`) gain `&& !c.targetMessagePending` on the
+  no-selection branch, and Move gains `&& !c.openThreadPending`. `RibbonContext`
+  gets both fields, computed in `App.svelte` from `pendingMessageIds` /
+  `pendingThreadIds`. A ticked selection still enables them: those threads are
+  unticked the moment their operation starts, so what remains ticked is not
+  pending. Row buttons and the context menu are covered by the re-entry guard
+  and the row's inert state.
 
 ### Styling (`styles.css`)
 
@@ -178,7 +185,8 @@ export function showOperationToast(text: string): OperationToast
 ```
 
 `styles.css` has no `@keyframes` today (the old refresh spinner was removed in
-favour of the toast), so this adds `oe-spin`. Colours come from Obsidian CSS
+favour of the toast), so this adds `oe-spin`; the operation toast's icon opts
+in with an `oe-spin` class so the sync toast's mail icon stays still. Colours come from Obsidian CSS
 variables only.
 
 ## Error handling
@@ -215,8 +223,8 @@ variables only.
 - `describePendingOps`: the single/plural/summed/mixed/move cases.
 - `operation-toast`: update rewrites in place; `hide` is idempotent.
 - Components: `ThreadRow` pending (class, `aria-busy`, spinner, disabled
-  checkbox, inert click); `MessageBlock` pending controls; ribbon registry
-  predicates with `openThreadPending`; App smoke — toast appears only after
+  checkbox, inert click); ribbon registry predicates with
+  `targetMessagePending` / `openThreadPending`; App smoke — toast appears only after
   the delay, updates, and is hidden when the op finishes.
 - `main.ts` untested by convention; no change is expected there.
 

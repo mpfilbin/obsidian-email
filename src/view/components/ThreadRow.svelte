@@ -6,7 +6,9 @@
 
   import { THREAD_DRAG_TYPE } from "../drag-types";
 
-  let { thread, isOpen, onOpen, isDraftsMailbox, isArchiveMailbox, isTrashMailbox, onArchive, onDelete, onToggleFlag, onTogglePin, onContextMenu, selected = false, selectionActive = false, onSelect = () => {} }: {
+  let { thread, isOpen, onOpen, isDraftsMailbox, isArchiveMailbox, isTrashMailbox, onArchive, onDelete, onToggleFlag, onTogglePin, onContextMenu, selected = false, selectionActive = false, onSelect = () => {}, pending = false }: {
+    /** A delete/archive/move of this thread is on its way to the server. */
+    pending?: boolean;
     thread: ThreadView; isOpen: boolean; onOpen: () => void;
     /** This row is ticked for a bulk action. */
     selected?: boolean;
@@ -30,11 +32,13 @@
   // Ctrl/Cmd-click ticks the row, Shift-click ticks a range, a plain click
   // opens it — the same modifiers file managers and mail clients use.
   function handleClick(e: MouseEvent): void {
+    if (pending) return;
     if (e.shiftKey) onSelect("range");
     else if (e.ctrlKey || e.metaKey) onSelect("toggle");
     else onOpen();
   }
   function handleKeydown(e: KeyboardEvent): void {
+    if (pending) return;
     if (e.key === "Enter") onOpen();
     else if (e.key === " ") { e.preventDefault(); onSelect("toggle"); }
   }
@@ -56,19 +60,22 @@
   class:is-pinned={pinned}
   class:is-selected={selected}
   class:selection-active={selectionActive}
+  class:is-pending={pending}
+  aria-busy={pending}
   onclick={handleClick}
   role="button"
   tabindex="0"
   onkeydown={handleKeydown}
   // A shift-click would otherwise also start a text selection across rows.
   onmousedown={(e) => { if (e.shiftKey) e.preventDefault(); }}
-  oncontextmenu={(e) => { e.preventDefault(); onContextMenu(e); }}
-  draggable="true"
+  oncontextmenu={(e) => { e.preventDefault(); if (!pending) onContextMenu(e); }}
+  draggable={pending ? "false" : "true"}
   ondragstart={(e) => e.dataTransfer?.setData(THREAD_DRAG_TYPE, thread.threadId)}
 >
   <input
     type="checkbox" class="oe-row-check" aria-label="Select conversation: {thread.subject}"
     checked={selected}
+    disabled={pending}
     onclick={(e) => { e.stopPropagation(); onSelect(e.shiftKey ? "range" : "toggle"); }}
     onkeydown={(e) => e.stopPropagation()}
   />
@@ -86,6 +93,11 @@
     {#if pinned}<span class="oe-pin" role="img" aria-label="pinned" use:icon={ACTION_ICON.pin}></span>{/if}
   </div>
   <div class="oe-thread-snippet">{newest.snippet}</div>
+  {#if pending}
+    <div class="oe-thread-actions oe-thread-pending" role="status">
+      <span class="oe-row-spinner" use:icon={ACTION_ICON.pending}></span>Working…
+    </div>
+  {:else}
   <div class="oe-thread-actions">
     <button type="button" data-action="flag" aria-pressed={flagged} onclick={(e) => { e.stopPropagation(); onToggleFlag(); }} onkeydown={(e) => e.stopPropagation()}>
       <span class="oe-action-icon" use:icon={flagged ? ACTION_ICON.unflag : ACTION_ICON.flag}></span>{flagged ? "Unflag" : "Flag"}
@@ -102,4 +114,5 @@
       <span class="oe-action-icon" use:icon={ACTION_ICON.delete}></span>Delete
     </button>
   </div>
+  {/if}
 </div>

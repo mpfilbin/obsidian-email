@@ -2816,6 +2816,34 @@ describe("ViewModel — multi-select and bulk actions", () => {
         await Promise.all([first, second]);
       });
 
+      it("does not resend a message that a single-message operation already has in flight", async () => {
+        const c = await build();
+        await seed(c, [sum("a", "t1", 1), sum("b", "t1", 2)]);
+        const g = gate(c, "deleteMessage");
+        const single = c.vm.deleteMessage("a");
+        await vi.waitFor(() => expect(ops(c)).toHaveLength(1));
+        const thread = c.vm.deleteThreads(["t1"]);
+        await vi.waitFor(() => expect(ops(c)).toHaveLength(2));
+        expect(ops(c)[1].messageIds).toEqual(["b"]);
+        await g.release("a");
+        await g.release("b");
+        await Promise.all([single, thread]);
+        expect(g.spy.mock.calls.map((a) => a[0]).sort()).toEqual(["a", "b"]);
+      });
+
+      it("does nothing when every message of the thread is already in flight", async () => {
+        const c = await build();
+        await seed(c, [sum("a", "t1", 1)]);
+        const g = gate(c, "deleteMessage");
+        const single = c.vm.deleteMessage("a");
+        await vi.waitFor(() => expect(ops(c)).toHaveLength(1));
+        await c.vm.archiveThreads(["t1"]);
+        expect(ops(c)).toHaveLength(1);
+        expect(c.showNotice).not.toHaveBeenCalled();
+        await g.release("a");
+        await single;
+      });
+
       it("unticks the threads as soon as the operation starts", async () => {
         const c = await build();
         await seed(c, [sum("a", "t1", 1), sum("b", "t2", 2)]);

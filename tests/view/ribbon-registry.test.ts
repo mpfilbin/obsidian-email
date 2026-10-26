@@ -18,7 +18,7 @@ function ctx(over: Partial<RibbonContext> = {}): RibbonContext {
   return {
     hasAccount: true, hasOpenThread: true, hasTargetMessage: true, mailboxKind: "inbox",
     otherMailboxes: [{ id: "ARCH", name: "Archive" }], readingPaneCollapsed: false, syncing: false, searchOpen: false,
-    composerMode: null, composerSending: false, openThreadFlagged: false, openThreadPinned: false, selectedCount: 0,
+    composerMode: null, composerSending: false, targetMessagePending: false, openThreadPending: false, openThreadFlagged: false, openThreadPinned: false, selectedCount: 0,
     mode: "mail", hasSelectedContact: false, selectedContactHasEmail: false, contactEditing: false, contactsBlocked: false, contactsSyncing: false,
     actions: actions(), ...over,
   };
@@ -341,5 +341,24 @@ describe("ribbon registry — pin", () => {
 
   it("Home's groups are New, Respond, Manage, Mark, Sync, Search, View", () => {
     expect(groupsForTab("home", ctx())).toEqual(["New", "Respond", "Manage", "Mark", "Sync", "Search", "View"]);
+  });
+
+  describe("pending operations", () => {
+    it("Archive and Delete are disabled while the expanded message is pending", () => {
+      for (const id of ["archive", "delete"]) {
+        expect(enabled(id, ctx({ targetMessagePending: true })), id).toBe(false);
+        expect(enabled(id, ctx({ targetMessagePending: false })), id).toBe(true);
+      }
+    });
+
+    it("Move is disabled while the open conversation is pending", () => {
+      expect(enabled("move", ctx({ openThreadPending: true }))).toBe(false);
+      expect(enabled("move", ctx({ openThreadPending: false }))).toBe(true);
+    });
+
+    it("a ticked selection still enables them (those threads are unticked once they start)", () => {
+      const c = ctx({ targetMessagePending: true, openThreadPending: true, selectedCount: 2 });
+      for (const id of ["archive", "delete", "move"]) expect(enabled(id, c), id).toBe(true);
+    });
   });
 });
