@@ -4,11 +4,15 @@
  * of simultaneous requests at Graph and trip its throttling.
  *
  * Results are in input order; a rejection never stops the remaining items.
+ * `onSettled`, if given, is called once per item as it settles (completion
+ * order) so callers can report progress; it can't disturb the pool, so a
+ * throwing callback is ignored.
  */
 export async function mapSettledLimit<T, R>(
   items: readonly T[],
   limit: number,
   fn: (item: T, index: number) => Promise<R>,
+  onSettled?: (result: PromiseSettledResult<R>, index: number) => void,
 ): Promise<Array<PromiseSettledResult<R>>> {
   const results: Array<PromiseSettledResult<R>> = new Array(items.length);
   let next = 0;
@@ -19,6 +23,11 @@ export async function mapSettledLimit<T, R>(
         results[i] = { status: "fulfilled", value: await fn(items[i], i) };
       } catch (reason) {
         results[i] = { status: "rejected", reason };
+      }
+      try {
+        onSettled?.(results[i], i);
+      } catch {
+        /* progress reporting must never break the pool */
       }
     }
   };

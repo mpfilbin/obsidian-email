@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ViewModel } from "../../src/view/view-model";
 import { MailCache } from "../../src/cache/mail-cache";
 import { CursorStore } from "../../src/cache/cursor-store";
@@ -8,6 +8,7 @@ import { FakeProvider } from "../../src/providers/fake-provider";
 import { Logger } from "../../src/util/logger";
 import { AuthError, ContactsConsentRequired } from "../../src/providers/types";
 import { contactDeps } from "../helpers/contact-deps";
+import { OPERATION_TOAST_DELAY_MS } from "../../src/view/pending-ops";
 import type { MessageSummary } from "../../src/providers/types";
 
 const logger = new Logger("t", { debug: () => false });
@@ -2716,6 +2717,184 @@ describe("ViewModel — multi-select and bulk actions", () => {
       expect(peak).toBeGreaterThan(1);
       expect(peak).toBeLessThanOrEqual(5);
       expect(await cachedIds(c)).toEqual([]);
+    });
+
+    describe("pending operations", () => {
+      /** Holds each provider call open until released, so state can be read mid-flight. */
+      function gate(c: Ctx, method: "deleteMessage" | "archiveMessage" | "moveMessage") {
+        const releases = new Map<string, (err?: Error) => void>();
+        const spy = vi.spyOn(c.provider, method as "deleteMessage").mockImplementation((id: string) =>
+          new Promise<void>((resolve, reject) => releases.set(id, (err) => (err ? reject(err) : resolve()))));
+        const release = async (id: string, err?: Error) => {
+          await vi.waitFor(() => expect(releases.has(id)).toBe(true));
+          releases.get(id)!(err);
+        };
+        return { spy, release };
+      }
+      const ops = (c: Ctx) => c.vm.getState().pendingOps;
+
+      it("tracks the operation while the server calls are open, advancing per message, then clears it", async () => {
+        const c = await build();
+        await seed(c, [sum("a", "t1", 1), sum("b", "t1", 2), sum("d", "t2", 3)]);
+        const g = gate(c, "deleteMessage");
+        const run = c.vm.deleteThreads(["t1", "t2"]);
+        await vi.waitFor(() => expect(ops(c)).toHaveLength(1));
+        expect(ops(c)[0]).toMatchObject({ accountId: "a1", pastTense: "Deleted", total: 3, done: 0, threadIds: ["t1", "t2"] });
+        expect(ops(c)[0].messageIds.sort()).toEqual(["a", "b", "d"]);
+        await g.release("a");
+        await vi.waitFor(() => expect(ops(c)[0].done).toBe(1));
+        await g.release("b");
+        await g.release("d");
+        await run;
+        expect(ops(c)).toEqual([]);
+      });
+
+      it("counts a failed message as settled and clears the operation", async () => {
+        const c = await build();
+        await seed(c, [sum("a", "t1", 1), sum("b", "t2", 2)]);
+        const g = gate(c, "archiveMessage");
+        const run = c.vm.archiveThreads(["t1", "t2"]);
+        await g.release("a", new Error("boom"));
+        await vi.waitFor(() => expect(ops(c)[0].done).toBe(1));
+        await g.release("b");
+        await run;
+        expect(ops(c)).toEqual([]);
+        expect(c.showNotice).toHaveBeenCalledWith("Archived 1 of 2 messages — 1 failed.");
+      });
+
+      it("clears the operation when everything fails", async () => {
+        const c = await build();
+        await seed(c, [sum("a", "t1", 1)]);
+        vi.spyOn(c.provider, "deleteMessage").mockRejectedValue(new Error("boom"));
+        await c.vm.deleteThreads(["t1"]);
+        expect(ops(c)).toEqual([]);
+      });
+
+      it("clears the operation when the cache write throws", async () => {
+        const c = await build();
+        await seed(c, [sum("a", "t1", 1)]);
+        vi.spyOn(c.cache, "deleteMessages").mockRejectedValue(new Error("idb down"));
+        await c.vm.deleteThreads(["t1"]);
+        expect(ops(c)).toEqual([]);
+        expect(c.showNotice).toHaveBeenCalled();
+      });
+
+      it("registers nothing when there is nothing cached to act on", async () => {
+        const c = await build();
+        await seed(c, [sum("a", "t1", 1)]);
+        await c.vm.deleteThreads(["nope"]);
+        expect(ops(c)).toEqual([]);
+      });
+
+      it("ignores a thread that is already being acted on", async () => {
+        const c = await build();
+        await seed(c, [sum("a", "t1", 1)]);
+        const g = gate(c, "deleteMessage");
+        const first = c.vm.deleteThreads(["t1"]);
+        await vi.waitFor(() => expect(ops(c)).toHaveLength(1));
+        const archive = vi.spyOn(c.provider, "archiveMessage");
+        await c.vm.deleteThreads(["t1"]);
+        await c.vm.archiveThreads(["t1"]);
+        expect(archive).not.toHaveBeenCalled();
+        expect(g.spy).toHaveBeenCalledTimes(1);
+        expect(ops(c)).toHaveLength(1);
+        await g.release("a");
+        await first;
+      });
+
+      it("acts only on the threads that are not already pending", async () => {
+        const c = await build();
+        await seed(c, [sum("a", "t1", 1), sum("b", "t2", 2)]);
+        const g = gate(c, "deleteMessage");
+        const first = c.vm.deleteThreads(["t1"]);
+        await vi.waitFor(() => expect(ops(c)).toHaveLength(1));
+        const second = c.vm.deleteThreads(["t1", "t2"]);
+        await vi.waitFor(() => expect(ops(c)).toHaveLength(2));
+        expect(ops(c)[1].threadIds).toEqual(["t2"]);
+        await g.release("a");
+        await g.release("b");
+        await Promise.all([first, second]);
+      });
+
+      it("unticks the threads as soon as the operation starts", async () => {
+        const c = await build();
+        await seed(c, [sum("a", "t1", 1), sum("b", "t2", 2)]);
+        c.vm.selectAllThreads();
+        const g = gate(c, "deleteMessage");
+        const run = c.vm.deleteThreads(["t1"]);
+        await vi.waitFor(() => expect(ops(c)).toHaveLength(1));
+        expect(ids(c)).toEqual(["t2"]);
+        await g.release("a");
+        await run;
+      });
+
+      it("records the destination's name for a move", async () => {
+        const c = await build();
+        await seed(c, [sum("a", "t1", 1)]);
+        const g = gate(c, "moveMessage");
+        const run = c.vm.moveThreads(["t1"], "SENT");
+        await vi.waitFor(() => expect(ops(c)).toHaveLength(1));
+        expect(ops(c)[0]).toMatchObject({ pastTense: "Moved", destinationLabel: "Sent" });
+        await g.release("a");
+        await run;
+      });
+
+      it("tracks a single-message operation without marking any thread", async () => {
+        const c = await build();
+        await seed(c, [sum("a", "t1", 1)]);
+        const g = gate(c, "deleteMessage");
+        const run = c.vm.deleteMessage("a");
+        await vi.waitFor(() => expect(ops(c)).toHaveLength(1));
+        expect(ops(c)[0]).toMatchObject({ pastTense: "Deleted", threadIds: [], messageIds: ["a"], total: 1 });
+        await c.vm.deleteMessage("a"); // already pending: ignored
+        expect(g.spy).toHaveBeenCalledTimes(1);
+        await g.release("a");
+        await run;
+        expect(ops(c)).toEqual([]);
+      });
+
+      describe("completion notice", () => {
+        afterEach(() => vi.restoreAllMocks());
+
+        it("is sent when the operation outlasted the toast delay", async () => {
+          const c = await build();
+          await seed(c, [sum("a", "t1", 1), sum("b", "t2", 2)]);
+          let now = 1_000;
+          vi.spyOn(Date, "now").mockImplementation(() => now);
+          vi.spyOn(c.provider, "moveMessage").mockImplementation(async () => { now += OPERATION_TOAST_DELAY_MS; });
+          await c.vm.moveThreads(["t1", "t2"], "SENT");
+          expect(c.showNotice).toHaveBeenCalledWith("Moved 2 messages to Sent");
+        });
+
+        it("is skipped for a quick operation", async () => {
+          const c = await build();
+          await seed(c, [sum("a", "t1", 1)]);
+          vi.spyOn(Date, "now").mockReturnValue(1_000);
+          await c.vm.deleteThreads(["t1"]);
+          expect(c.showNotice).not.toHaveBeenCalled();
+        });
+
+        it("never replaces a failure notice", async () => {
+          const c = await build();
+          await seed(c, [sum("a", "t1", 1)]);
+          let now = 1_000;
+          vi.spyOn(Date, "now").mockImplementation(() => now);
+          vi.spyOn(c.provider, "deleteMessage").mockImplementation(async () => { now += 5_000; throw new Error("boom"); });
+          await c.vm.deleteThreads(["t1"]);
+          expect(c.showNotice).toHaveBeenCalledTimes(1);
+          expect(c.showNotice).toHaveBeenCalledWith("Couldn't delete this thread.");
+        });
+
+        it("is sent for a slow single-message operation", async () => {
+          const c = await build();
+          await seed(c, [sum("a", "t1", 1)]);
+          let now = 1_000;
+          vi.spyOn(Date, "now").mockImplementation(() => now);
+          vi.spyOn(c.provider, "archiveMessage").mockImplementation(async () => { now += 1_000; });
+          await c.vm.archiveMessage("a");
+          expect(c.showNotice).toHaveBeenCalledWith("Archived 1 message");
+        });
+      });
     });
   });
 

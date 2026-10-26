@@ -50,4 +50,26 @@ describe("mapSettledLimit", () => {
     const out = await mapSettledLimit(["a", "b"], 2, async (s, i) => `${s}${i}`);
     expect(out.map((r) => (r as PromiseFulfilledResult<string>).value)).toEqual(["a0", "b1"]);
   });
+
+  describe("onSettled", () => {
+    it("fires once per item with its index and result, fulfilled or rejected", async () => {
+      const seen: Array<[number, string]> = [];
+      await mapSettledLimit([1, 2, 3], 2, async (n) => { if (n === 2) throw new Error("boom"); return n; },
+        (r, i) => seen.push([i, r.status]));
+      expect(seen.sort()).toEqual([[0, "fulfilled"], [1, "rejected"], [2, "fulfilled"]]);
+    });
+
+    it("reports in completion order, before the overall promise resolves", async () => {
+      const order: number[] = [];
+      const done = mapSettledLimit([3, 1], 2, async (n) => { await new Promise((r) => setTimeout(r, n * 3)); return n; },
+        (_r, i) => order.push(i));
+      await done;
+      expect(order).toEqual([1, 0]);
+    });
+
+    it("ignores a throwing callback", async () => {
+      const out = await mapSettledLimit([1, 2, 3], 2, async (n) => n, () => { throw new Error("nope"); });
+      expect(out.map((r) => r.status)).toEqual(["fulfilled", "fulfilled", "fulfilled"]);
+    });
+  });
 });
