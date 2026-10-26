@@ -16,6 +16,8 @@
   import Resizer from "./components/Resizer.svelte";
   import { clampPaneWidths, loadPaneWidths, savePaneWidths, type PaneWidths } from "./pane-layout";
   import { showSyncingToast } from "./refresh-toast";
+  import { showOperationToast, type OperationToast } from "./operation-toast";
+  import { OPERATION_TOAST_DELAY_MS, describePendingOps, pendingMessageIds, pendingThreadIds } from "./pending-ops";
 
   let { vm, onAddAccount, onThreadContextMenu, onMailboxContextMenu, onBulkContextMenu, noteCommands }: {
     vm: ViewModel;
@@ -55,6 +57,30 @@
     if (!anySyncing) return;
     const toast = showSyncingToast();
     return () => toast.hide();
+  });
+
+  // Deletes, archives and moves on their way to the server: their rows go
+  // inert, and an operation that outlasts the delay gets a progress toast
+  // (quick ones never flash one).
+  const pendingThreadSet = $derived(pendingThreadIds(state));
+  const pendingMessageSet = $derived(pendingMessageIds(state));
+  const hasPendingOps = $derived(state.pendingOps.length > 0);
+  const pendingOpsText = $derived(describePendingOps(state.pendingOps));
+  let operationToast: OperationToast | null = null;
+  $effect(() => {
+    if (!hasPendingOps) return;
+    const timer = setTimeout(() => { operationToast = showOperationToast(pendingOpsText); }, OPERATION_TOAST_DELAY_MS);
+    return () => {
+      clearTimeout(timer);
+      operationToast?.hide();
+      operationToast = null;
+    };
+  });
+  $effect(() => {
+    // Read the text first: `operationToast?.update(text)` would skip evaluating
+    // it while no toast exists yet, and the effect would never track it.
+    const text = pendingOpsText;
+    operationToast?.update(text);
   });
 
   const activeMailbox = $derived(
@@ -285,6 +311,8 @@
     hasAccount: state.activeAccountId !== null,
     hasOpenThread: !paneShowsComposer && state.openThreadId !== null,
     hasTargetMessage: !paneShowsComposer && targetMessageId !== null,
+    targetMessagePending: targetMessageId !== null && pendingMessageSet.has(targetMessageId),
+    openThreadPending: state.openThreadId !== null && pendingThreadSet.has(state.openThreadId),
     openThreadFlagged: state.openMessages.some((m) => m.summary.flagged),
     openThreadPinned: state.openThreadId !== null && state.pinnedThreadIds.includes(state.openThreadId),
     selectedCount: state.selectedThreadIds.length,
@@ -498,6 +526,7 @@
       <MessageList
         selectedIds={state.selectedThreadIds}
         onSelectThread={selectThread}
+        pendingIds={[...pendingThreadSet]}
         threads={state.threads}
         openThreadId={state.openThreadId}
         hasMore={state.hasMore}

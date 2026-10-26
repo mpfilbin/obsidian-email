@@ -2,7 +2,7 @@
   import type { ThreadView } from "../view-model";
   import ThreadRow from "./ThreadRow.svelte";
 
-  let { threads, openThreadId, hasMore, loading, onOpen, onLoadMore, isDraftsMailbox, isArchiveMailbox, isTrashMailbox, onArchiveThread, onDeleteThread, onToggleFlag, onTogglePin, onThreadContextMenu, emptyText = "No messages", selectedIds = [], onSelectThread = () => {} }: {
+  let { threads, openThreadId, hasMore, loading, onOpen, onLoadMore, isDraftsMailbox, isArchiveMailbox, isTrashMailbox, onArchiveThread, onDeleteThread, onToggleFlag, onTogglePin, onThreadContextMenu, emptyText = "No messages", selectedIds = [], onSelectThread = () => {}, pendingIds = [] }: {
     threads: ThreadView[];
     openThreadId: string | null;
     hasMore: boolean;
@@ -21,9 +21,12 @@
     /** Threads ticked for a bulk action. */
     selectedIds?: string[];
     onSelectThread?: (threadId: string, mode: "toggle" | "range") => void;
+    /** Threads with a delete/archive/move on its way to the server. */
+    pendingIds?: string[];
   } = $props();
 
   const selected = $derived(new Set(selectedIds));
+  const pending = $derived(new Set(pendingIds));
 
   let sentinel = $state<HTMLElement | null>(null);
 
@@ -54,6 +57,7 @@
       onToggleFlag={() => onToggleFlag(t.threadId)}
       onTogglePin={() => onTogglePin(t.threadId)}
       onContextMenu={(evt) => onThreadContextMenu(evt, t.threadId)}
+      pending={pending.has(t.threadId)}
       selected={selected.has(t.threadId)}
       selectionActive={selected.size > 0}
       onSelect={(mode) => onSelectThread(t.threadId, mode)}

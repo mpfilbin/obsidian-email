@@ -337,4 +337,54 @@ describe("ThreadRow multi-select", () => {
     expect(plain.defaultPrevented).toBe(false);
     a.done();
   });
+
+  describe("pending (delete / archive / move on its way)", () => {
+    const mountPending = (over: Partial<Record<string, unknown>> = {}) => {
+      const host = document.createElement("div");
+      const props = baseProps({ pending: true, ...over });
+      const app = mount(ThreadRow, { target: host, props });
+      flushSync();
+      return { host, app, props };
+    };
+    const row = (host: HTMLElement) => host.querySelector<HTMLElement>(".oe-thread-row")!;
+
+    it("marks the row busy, shows a spinner and swaps the action buttons for it", () => {
+      const { host, app } = mountPending();
+      expect(row(host).classList.contains("is-pending")).toBe(true);
+      expect(row(host).getAttribute("aria-busy")).toBe("true");
+      expect(host.querySelector(".oe-row-spinner")?.getAttribute("data-icon")).toBe("loader");
+      expect(host.querySelector(".oe-thread-actions button")).toBeNull();
+      unmount(app);
+    });
+
+    it("looks normal when not pending", () => {
+      const host = document.createElement("div");
+      const app = mount(ThreadRow, { target: host, props: baseProps() });
+      flushSync();
+      expect(row(host).classList.contains("is-pending")).toBe(false);
+      expect(row(host).getAttribute("aria-busy")).toBe("false");
+      expect(host.querySelector(".oe-row-spinner")).toBeNull();
+      unmount(app);
+    });
+
+    it("ignores clicks, keys and the context menu", () => {
+      const onOpen = vi.fn(); const onSelect = vi.fn(); const onContextMenu = vi.fn();
+      const { host, app } = mountPending({ onOpen, onSelect, onContextMenu });
+      row(host).click();
+      row(host).dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      row(host).dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true }));
+      row(host).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+      expect(onOpen).not.toHaveBeenCalled();
+      expect(onSelect).not.toHaveBeenCalled();
+      expect(onContextMenu).not.toHaveBeenCalled();
+      unmount(app);
+    });
+
+    it("disables the checkbox and drag", () => {
+      const { host, app } = mountPending();
+      expect(host.querySelector<HTMLInputElement>(".oe-row-check")!.disabled).toBe(true);
+      expect(row(host).getAttribute("draggable")).toBe("false");
+      unmount(app);
+    });
+  });
 });

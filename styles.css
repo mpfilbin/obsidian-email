@@ -317,6 +317,17 @@
 /* Pinned rows read as one group at the top of the list. */
 .oe-thread-row.is-pinned { box-shadow: inset 3px 0 0 var(--interactive-accent); }
 
+/* --- Pending delete / archive / move --- */
+.oe-thread-row.is-pending { opacity: 0.55; cursor: default; }
+.oe-thread-pending { align-items: center; color: var(--text-muted); font-size: 12px; }
+.oe-row-spinner { display: inline-flex; width: 14px; height: 14px; margin-right: 6px; }
+.oe-row-spinner svg { width: 14px; height: 14px; }
+.oe-row-spinner svg, .oe-spin svg { animation: oe-spin 1s linear infinite; }
+@keyframes oe-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .oe-row-spinner svg, .oe-spin svg { animation: none; }
+}
+
 /* --- Multi-select ------------------------------------------------------- */
 /* Room for the checkbox, which is invisible until the row is hovered or focused
    — or, once anything is ticked, on every row, so the selection is obvious.

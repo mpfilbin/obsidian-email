@@ -11,6 +11,7 @@ import { sanitizeEmailHtml } from "../render/html-sanitizer";
 import { defaultNoteFilename, emailToNote } from "../render/email-to-note";
 import { messageToPrintHtml } from "../render/message-to-print-html";
 import { mapSettledLimit } from "../util/concurrency";
+import { OPERATION_TOAST_DELAY_MS, describeCompletedOp, pendingMessageIds, pendingThreadIds, type OpPastTense, type PendingOp } from "./pending-ops";
 
 export interface ThreadView {
   threadId: string;
@@ -84,6 +85,8 @@ export interface ViewState {
   selectionAnchorId: string | null;
   hasMore: boolean;
   loadingList: boolean;
+  /** Deletes, archives and moves sent to the server and not yet settled. */
+  pendingOps: PendingOp[];
   /** Mirrors `prefs.autoLoadImages`; drives the renderer's `allowRemote`. */
   autoLoadImages: boolean;
   search: { query: string; active: boolean };
@@ -222,7 +225,7 @@ function sameSnapshot(a: ComposerSnapshot, b: ComposerSnapshot): boolean {
 export class ViewModel {
   private state: ViewState = {
     accounts: [], activeAccountId: null, mailboxes: [], activeMailboxId: null, flaggedActive: false,
-    threads: [], pinnedThreadIds: [], selectedThreadIds: [], selectionAnchorId: null, hasMore: false, loadingList: false, autoLoadImages: false,
+    threads: [], pinnedThreadIds: [], selectedThreadIds: [], selectionAnchorId: null, hasMore: false, loadingList: false, pendingOps: [], autoLoadImages: false,
     search: { query: "", active: false },
     openThreadId: null, openMessages: [],
     ribbonEnabled: true, ribbonCollapsedByDefault: false,
@@ -808,18 +811,53 @@ export class ViewModel {
     this.set({ composer: null });
   }
 
-  private async actOnMessage(messageId: string, action: (provider: MailProvider) => Promise<void>): Promise<void> {
+  private async actOnMessage(
+    messageId: string,
+    action: (provider: MailProvider) => Promise<void>,
+    pastTense: "Deleted" | "Archived",
+  ): Promise<void> {
     const acct = this.state.activeAccountId;
     const provider = acct ? this.deps.getProvider(acct) : undefined;
     if (!acct || !provider) return;
+    if (pendingMessageIds(this.state).has(messageId)) return; // already on its way
+    const op = this.beginOp({ accountId: acct, pastTense, threadIds: [], messageIds: [messageId] });
+    const startedAt = Date.now();
     try {
       await action(provider);
+      this.advanceOp(op.id, 1);
       await this.deps.cache.deleteMessages(acct, [messageId]);
       if (this.state.openMessages.some((m) => m.summary.id === messageId)) this.closeThread();
       await this.reloadListUnlessSearching();
+      this.announceCompleted(op, startedAt);
     } catch (err) {
       this.deps.showNotice(this.errorMessage(err));
+    } finally {
+      this.endOp(op.id);
     }
+  }
+
+  // --- Pending operations --------------------------------------------------
+
+  private opSeq = 0;
+
+  private beginOp(fields: Omit<PendingOp, "id" | "done" | "total">): PendingOp {
+    const op: PendingOp = { ...fields, id: `op${++this.opSeq}`, done: 0, total: fields.messageIds.length };
+    this.set({ pendingOps: [...this.state.pendingOps, op] });
+    return op;
+  }
+
+  private advanceOp(id: string, by: number): void {
+    this.set({ pendingOps: this.state.pendingOps.map((o) => (o.id === id ? { ...o, done: Math.min(o.total, o.done + by) } : o)) });
+  }
+
+  private endOp(id: string): void {
+    this.set({ pendingOps: this.state.pendingOps.filter((o) => o.id !== id) });
+  }
+
+  /** Confirms a clean finish — but only for an operation slow enough that the
+   *  progress toast was showing; a quick one needs no notice. */
+  private announceCompleted(op: PendingOp, startedAt: number): void {
+    if (Date.now() - startedAt >= OPERATION_TOAST_DELAY_MS) this.deps.showNotice(describeCompletedOp(op));
   }
 
   /**
@@ -844,11 +882,11 @@ export class ViewModel {
   }
 
   async deleteMessage(messageId: string): Promise<void> {
-    await this.actOnMessage(messageId, (provider) => provider.deleteMessage(messageId));
+    await this.actOnMessage(messageId, (provider) => provider.deleteMessage(messageId), "Deleted");
   }
 
   async archiveMessage(messageId: string): Promise<void> {
-    await this.actOnMessage(messageId, (provider) => provider.archiveMessage(messageId));
+    await this.actOnMessage(messageId, (provider) => provider.archiveMessage(messageId), "Archived");
   }
 
   /** Runs `action` on every cached message of every given thread (a bounded
@@ -858,16 +896,26 @@ export class ViewModel {
   private async actOnThreads(
     threadIds: string[],
     action: (provider: MailProvider, id: string) => Promise<void>,
-    pastTense: "Deleted" | "Archived" | "Moved",
+    pastTense: OpPastTense,
+    destinationLabel?: string,
   ): Promise<void> {
     const acct = this.state.activeAccountId;
     const provider = acct ? this.deps.getProvider(acct) : undefined;
     if (!acct || !provider) return;
-    const ids = [...new Set(threadIds)];
+    // A thread already on its way to the server is left to that run — a double
+    // click, or a delete racing an archive, must not send the same work twice.
+    const inFlight = pendingThreadIds(this.state);
+    const ids = [...new Set(threadIds)].filter((id) => !inFlight.has(id));
     if (ids.length === 0) return;
     const many = ids.length > 1;
+    let op: PendingOp | undefined;
     try {
-      const messages = (await Promise.all(ids.map((id) => this.deps.cache.getThreadMessages(acct, id)))).flat();
+      const cached = (await Promise.all(ids.map((id) => this.deps.cache.getThreadMessages(acct, id)))).flat();
+      // A message already on its way as a single-message op (the ribbon's
+      // Delete on one expanded message) mustn't be sent a second time.
+      const messageInFlight = pendingMessageIds(this.state);
+      const messages = cached.filter((m) => !messageInFlight.has(m.id));
+      if (messages.length === 0 && cached.length > 0) return;
       // Nothing cached under these threadIds — a search hit whose conversation
       // was never independently cached, say. There is nothing to act on, and
       // the partial-failure notice below can't fire for an empty input, so say
@@ -876,12 +924,19 @@ export class ViewModel {
         this.deps.showNotice(many ? "Couldn't find any messages in those threads." : "Couldn't find any messages in that thread.");
         return;
       }
-      const results = await mapSettledLimit(messages, BULK_CONCURRENCY, (m) => action(provider, m.id));
+      const startedAt = Date.now();
+      const started = this.beginOp({
+        accountId: acct, pastTense, destinationLabel, threadIds: ids, messageIds: messages.map((m) => m.id),
+      });
+      op = started;
+      // Untick them now, not once they're gone: the bulk bar disappears and
+      // can't be fired a second time while the work is still running.
+      const acted = new Set(ids);
+      this.set({ selectedThreadIds: this.state.selectedThreadIds.filter((id) => !acted.has(id)) });
+      const results = await mapSettledLimit(messages, BULK_CONCURRENCY, (m) => action(provider, m.id), () => this.advanceOp(started.id, 1));
       const succeededIds = messages.filter((_, i) => results[i].status === "fulfilled").map((m) => m.id);
       const failedCount = results.length - succeededIds.length;
       if (succeededIds.length) await this.deps.cache.deleteMessages(acct, succeededIds);
-      const acted = new Set(ids);
-      this.set({ selectedThreadIds: this.state.selectedThreadIds.filter((id) => !acted.has(id)) });
       if (this.state.openThreadId && acted.has(this.state.openThreadId)) this.closeThread();
       await this.reloadListUnlessSearching();
       if (failedCount > 0) {
@@ -890,12 +945,17 @@ export class ViewModel {
             ? `Couldn't ${BULK_VERB[pastTense]} ${many ? "those threads" : "this thread"}.`
             : `${pastTense} ${succeededIds.length} of ${messages.length} messages — ${failedCount} failed.`,
         );
+      } else {
+        this.announceCompleted(started, startedAt);
       }
     } catch (err) {
       // The cache reads/writes and the reload can all throw (an IndexedDB
       // failure, say); without this the rejection escapes unhandled and the
       // user is told nothing. Mirrors `actOnMessage`.
       this.deps.showNotice(this.errorMessage(err));
+    } finally {
+      // Whatever happened, the rows must stop looking busy.
+      if (op) this.endOp(op.id);
     }
   }
 
@@ -920,7 +980,8 @@ export class ViewModel {
   }
 
   async moveThreads(threadIds: string[], destinationMailboxId: string): Promise<void> {
-    await this.actOnThreads(threadIds, (provider, id) => provider.moveMessage(id, destinationMailboxId), "Moved");
+    const label = this.state.mailboxes.find((m) => m.id === destinationMailboxId)?.name;
+    await this.actOnThreads(threadIds, (provider, id) => provider.moveMessage(id, destinationMailboxId), "Moved", label);
   }
 
   // --- Selection ----------------------------------------------------------

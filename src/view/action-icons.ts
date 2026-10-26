@@ -18,4 +18,5 @@ export const ACTION_ICON = {
   followUp: "calendar-clock",
   pin: "pin",
   unpin: "pin-off",
+  pending: "loader",
 } as const;

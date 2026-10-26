@@ -1,10 +1,11 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { mount, unmount, flushSync } from "svelte";
 import * as obsidian from "obsidian";
 import App from "../../src/view/App.svelte";
 import { THREAD_DRAG_TYPE } from "../../src/view/drag-types";
 import type { ThreadView, ViewModel, ViewState } from "../../src/view/view-model";
 import type { Mailbox } from "../../src/providers/types";
+import { OPERATION_TOAST_DELAY_MS, type PendingOp } from "../../src/view/pending-ops";
 
 /** A one-message thread shaped like the fixture's default row, for the tests
  *  below that need a second row to act on. */
@@ -33,7 +34,7 @@ function fakeVm(state: Partial<ViewState> = {}): ViewModel {
         unread: true, hasAttachments: false, flagged: false,
       }],
     }],
-    hasMore: false, loadingList: false, autoLoadImages: false,
+    hasMore: false, loadingList: false, pendingOps: [], autoLoadImages: false,
     search: { query: "", active: false },
     openThreadId: null, openMessages: [], pinnedThreadIds: [], flaggedActive: false,
     selectedThreadIds: [], selectionAnchorId: null,
@@ -149,6 +150,90 @@ describe("App.svelte smoke", () => {
     expect(noticeSpy).not.toHaveBeenCalled();
     unmount(app);
     noticeSpy.mockRestore();
+  });
+
+  describe("pending delete / archive / move", () => {
+    const op = (over: Partial<PendingOp> = {}): PendingOp => ({
+      id: "op1", accountId: "a1", pastTense: "Deleted", threadIds: ["t1"], messageIds: ["m1", "m2"], total: 2, done: 0, ...over,
+    });
+    afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
+
+    it("marks the acted-on row pending", () => {
+      const vm = fakeVm({ pendingOps: [op()] });
+      const host = document.createElement("div");
+      const app = mount(App, { target: host, props: appProps(vm) });
+      flushSync();
+      expect(host.querySelector(".oe-thread-row")!.classList.contains("is-pending")).toBe(true);
+      unmount(app);
+    });
+
+    it("does not mark rows for an operation that belongs to another account", () => {
+      const vm = fakeVm({ pendingOps: [op({ accountId: "a2" })] });
+      const host = document.createElement("div");
+      const app = mount(App, { target: host, props: appProps(vm) });
+      flushSync();
+      expect(host.querySelector(".oe-thread-row")!.classList.contains("is-pending")).toBe(false);
+      unmount(app);
+    });
+
+    it("shows a progress toast only once the delay has passed, updates it, and hides it when done", () => {
+      vi.useFakeTimers();
+      const hide = vi.fn();
+      const noticeSpy = vi.spyOn(obsidian, "Notice").mockImplementation((function () { return { hide }; }) as never);
+      const vm = fakeVm();
+      const host = document.createElement("div");
+      const app = mount(App, { target: host, props: appProps(vm) });
+      flushSync();
+
+      setStateOf(vm)({ pendingOps: [op({ total: 12, done: 0 })] });
+      flushSync();
+      vi.advanceTimersByTime(OPERATION_TOAST_DELAY_MS - 1);
+      expect(noticeSpy).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      expect(noticeSpy).toHaveBeenCalledTimes(1);
+      expect(noticeSpy.mock.calls[0][1]).toBe(0);
+      const frag = noticeSpy.mock.calls[0][0] as DocumentFragment;
+      expect(frag.textContent).toBe("Deleting 12 messages… 0/12");
+
+      setStateOf(vm)({ pendingOps: [op({ total: 12, done: 7 })] });
+      flushSync();
+      expect(frag.textContent).toBe("Deleting 12 messages… 7/12");
+      expect(noticeSpy).toHaveBeenCalledTimes(1);
+      expect(hide).not.toHaveBeenCalled();
+
+      setStateOf(vm)({ pendingOps: [] });
+      flushSync();
+      expect(hide).toHaveBeenCalledOnce();
+      unmount(app);
+    });
+
+    it("never flashes a toast for an operation that finishes within the delay", () => {
+      vi.useFakeTimers();
+      const noticeSpy = vi.spyOn(obsidian, "Notice").mockImplementation((function () { return { hide: vi.fn() }; }) as never);
+      const vm = fakeVm();
+      const app = mount(App, { target: document.createElement("div"), props: appProps(vm) });
+      flushSync();
+      setStateOf(vm)({ pendingOps: [op()] });
+      flushSync();
+      vi.advanceTimersByTime(OPERATION_TOAST_DELAY_MS - 50);
+      setStateOf(vm)({ pendingOps: [] });
+      flushSync();
+      vi.advanceTimersByTime(1_000);
+      expect(noticeSpy).not.toHaveBeenCalled();
+      unmount(app);
+    });
+
+    it("hides the toast when the view is closed mid-operation", () => {
+      vi.useFakeTimers();
+      const hide = vi.fn();
+      vi.spyOn(obsidian, "Notice").mockImplementation((function () { return { hide }; }) as never);
+      const vm = fakeVm({ pendingOps: [op()] });
+      const app = mount(App, { target: document.createElement("div"), props: appProps(vm) });
+      flushSync();
+      vi.advanceTimersByTime(OPERATION_TOAST_DELAY_MS);
+      unmount(app);
+      expect(hide).toHaveBeenCalledOnce();
+    });
   });
 
   it("renders two resizers and a reading pane by default", () => {
