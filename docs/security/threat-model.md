@@ -350,7 +350,7 @@ and add a performance regression test with a hostile input.
 |---|---|
 | **Rating** | **Low** |
 | **STRIDE** | Denial of service |
-| **Status** | **Mitigated** (0.14.x: stray links and links with the wrong `state` are ignored) |
+| **Status** | **Mitigated** (0.15.0: stray links and links with the wrong `state` are ignored) |
 | **Where** | `src/auth/redirect-receiver.ts` (`handle`) |
 
 The OAuth redirect now arrives as an `obsidian://obsidian-email-auth` link handled
@@ -368,7 +368,7 @@ it without the PKCE verifier. Residual: an attacker who can observe the authoriz
 (and so the `state`) could still forge a matching link, but that already requires
 local access to the browser launch.
 
-**Recommendation (R-11):** done in 0.14.x.
+**Recommendation (R-11):** done in 0.15.0.
 
 ---
 
@@ -378,11 +378,11 @@ local access to the browser launch.
 
 | ID | Threat | Rating | Status | Existing control and gap | Rec. |
 |---|---|---|---|---|---|
-| S-1 | **Rogue Client ID (illicit consent).** The user is socially engineered into pasting an attacker's Client ID. The consent grant then persists in the user's tenant. The Client ID is unvalidated (`settings-tab.ts` only checks non-empty) | Medium | Reasoned | Redirect is an `obsidian://` link and PKCE, so the attacker does not receive the code. Since 0.14.x: the Client ID is trimmed and must be a GUID, and the README says to use only a Client ID the user created or trusts. Gap: a well-formed GUID for a malicious app registration is still accepted | R-10 |
+| S-1 | **Rogue Client ID (illicit consent).** The user is socially engineered into pasting an attacker's Client ID. The consent grant then persists in the user's tenant. The Client ID is unvalidated (`settings-tab.ts` only checks non-empty) | Medium | Reasoned | Redirect is an `obsidian://` link and PKCE, so the attacker does not receive the code. Since 0.15.0: the Client ID is trimmed and must be a GUID, and the README says to use only a Client ID the user created or trusts. Gap: a well-formed GUID for a malicious app registration is still accepted | R-10 |
 | S-2 | **OAuth redirect hijack or code injection** by a local process | Low | **Mitigated** | PKCE S256 (`pkce.ts`), 128-bit random `state` checked in `add-account.ts:43`. Residual DoS is D-2 | R-11 |
 | S-3 | **Sender display-name spoofing.** The list and message header show `from.name \|\| from.email`; the address is visible only in the expanded details | Low | Reasoned | Expanded block shows `From: name <address>`. Gap: address hidden by default | R-15 |
 | S-4 | **Look-alike UI inside a message** (fake dialog, input fields). `input`, `button`, `textarea` and `select` survive sanitization | Low | Partially mitigated | `form` is forbidden (nothing can submit), and `.obsidian-email-message-body { contain: content }` (`styles.css:91`) clips `position:fixed` overlays to the body box (by CSS semantics; not browser-tested). Links show their real URL in `title` | n/a |
-| S-5 | **Re-authenticating as a different mailbox** keeps the same account id, so cached messages and delta links from mailbox A appear under mailbox B's address (`add-account.ts`, `plugin-context.ts` `reauthAccount`) | Low to Medium | **Mitigated** | Since 0.14.x `reauthAccount` passes the stored email as `expectedEmail`; `addAccount` fetches the profile and refuses a different mailbox (case-insensitive) before any token is stored. Gap: a changed primary address or UPN also fails and needs remove and re-add | R-9 |
+| S-5 | **Re-authenticating as a different mailbox** keeps the same account id, so cached messages and delta links from mailbox A appear under mailbox B's address (`add-account.ts`, `plugin-context.ts` `reauthAccount`) | Low to Medium | **Mitigated** | Since 0.15.0 `reauthAccount` passes the stored email as `expectedEmail`; `addAccount` fetches the profile and refuses a different mailbox (case-insensitive) before any token is stored. Gap: a changed primary address or UPN also fails and needs remove and re-add | R-9 |
 
 ### 5.2 Tampering
 
@@ -515,11 +515,11 @@ risk reduced per effort.
 | **R-5** | ~~Bump `dompurify` to 3.4.17~~ (done in 0.12.6). Still open: keep Dependabot security updates on; add a CI step `npm audit --omit=dev --audit-level=high` | E-1, §5.8 | S |
 | **R-4** | Add a scheme allowlist inside `openExternal` (`http`, `https`, `mailto`) and confirm before anything else | I-6, V-5 | S |
 | **R-6** | Notes: sanitize with `allowRemote: false`, strip `class`, force the fence language to a safe set | T-4, V-6 | S |
-| **R-11** | ~~Redirect receiver: ignore links without `code`/`error`; settle only on a matching `state`~~ (done in 0.14.x) | D-2 | S |
-| **R-9** | ~~On re-auth, compare the returned email with the stored one; refuse~~ (done in 0.14.x) | S-5 | S |
+| **R-11** | ~~Redirect receiver: ignore links without `code`/`error`; settle only on a matching `state`~~ (done in 0.15.0) | D-2 | S |
+| **R-9** | ~~On re-auth, compare the returned email with the stored one; refuse~~ (done in 0.15.0) | S-5 | S |
 | **R-12** | Skip auto-fetching inline attachments above a size cap | D-3 | S |
 | **R-14** | Sanitize draft HTML before `dangerouslyPasteHTML` | T-7 | S |
-| **R-10** | ~~Validate the Client ID as a GUID; add setup guidance~~ (done in 0.14.x; GUID format only, no publisher verification) | S-1 | S |
+| **R-10** | ~~Validate the Client ID as a GUID; add setup guidance~~ (done in 0.15.0; GUID format only, no publisher verification) | S-1 | S |
 | **R-13** | Document: revoking the grant at Microsoft after removal; that co-resident plugins are trusted; that saved mail enters the vault. Surface a failure in `TokenManager.clear()` instead of swallowing it | I-1, I-4, E-3 | S |
 | **R-15** | Show the sender address next to the name in the list and header | S-3 | S |
 | **R-2** | Render message bodies (and print) in a **sandboxed iframe with a CSP** (`default-src 'none'; img-src data: blob:`); keep the sanitizer as the first layer | T-3, E-1, I-3, I-7, V-3 | M to L |
@@ -574,4 +574,4 @@ The README's "Security notes" section makes user-facing promises. Status against
 | 2026-10-25 | 0.12.6 | `dompurify` 3.4.15 to 3.4.17 (R-5, E-1, §5.8). Behavioural note for T-3: 3.4.15 still ran `uponSanitizeAttribute` hooks on elements it was removing (e.g. `<svg><use xlink:href>`), and the plugin's banner flag relied on that quirk; 3.4.17 does not. The element is deleted either way, so nothing leaks, but it shows the flag-after-the-fact design is fragile: do not depend on hooks seeing removed nodes. The remote-content bypasses in T-3 are unchanged: `feImage href` / `xlink:href` still pass through 3.4.17 |
 | 2026-10-25 | 0.12.9 | Dependency posture only (§5.8): `obsidian` 1.13.1 to 1.14.4 clears the moderate `moment`/`obsidian` advisories (dev-only, not shipped). No change to threats, controls or citations |
 | 2026-10-25 | 0.12.11 | Dependency posture only (§5.8): `devalue` 5.9.2 to 5.9.4 (lockfile-only, transitive via `svelte`, not shipped) clears the high-severity finding. `npm audit` now reports only the low `quill` advisory (`getSemanticHTML` unused; no fixed release exists). No change to threats, controls or citations |
-| 2026-10-28 | 0.14.x | OAuth redirect moved from a localhost loopback listener to the `obsidian://obsidian-email-auth` protocol handler. No port is opened (X3 port-connect vector removed). Any web page or process can open the redirect link, so the receiver ignores links without `code`/`error` or with the wrong `state` (D-2 mitigated, R-11); PKCE and `state` still prevent code injection (S-2). Superseding a pending sign-in with a new one is intentional. Also: re-auth refuses a different mailbox (S-5, R-9); Client ID must be a GUID (S-1, R-10). Logging audit: nothing in `src/auth` or the redirect path logs the redirect parameters, tokens or codes, and redirect error messages carry only `error`/`error_description`; a test pins the latter |
+| 2026-10-28 | 0.15.0 | OAuth redirect moved from a localhost loopback listener to the `obsidian://obsidian-email-auth` protocol handler. No port is opened (X3 port-connect vector removed). Any web page or process can open the redirect link, so the receiver ignores links without `code`/`error` or with the wrong `state` (D-2 mitigated, R-11); PKCE and `state` still prevent code injection (S-2). Superseding a pending sign-in with a new one is intentional. Also: re-auth refuses a different mailbox (S-5, R-9); Client ID must be a GUID (S-1, R-10). Logging audit: nothing in `src/auth` or the redirect path logs the redirect parameters, tokens or codes, and redirect error messages carry only `error`/`error_description`; a test pins the latter |
