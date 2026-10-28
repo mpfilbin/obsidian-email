@@ -55,6 +55,7 @@
 
 <div
   class="oe-thread-row"
+  data-thread-id={thread.threadId}
   class:is-unread={thread.unread}
   class:is-open={isOpen}
   class:is-pinned={pinned}

@@ -842,6 +842,8 @@ export class ViewModel {
   // --- Pending operations --------------------------------------------------
 
   private opSeq = 0;
+  /** Threads an `actOnThreads` call has taken but not yet registered as an op. */
+  private claimedThreads = new Set<string>();
 
   private beginOp(fields: Omit<PendingOp, "id" | "done" | "total">): PendingOp {
     const op: PendingOp = { ...fields, id: `op${++this.opSeq}`, done: 0, total: fields.messageIds.length };
@@ -908,8 +910,12 @@ export class ViewModel {
     // A thread already on its way to the server is left to that run — a double
     // click, or a delete racing an archive, must not send the same work twice.
     const inFlight = pendingThreadIds(this.state);
-    const ids = [...new Set(threadIds)].filter((id) => !inFlight.has(id));
+    // `pendingOps` only fills in once the cache read below returns, so a second
+    // call landing in that gap (a key tapped twice) is caught by the synchronous
+    // claim instead.
+    const ids = [...new Set(threadIds)].filter((id) => !inFlight.has(id) && !this.claimedThreads.has(id));
     if (ids.length === 0) return;
+    for (const id of ids) this.claimedThreads.add(id);
     const many = ids.length > 1;
     let op: PendingOp | undefined;
     try {
@@ -958,6 +964,7 @@ export class ViewModel {
       this.deps.showNotice(this.errorMessage(err));
     } finally {
       // Whatever happened, the rows must stop looking busy.
+      for (const id of ids) this.claimedThreads.delete(id);
       if (op) this.endOp(op.id);
     }
   }

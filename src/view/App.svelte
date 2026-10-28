@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import type { ViewModel, ViewState } from "./view-model";
   import Ribbon from "./ribbon/Ribbon.svelte";
   import type { RibbonContext } from "./ribbon/registry";
@@ -17,6 +18,7 @@
   import { clampPaneWidths, loadPaneWidths, savePaneWidths, type PaneWidths } from "./pane-layout";
   import { showSyncingToast } from "./refresh-toast";
   import { showOperationToast, type OperationToast } from "./operation-toast";
+  import { adjacentThreadId, advanceTarget, keyToAction, shouldIgnoreTarget, type KeyAction } from "./shortcuts";
   import { OPERATION_TOAST_DELAY_MS, describePendingOps, pendingMessageIds, pendingThreadIds } from "./pending-ops";
 
   let { vm, onAddAccount, onThreadContextMenu, onMailboxContextMenu, onBulkContextMenu, noteCommands }: {
@@ -292,6 +294,99 @@
     if (e.key === "Escape" && state.selectedThreadIds.length > 0) vm.clearSelection();
   }
 
+  // --- Keyboard shortcuts ---------------------------------------------------
+  // One dispatcher serves both the built-in keys (onGridKeydown) and the
+  // palette commands (via MailView), so the unsaved-composer prompt and the
+  // delete confirmation guard them exactly as they guard the buttons.
+
+  let gridEl = $state<HTMLElement | null>(null);
+
+  /** Whether `action` would do anything right now. */
+  export function canPerform(action: KeyAction): boolean {
+    if (state.mode !== "mail" || paneShowsComposer || state.activeAccountId === null) return false;
+    const open = state.openThreadId;
+    const idle = open !== null && !pendingThreadSet.has(open);
+    const ticked = state.selectedThreadIds.length > 0;
+    switch (action) {
+      case "next": return adjacentThreadId(state.threads, open, 1, pendingThreadSet) !== null;
+      case "previous": return adjacentThreadId(state.threads, open, -1, pendingThreadSet) !== null;
+      case "flag": return idle;
+      case "pin": return idle;
+      case "archive": return showBulkArchive && (ticked || idle);
+      case "delete": return ticked || idle;
+    }
+  }
+
+  export function perform(action: KeyAction): void {
+    if (!canPerform(action)) return;
+    const open = state.openThreadId;
+    switch (action) {
+      case "next":
+      case "previous": {
+        const id = adjacentThreadId(state.threads, open, action === "next" ? 1 : -1, pendingThreadSet);
+        if (id) requestSwitch(() => openAndFocus(id));
+        return;
+      }
+      case "flag": if (open) void vm.toggleThreadFlag(open); return;
+      case "pin": if (open) void vm.toggleThreadPin(open); return;
+      case "archive":
+        if (state.selectedThreadIds.length > 0) bulkArchive([...state.selectedThreadIds]);
+        else if (open) requestRowAction(() => { void vm.archiveThread(open); advanceFrom(open); });
+        return;
+      case "delete":
+        if (state.selectedThreadIds.length > 0) bulkDelete([...state.selectedThreadIds]);
+        else if (open) requestRowAction(() => requestDelete("thread", () => { void vm.deleteThread(open); advanceFrom(open); }));
+        return;
+    }
+  }
+
+  function openAndFocus(threadId: string): void {
+    void vm.openThread(threadId);
+    setReadingPaneCollapsed(false);
+    void focusRow(threadId);
+  }
+
+  /** After archiving/deleting the open conversation, move on to its neighbour
+   *  straight away rather than waiting for the server: the old row stays in the
+   *  list, dimmed, until the call settles, so waiting would leave a second key
+   *  press aimed at the conversation that is already on its way out. Worked out
+   *  here, not before the prompt, so a confirmed delete uses the list as it is
+   *  now. Nothing to move to (the last row) leaves the pane to close on settle. */
+  function advanceFrom(threadId: string): void {
+    const next = advanceTarget(state.threads, threadId, pendingThreadSet);
+    if (next) openAndFocus(next);
+  }
+
+  // Keys only reach the view while focus is inside it, and archiving/deleting
+  // removes the focused row — dropping focus to <body> and silently killing
+  // every later key. So the row that takes over, or failing that the grid
+  // itself, is focused.
+  async function focusRow(threadId: string): Promise<void> {
+    await tick();
+    // Matched by property rather than a selector: thread ids are arbitrary strings.
+    const row = [...(gridEl?.querySelectorAll<HTMLElement>("[data-thread-id]") ?? [])].find((el) => el.dataset.threadId === threadId);
+    if (!row) return;
+    row.focus({ preventScroll: true });
+    row.scrollIntoView?.({ block: "nearest" });
+  }
+  let keyboardDriven = false;
+  $effect(() => {
+    void state.threads;
+    if (keyboardDriven && gridEl && !gridEl.contains(document.activeElement)) gridEl.focus({ preventScroll: true });
+  });
+
+  function onGridKeydown(e: KeyboardEvent): void {
+    if (!state.keyboardShortcuts || e.defaultPrevented || e.isComposing) return;
+    // A prompt is up: its buttons take the keyboard until it is answered.
+    if (pendingSwitch || pendingDelete || pendingContactSwitch) return;
+    if (shouldIgnoreTarget(e.target)) return;
+    const action = keyToAction(e);
+    if (!action || !canPerform(action)) return;
+    e.preventDefault();
+    keyboardDriven = true;
+    perform(action);
+  }
+
   // Whether the search field is showing above the message list — view-only
   // chrome, toggled from the ribbon's Search button. Dismissing it also ends
   // an active search so the list returns to the current folder instead of
@@ -454,7 +549,11 @@
 {#if state.ribbonEnabled}
   <Ribbon ctx={ribbonCtx} defaultCollapsed={state.ribbonCollapsedByDefault} />
 {/if}
-<div class="oe-grid" style={gridStyle}>
+<!-- Keyboard shortcuts: the grid is focusable only so focus has somewhere to
+     land when the focused row is removed; the keys themselves are filtered in
+     onGridKeydown. -->
+<!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_static_element_interactions -->
+<div class="oe-grid" style={gridStyle} bind:this={gridEl} tabindex="-1" onkeydown={onGridKeydown} onpointerdown={() => { keyboardDriven = false; }}>
   <AccountSwitcher
     accounts={state.accounts}
     activeId={state.activeAccountId}

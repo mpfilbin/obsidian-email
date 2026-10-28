@@ -2811,6 +2811,24 @@ describe("ViewModel — multi-select and bulk actions", () => {
         await first;
       });
 
+      it("ignores a second call made before the first has registered its operation", async () => {
+        const c = await build();
+        await seed(c, [sum("a", "t1", 1)]);
+        const g = gate(c, "deleteMessage");
+        const first = c.vm.deleteThreads(["t1"]);
+        const second = c.vm.deleteThreads(["t1"]); // same tick: no op registered yet
+        await second;
+        await vi.waitFor(() => expect(ops(c)).toHaveLength(1));
+        await g.release("a");
+        await first;
+        expect(g.spy).toHaveBeenCalledTimes(1);
+        // The claim is released, so the thread can be acted on again afterwards.
+        await seed(c, [sum("a", "t1", 1)]);
+        const again = vi.spyOn(c.provider, "archiveMessage").mockResolvedValue(undefined);
+        await c.vm.archiveThreads(["t1"]);
+        expect(again).toHaveBeenCalledTimes(1);
+      });
+
       it("acts only on the threads that are not already pending", async () => {
         const c = await build();
         await seed(c, [sum("a", "t1", 1), sum("b", "t2", 2)]);

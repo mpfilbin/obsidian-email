@@ -317,6 +317,9 @@
 /* Pinned rows read as one group at the top of the list. */
 .oe-thread-row.is-pinned { box-shadow: inset 3px 0 0 var(--interactive-accent); }
 
+/* The grid is focusable only as a landing spot for keyboard shortcuts. */
+.oe-grid:focus { outline: none; }
+
 /* --- Pending delete / archive / move --- */
 .oe-thread-row.is-pending { opacity: 0.55; cursor: default; }
 .oe-thread-pending { align-items: center; color: var(--text-muted); font-size: 12px; }
