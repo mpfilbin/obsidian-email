@@ -5,11 +5,11 @@ import type { HttpClient } from "../providers/http";
 import { newPkcePair, newState } from "./pkce";
 import { OAUTH_CONFIG } from "./provider-oauth-config";
 import { buildAuthorizeUrl, exchangeCode, type HttpPost } from "./oauth-client";
-import { LoopbackServer } from "./loopback-server";
+import { AuthRedirectReceiver } from "./redirect-receiver";
 import { TokenManager, type SecretStore } from "./token-manager";
 
-export interface LoopbackLike {
-  listen(): Promise<{ port: number; redirectUri: string }>;
+export interface RedirectReceiver {
+  listen(): Promise<{ redirectUri: string }>;
   waitForCode(o?: { timeoutMs?: number }): Promise<{ code: string; state: string }>;
   close(): void;
 }
@@ -21,7 +21,8 @@ export interface AddAccountDeps {
   now: () => number;
   fetchProfileEmail: (accessToken: string, post: HttpPost) => Promise<string>;
   genId: () => string;
-  makeLoopback?: (host: "127.0.0.1" | "localhost") => LoopbackLike;
+  /** The receiver the protocol handler feeds; a fresh one if omitted (tests). */
+  redirect?: RedirectReceiver;
 }
 
 export async function addAccount(
@@ -29,17 +30,16 @@ export async function addAccount(
   deps: AddAccountDeps,
 ): Promise<{ account: AccountConfig; token: TokenManager }> {
   const cfg = OAUTH_CONFIG[input.kind];
-  const make = deps.makeLoopback ?? ((host) => new LoopbackServer(host));
-  const loopback = make(cfg.loopbackHost);
+  const redirect = deps.redirect ?? new AuthRedirectReceiver();
   try {
-    const { redirectUri } = await loopback.listen();
+    const { redirectUri } = await redirect.listen();
     const { verifier, challenge } = await newPkcePair();
     const state = newState();
     const authorizeUrl = buildAuthorizeUrl(cfg, {
       clientId: input.clientId, redirectUri, challenge, state,
     });
     deps.openBrowser(authorizeUrl);
-    const { code, state: returnedState } = await loopback.waitForCode();
+    const { code, state: returnedState } = await redirect.waitForCode();
     if (returnedState !== state) throw new AuthError("OAuth state mismatch; aborting.");
 
     const tokens = await exchangeCode(cfg, deps.post, {
@@ -61,7 +61,7 @@ export async function addAccount(
     };
     return { account, token };
   } finally {
-    loopback.close();
+    redirect.close();
   }
 }
 

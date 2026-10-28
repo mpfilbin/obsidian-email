@@ -46,11 +46,12 @@ You need a Microsoft Entra (Azure AD) app registration. Once, per Microsoft acco
      plugin authenticates through Microsoft's shared `/common` endpoint (it has
      no way to know your tenant ID in advance), which single-tenant apps
      reject with `AADSTS50194`. A single-tenant registration doesn't add any
-     real protection here anyway — your Client ID and this loopback flow are
+     real protection here anyway — your Client ID and this redirect flow are
      already the only way to use the app, so multi-tenant costs you nothing.
    - Register.
 2. **Authentication → Add a platform → Mobile and desktop applications:**
-   - Check the `http://localhost` redirect URI.
+   - Under **Custom redirect URIs**, add `obsidian://obsidian-email-auth`
+     (the `http://localhost` URI used by earlier versions is no longer needed).
    - Save.
 3. **API permissions → Add a permission → Microsoft Graph → Delegated
    permissions**, add:
@@ -182,7 +183,8 @@ the composer, a form), these single keys work on the open conversation:
 - Message HTML is sanitized (scripts, iframes, event handlers, and
   `javascript:` URLs are stripped) before it is rendered.
 - **No telemetry.** The plugin talks only to Microsoft's APIs and to a
-  `localhost` loopback address for the OAuth redirect.
+  `obsidian://` protocol link for the OAuth redirect — the plugin no longer
+  opens a local port.
 - A STRIDE **threat model**, including known gaps and the security invariants
   the code is meant to uphold, is in
   [`docs/security/threat-model.md`](docs/security/threat-model.md).

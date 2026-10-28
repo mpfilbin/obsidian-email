@@ -156,11 +156,11 @@ describe("PluginContext", () => {
       openExternal: vi.fn((url: string) => {
         captured.state = new URL(url).searchParams.get("state")!;
       }),
-      makeLoopback: () => ({
-        listen: async () => ({ port: 1, redirectUri: "http://localhost:1" }),
+      redirect: {
+        listen: async () => ({ redirectUri: "obsidian://obsidian-email-auth" }),
         waitForCode: async () => ({ code: "C", state: captured.state }),
         close: vi.fn(),
-      }),
+      },
     };
 
     const ctx = await PluginContext.create(settings, deps, logger);
