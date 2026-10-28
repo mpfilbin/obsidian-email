@@ -2413,6 +2413,47 @@ describe("App — Flagged view", () => {
       k.cleanup();
     });
 
+    it("never pulls focus back from another pane when a background refresh replaces the list", () => {
+      const k = mountKeys({ openThreadId: "t1" });
+      const elsewhere = document.createElement("textarea"); // e.g. a note in a split
+      document.body.appendChild(elsewhere);
+      k.row("t1").focus();
+      k.press("f");
+      elsewhere.focus();
+      setStateOf(k.vm)({ threads: [threadView("t2", "m2", "Two")] });
+      flushSync();
+      expect(document.activeElement).toBe(elsewhere);
+      elsewhere.remove();
+      k.cleanup();
+    });
+
+    it("stops reclaiming focus once the user clicks anywhere", () => {
+      const k = mountKeys({ openThreadId: "t1" });
+      k.row("t1").focus();
+      k.press("f");
+      document.body.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+      k.row("t1").blur();
+      setStateOf(k.vm)({ threads: [threadView("t2", "m2", "Two")] });
+      flushSync();
+      expect(document.activeElement).toBe(document.body);
+      k.cleanup();
+    });
+
+    it("stops reclaiming focus once focus has moved to another element", () => {
+      const k = mountKeys({ openThreadId: "t1" });
+      const elsewhere = document.createElement("input");
+      document.body.appendChild(elsewhere);
+      k.row("t1").focus();
+      k.press("f");
+      elsewhere.focus(); // focusout from the grid with a relatedTarget outside it
+      elsewhere.blur();  // ...and then it lets go, leaving <body> focused
+      setStateOf(k.vm)({ threads: [threadView("t2", "m2", "Two")] });
+      flushSync();
+      expect(document.activeElement).toBe(document.body);
+      elsewhere.remove();
+      k.cleanup();
+    });
+
     it("puts focus back on the grid when the focused row disappears after a key press", () => {
       const k = mountKeys({ openThreadId: "t1" });
       k.row("t1").focus();

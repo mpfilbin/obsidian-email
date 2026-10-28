@@ -49,13 +49,13 @@ export interface RibbonContext {
   hasOpenThread: boolean;
   /** An expanded message exists in the open thread — the target of Reply, Archive, Delete… */
   hasTargetMessage: boolean;
-  /** An open message is flagged. */
   /** Built-in key shortcuts are on, so buttons can advertise their key. */
   keyboardShortcuts: boolean;
   /** The expanded message has a delete/archive/move on its way to the server. */
   targetMessagePending: boolean;
   /** The open conversation has a delete/archive/move on its way. */
   openThreadPending: boolean;
+  /** An open message is flagged. */
   openThreadFlagged: boolean;
   /** The open thread is pinned. */
   openThreadPinned: boolean;

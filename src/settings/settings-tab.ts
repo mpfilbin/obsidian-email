@@ -141,7 +141,7 @@ export class EmailSettingTab extends PluginSettingTab {
       );
     new Setting(containerEl)
       .setName("Keyboard shortcuts")
-      .setDesc("Single-key shortcuts while the mail view has focus and you aren't typing: j / k next and previous conversation, f flag, p pin, e archive, # or Delete delete. To use your own keys instead, turn this off and bind the \"Email\" commands in Settings → Hotkeys. Takes effect the next time the mail view opens or refreshes.")
+      .setDesc("Single-key shortcuts while the mail view has focus and you aren't typing: j / k next and previous conversation, x tick or untick it, u mark read or unread, f flag, p pin, e archive, # or Delete delete. To use your own keys instead, turn this off and bind the \"Email\" commands in Settings → Hotkeys. Takes effect the next time the mail view opens or refreshes.")
       .addToggle((t) =>
         t
           .setValue(cfg.prefs.keyboardShortcuts)

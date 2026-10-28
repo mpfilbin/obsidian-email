@@ -66,8 +66,12 @@ Keys only reach the view while focus is inside it. Deleting or archiving removes
 the focused row, which would drop focus to `<body>` and silently kill every later
 key. So:
 
-- The grid root gets `tabindex="-1"`, and after any shortcut action, if focus is
-  not inside the grid, it is moved to the grid root.
+- The grid root gets `tabindex="-1"`. After a shortcut action, whenever the list
+  next changes and focus has been *lost* (it is on `<body>` because the focused
+  row was removed), it is moved to the grid root. Focus the user moved elsewhere
+  — a note in a split, another pane — is never pulled back: a pointer press
+  anywhere, or focus leaving the grid for another element, ends the keyboard
+  session, so a background refresh can't steal focus mid-typing.
 - `j`/`k` and auto-advance focus the newly opened row (`preventScroll`) and call
   `scrollIntoView({ block: "nearest" })`, so the highlighted row is always the
   focused one.
@@ -153,7 +157,7 @@ completion, as it does today.
 
 ### Commands (`src/host/palette.ts`, `src/main.ts`)
 
-`buildPaletteCommands` gains a `mail` host handle and six commands:
+`buildPaletteCommands` gains a `mail` host handle and eight commands:
 
 | id | name |
 | --- | --- |
@@ -218,7 +222,7 @@ section with the table above and a note on binding the commands.
   the search box, with Ctrl/Meta/Alt held, in Contacts mode, with the composer
   open, while a prompt shows, with the setting off, and on a repeated action key;
   focus returns to the grid after an action removes the focused row.
-- Palette: the six commands exist; `checkCallback` is false off the mail view, with
+- Palette: the eight commands exist; `checkCallback` is false off the mail view, with
   no open thread, or when archiving is not allowed; `perform` is called with the
   right action.
 - Settings: `keyboardShortcuts` defaults to true, survives an old file, toggles

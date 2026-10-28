@@ -390,11 +390,25 @@
     row.focus({ preventScroll: true });
     row.scrollIntoView?.({ block: "nearest" });
   }
+  // Only ever reclaims focus that was *lost* — removing the focused row leaves
+  // it on <body> — never focus the user moved elsewhere (a note in a split, say)
+  // before a background refresh replaced the list. A pointer press anywhere, or
+  // focus moving to another element, ends the keyboard session.
   let keyboardDriven = false;
   $effect(() => {
     void state.threads;
-    if (keyboardDriven && gridEl && !gridEl.contains(document.activeElement)) gridEl.focus({ preventScroll: true });
+    const active = document.activeElement;
+    if (keyboardDriven && gridEl && (active === null || active === document.body)) gridEl.focus({ preventScroll: true });
   });
+  $effect(() => {
+    const stop = (): void => { keyboardDriven = false; };
+    document.addEventListener("pointerdown", stop, true);
+    return () => document.removeEventListener("pointerdown", stop, true);
+  });
+  function onGridFocusout(e: FocusEvent): void {
+    const to = e.relatedTarget;
+    if (to instanceof Node && !gridEl?.contains(to)) keyboardDriven = false;
+  }
 
   function onGridKeydown(e: KeyboardEvent): void {
     if (!state.keyboardShortcuts || e.defaultPrevented || e.isComposing) return;
@@ -575,7 +589,7 @@
      land when the focused row is removed; the keys themselves are filtered in
      onGridKeydown. -->
 <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_static_element_interactions -->
-<div class="oe-grid" style={gridStyle} bind:this={gridEl} tabindex="-1" onkeydown={onGridKeydown} onpointerdown={() => { keyboardDriven = false; }}>
+<div class="oe-grid" style={gridStyle} bind:this={gridEl} tabindex="-1" onkeydown={onGridKeydown} onfocusout={onGridFocusout}>
   <AccountSwitcher
     accounts={state.accounts}
     activeId={state.activeAccountId}
