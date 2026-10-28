@@ -2169,6 +2169,15 @@ describe("ViewModel — ribbon prefs", () => {
     expect(ctx.vm.getState().ribbonCollapsedByDefault).toBe(true);
   });
 
+  it("mirrors the keyboard shortcuts pref, defaulting to on", async () => {
+    const ctx = await build();
+    expect(ctx.vm.getState().keyboardShortcuts).toBe(true);
+    await ctx.settings.updatePrefs({ keyboardShortcuts: false });
+    await ctx.cache.putMailboxes("a1", await ctx.provider.listMailboxes());
+    await ctx.vm.init();
+    expect(ctx.vm.getState().keyboardShortcuts).toBe(false);
+  });
+
   it("defaults to ribbon enabled and expanded before any account is selected", async () => {
     const ctx = await build();
     expect(ctx.vm.getState().ribbonEnabled).toBe(true);

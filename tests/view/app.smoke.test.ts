@@ -40,7 +40,7 @@ function fakeVm(state: Partial<ViewState> = {}): ViewModel {
     selectedThreadIds: [], selectionAnchorId: null,
     composer: null, mode: "mail",
     contacts: [], contactsStatus: "idle", contactSearch: "", selectedContactId: null, contactEdit: null,
-    ribbonEnabled: true, ribbonCollapsedByDefault: false,
+    ribbonEnabled: true, ribbonCollapsedByDefault: false, keyboardShortcuts: true,
     ...state,
   };
   // A minimal reactive store so the default (un-overridden) `openNewMessage`

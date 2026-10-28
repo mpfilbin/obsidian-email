@@ -95,6 +95,8 @@ export interface ViewState {
   /** Mirror `prefs.ribbonEnabled` / `prefs.ribbonCollapsedByDefault`. */
   ribbonEnabled: boolean;
   ribbonCollapsedByDefault: boolean;
+  /** Mirrors `prefs.keyboardShortcuts`. */
+  keyboardShortcuts: boolean;
   composer: ComposerState | null;
   /** Which set of panes the view shows. */
   mode: "mail" | "contacts";
@@ -228,7 +230,7 @@ export class ViewModel {
     threads: [], pinnedThreadIds: [], selectedThreadIds: [], selectionAnchorId: null, hasMore: false, loadingList: false, pendingOps: [], autoLoadImages: false,
     search: { query: "", active: false },
     openThreadId: null, openMessages: [],
-    ribbonEnabled: true, ribbonCollapsedByDefault: false,
+    ribbonEnabled: true, ribbonCollapsedByDefault: false, keyboardShortcuts: true,
     composer: null, mode: "mail", contacts: [], contactsStatus: "idle", contactSearch: "",
     selectedContactId: null, contactEdit: null,
   };
@@ -321,13 +323,14 @@ export class ViewModel {
    * been in the settings tab since we last looked.
    */
   private syncPrefs(): void {
-    const { autoLoadImages, ribbonEnabled, ribbonCollapsedByDefault } = this.deps.settings.get().prefs;
+    const { autoLoadImages, ribbonEnabled, ribbonCollapsedByDefault, keyboardShortcuts } = this.deps.settings.get().prefs;
     if (
       autoLoadImages !== this.state.autoLoadImages ||
       ribbonEnabled !== this.state.ribbonEnabled ||
-      ribbonCollapsedByDefault !== this.state.ribbonCollapsedByDefault
+      ribbonCollapsedByDefault !== this.state.ribbonCollapsedByDefault ||
+      keyboardShortcuts !== this.state.keyboardShortcuts
     ) {
-      this.set({ autoLoadImages, ribbonEnabled, ribbonCollapsedByDefault });
+      this.set({ autoLoadImages, ribbonEnabled, ribbonCollapsedByDefault, keyboardShortcuts });
     }
   }
 

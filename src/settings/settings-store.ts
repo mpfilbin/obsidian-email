@@ -9,6 +9,8 @@ export interface Prefs {
   debug: boolean;
   ribbonEnabled: boolean;
   ribbonCollapsedByDefault: boolean;
+  /** Built-in single-key shortcuts (j/k/f/p/e/#) while the mail view has focus. */
+  keyboardShortcuts: boolean;
 }
 
 export interface PinnedThread {
@@ -37,6 +39,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
     debug: false,
     ribbonEnabled: true,
     ribbonCollapsedByDefault: false,
+    keyboardShortcuts: true,
   },
   pins: [],
 };
