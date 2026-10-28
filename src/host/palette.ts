@@ -1,5 +1,6 @@
 import type { NoteCommands } from "../view/mail-view";
 import type { ViewState } from "../view/view-model";
+import type { KeyAction } from "../view/shortcuts";
 
 export interface PaletteCommand {
   id: string;
@@ -21,7 +22,17 @@ export function printTargetMessageId(state: Pick<ViewState, "composer" | "openMe
   return !composerOpen && messages.length > 0 ? messages[messages.length - 1].summary.id : undefined;
 }
 
+/** The mail view's keyboard dispatcher — the same one the built-in keys use, so
+ *  the unsaved-composer prompt and the delete confirmation apply to commands too. */
+export interface MailKeys {
+  canPerform(action: KeyAction): boolean;
+  perform(action: KeyAction): void;
+}
+
 export interface PaletteHost {
+  /** The mail view, but only while it is the active view — so a hotkey such as
+   *  Ctrl+E can't archive mail while the user is typing in a note. */
+  mail: () => MailKeys | null;
   activateView: () => Promise<void>;
   noteCommands: NoteCommands;
   notify: (message: string) => void;
@@ -36,6 +47,16 @@ export interface PaletteHost {
 
 export function buildPaletteCommands(host: PaletteHost): PaletteCommand[] {
   const { vm, noteCommands } = host;
+  const keyCommand = (id: string, name: string, action: KeyAction): PaletteCommand => ({
+    id,
+    name,
+    checkCallback: (checking) => {
+      const mail = host.mail();
+      if (!mail || !mail.canPerform(action)) return false;
+      if (!checking) mail.perform(action);
+      return true;
+    },
+  });
   return [
     { id: "open", name: "Open mail", callback: () => void host.activateView() },
     { id: "compose-from-note", name: "Create email from note", callback: noteCommands.composeFromNote },
@@ -80,5 +101,11 @@ export function buildPaletteCommands(host: PaletteHost): PaletteCommand[] {
         return true;
       },
     },
+    keyCommand("next-email", "Next email", "next"),
+    keyCommand("previous-email", "Previous email", "previous"),
+    keyCommand("toggle-flag", "Flag or unflag email", "flag"),
+    keyCommand("toggle-pin", "Pin or unpin email", "pin"),
+    keyCommand("archive-email", "Archive email", "archive"),
+    keyCommand("delete-email", "Delete email", "delete"),
   ];
 }

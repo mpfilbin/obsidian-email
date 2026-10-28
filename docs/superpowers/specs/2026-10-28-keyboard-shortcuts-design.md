@@ -121,6 +121,14 @@ advanceTarget(threads, openId: string, skip: ReadonlySet<string>): string | null
   to the nearest earlier non-pending row, else `null`.
 - `skip` is `pendingThreadIds(state)` so a row mid-delete is never opened.
 
+### Closing the double-press gap (`view-model.ts`)
+
+`pendingOps` only fills in once `actOnThreads` has read the thread's messages
+from the cache, so a second call landing in that gap — a key tapped twice — would
+pass the re-entry guard and send the work again. `actOnThreads` therefore also
+takes a synchronous claim on its thread ids (`claimedThreads`) before it first
+awaits, and releases it in its `finally`.
+
 ### Auto-advance (builds on Operation Feedback)
 
 Operation Feedback keeps a row on screen, marked pending, until the server
@@ -173,7 +181,9 @@ built-in-keys setting.
 ### Discoverability
 
 Row buttons and ribbon buttons gain the key in their tooltip when shortcuts are
-on (`Archive (e)`, `Flag (f)`, …). README gets a short "Keyboard shortcuts"
+on (`Archive (e)`, `Flag (f)`, …). `ThreadRow` takes a `keyHints` prop; ribbon
+commands carry an optional `key`, and `RibbonContext` gains `keyboardShortcuts`.
+The accessible name (`aria-label`) stays the plain label. README gets a short "Keyboard shortcuts"
 section with the table above and a note on binding the commands.
 
 ## Error handling

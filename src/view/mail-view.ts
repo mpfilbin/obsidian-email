@@ -2,6 +2,7 @@ import { ItemView, type WorkspaceLeaf } from "obsidian";
 import { mount, unmount } from "svelte";
 import App from "./App.svelte";
 import type { ViewModel } from "./view-model";
+import type { KeyAction } from "./shortcuts";
 import type { Mailbox } from "../providers/types";
 
 export const MAIL_VIEW_TYPE = "obsidian-email-mail-view";
@@ -58,7 +59,7 @@ export interface NoteCommands {
 }
 
 export class MailView extends ItemView {
-  private app_?: ReturnType<typeof mount>;
+  private app_?: ReturnType<typeof mount> & { canPerform?: (action: KeyAction) => boolean; perform?: (action: KeyAction) => void };
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -98,6 +99,16 @@ export class MailView extends ItemView {
       },
     });
     await this.vm.init();
+  }
+
+  /** Whether `action` would do anything right now (see App.svelte's `canPerform`). */
+  canPerform(action: KeyAction): boolean {
+    return this.app_?.canPerform?.(action) ?? false;
+  }
+
+  /** Runs a keyboard action through the same guards as the built-in keys. */
+  perform(action: KeyAction): void {
+    this.app_?.perform?.(action);
   }
 
   async onClose(): Promise<void> {

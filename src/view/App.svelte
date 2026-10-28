@@ -406,6 +406,7 @@
     hasAccount: state.activeAccountId !== null,
     hasOpenThread: !paneShowsComposer && state.openThreadId !== null,
     hasTargetMessage: !paneShowsComposer && targetMessageId !== null,
+    keyboardShortcuts: state.keyboardShortcuts,
     targetMessagePending: targetMessageId !== null && pendingMessageSet.has(targetMessageId),
     openThreadPending: state.openThreadId !== null && pendingThreadSet.has(state.openThreadId),
     openThreadFlagged: state.openMessages.some((m) => m.summary.flagged),
@@ -626,6 +627,7 @@
         selectedIds={state.selectedThreadIds}
         onSelectThread={selectThread}
         pendingIds={[...pendingThreadSet]}
+        keyHints={state.keyboardShortcuts}
         threads={state.threads}
         openThreadId={state.openThreadId}
         hasMore={state.hasMore}

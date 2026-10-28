@@ -18,7 +18,7 @@ function ctx(over: Partial<RibbonContext> = {}): RibbonContext {
   return {
     hasAccount: true, hasOpenThread: true, hasTargetMessage: true, mailboxKind: "inbox",
     otherMailboxes: [{ id: "ARCH", name: "Archive" }, { id: "P", name: "Project" }],
-    readingPaneCollapsed: false, syncing: false, searchOpen: false, composerMode: null, composerSending: false, openThreadFlagged: false, openThreadPinned: false, selectedCount: 0,
+    readingPaneCollapsed: false, syncing: false, searchOpen: false, composerMode: null, composerSending: false, keyboardShortcuts: true, targetMessagePending: false, openThreadPending: false, openThreadFlagged: false, openThreadPinned: false, selectedCount: 0,
     mode: "mail", hasSelectedContact: false, selectedContactHasEmail: false, contactEditing: false, contactsBlocked: false, contactsSyncing: false,
     actions: actions(), ...over,
   };
@@ -36,6 +36,21 @@ describe("Ribbon smoke", () => {
     expect(host.textContent).toContain("Respond");
     expect(q(host, '[data-action="reply"]')).not.toBeNull();
     unmount(app);
+  });
+
+  it("advertises a button's shortcut key in its tooltip only while shortcuts are on", () => {
+    const titles = (keyboardShortcuts: boolean) => {
+      const host = document.createElement("div");
+      const app = mount(Ribbon, { target: host, props: { ctx: ctx({ keyboardShortcuts }), defaultCollapsed: false } });
+      flushSync();
+      const out = Object.fromEntries(["archive", "delete", "flag", "pin", "reply"].map((id) => [id, q(host, `[data-action="${id}"]`)!.getAttribute("title")]));
+      const labels = q(host, '[data-action="archive"]')!.getAttribute("aria-label");
+      unmount(app);
+      return { out, labels };
+    };
+    expect(titles(true).out).toEqual({ archive: "Archive (e)", delete: "Delete (#)", flag: "Flag (f)", pin: "Pin (p)", reply: "Reply" });
+    expect(titles(false).out).toEqual({ archive: "Archive", delete: "Delete", flag: "Flag", pin: "Pin", reply: "Reply" });
+    expect(titles(true).labels).toBe("Archive"); // the accessible name stays plain
   });
 
   it("clicking a button runs its action", () => {

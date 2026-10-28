@@ -115,7 +115,10 @@ export default class EmailPlugin extends Plugin {
     );
 
     this.addRibbonIcon("mail", "Open mail", () => void this.activateView());
-    for (const command of buildPaletteCommands({ activateView: () => this.activateView(), noteCommands, notify, vm: ctx.vm })) {
+    for (const command of buildPaletteCommands({
+      activateView: () => this.activateView(), noteCommands, notify, vm: ctx.vm,
+      mail: () => this.app.workspace.getActiveViewOfType(MailView),
+    })) {
       this.addCommand(command);
     }
     this.addSettingTab(new EmailSettingTab(this, ctx, settings));

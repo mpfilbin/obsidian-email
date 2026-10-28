@@ -387,4 +387,33 @@ describe("ThreadRow multi-select", () => {
       unmount(app);
     });
   });
+
+  describe("shortcut hints", () => {
+    const titles = (keyHints?: boolean) => {
+      const host = document.createElement("div");
+      const app = mount(ThreadRow, { target: host, props: baseProps(keyHints === undefined ? {} : { keyHints }) });
+      flushSync();
+      const out = Object.fromEntries(["flag", "pin", "archive", "delete"].map((a) => [a, host.querySelector(`[data-action="${a}"]`)!.getAttribute("title")]));
+      unmount(app);
+      return out;
+    };
+
+    it("puts each action's key in its tooltip when hints are on", () => {
+      expect(titles(true)).toEqual({ flag: "Flag (f)", pin: "Pin (p)", archive: "Archive (e)", delete: "Delete (#)" });
+    });
+
+    it("uses plain tooltips when hints are off, which is the default", () => {
+      const plain = { flag: "Flag", pin: "Pin", archive: "Archive", delete: "Delete" };
+      expect(titles(false)).toEqual(plain);
+      expect(titles()).toEqual(plain);
+    });
+
+    it("exposes the thread id for keyboard focus", () => {
+      const host = document.createElement("div");
+      const app = mount(ThreadRow, { target: host, props: baseProps() });
+      flushSync();
+      expect(host.querySelector(".oe-thread-row")!.getAttribute("data-thread-id")).toBe("t1");
+      unmount(app);
+    });
+  });
 });

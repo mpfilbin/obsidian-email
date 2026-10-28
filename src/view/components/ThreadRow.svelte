@@ -6,7 +6,9 @@
 
   import { THREAD_DRAG_TYPE } from "../drag-types";
 
-  let { thread, isOpen, onOpen, isDraftsMailbox, isArchiveMailbox, isTrashMailbox, onArchive, onDelete, onToggleFlag, onTogglePin, onContextMenu, selected = false, selectionActive = false, onSelect = () => {}, pending = false }: {
+  let { thread, isOpen, onOpen, isDraftsMailbox, isArchiveMailbox, isTrashMailbox, onArchive, onDelete, onToggleFlag, onTogglePin, onContextMenu, selected = false, selectionActive = false, onSelect = () => {}, pending = false, keyHints = false }: {
+    /** Show each action button's shortcut key in its tooltip. */
+    keyHints?: boolean;
     /** A delete/archive/move of this thread is on its way to the server. */
     pending?: boolean;
     thread: ThreadView; isOpen: boolean; onOpen: () => void;
@@ -27,6 +29,7 @@
   const flagged = $derived(thread.messages.some((m) => m.flagged));
   const due = $derived(flagged && thread.flagDue !== undefined ? describeFollowUp(thread.flagDue, Date.now()) : null);
   const pinned = $derived(thread.pinned ?? false);
+  const tip = (label: string, key: string): string => (keyHints ? `${label} (${key})` : label);
   const showArchive = $derived(!isDraftsMailbox && !isArchiveMailbox && !isTrashMailbox);
 
   // Ctrl/Cmd-click ticks the row, Shift-click ticks a range, a plain click
@@ -100,18 +103,18 @@
     </div>
   {:else}
   <div class="oe-thread-actions">
-    <button type="button" data-action="flag" aria-pressed={flagged} onclick={(e) => { e.stopPropagation(); onToggleFlag(); }} onkeydown={(e) => e.stopPropagation()}>
+    <button type="button" data-action="flag" title={tip(flagged ? "Unflag" : "Flag", "f")} aria-pressed={flagged} onclick={(e) => { e.stopPropagation(); onToggleFlag(); }} onkeydown={(e) => e.stopPropagation()}>
       <span class="oe-action-icon" use:icon={flagged ? ACTION_ICON.unflag : ACTION_ICON.flag}></span>{flagged ? "Unflag" : "Flag"}
     </button>
-    <button type="button" data-action="pin" aria-pressed={pinned} onclick={(e) => { e.stopPropagation(); onTogglePin(); }} onkeydown={(e) => e.stopPropagation()}>
+    <button type="button" data-action="pin" title={tip(pinned ? "Unpin" : "Pin", "p")} aria-pressed={pinned} onclick={(e) => { e.stopPropagation(); onTogglePin(); }} onkeydown={(e) => e.stopPropagation()}>
       <span class="oe-action-icon" use:icon={pinned ? ACTION_ICON.unpin : ACTION_ICON.pin}></span>{pinned ? "Unpin" : "Pin"}
     </button>
     {#if showArchive}
-      <button type="button" data-action="archive" onclick={(e) => { e.stopPropagation(); onArchive(); }} onkeydown={(e) => e.stopPropagation()}>
+      <button type="button" data-action="archive" title={tip("Archive", "e")} onclick={(e) => { e.stopPropagation(); onArchive(); }} onkeydown={(e) => e.stopPropagation()}>
         <span class="oe-action-icon" use:icon={ACTION_ICON.archive}></span>Archive
       </button>
     {/if}
-    <button type="button" data-action="delete" onclick={(e) => { e.stopPropagation(); onDelete(); }} onkeydown={(e) => e.stopPropagation()}>
+    <button type="button" data-action="delete" title={tip("Delete", "#")} onclick={(e) => { e.stopPropagation(); onDelete(); }} onkeydown={(e) => e.stopPropagation()}>
       <span class="oe-action-icon" use:icon={ACTION_ICON.delete}></span>Delete
     </button>
   </div>
