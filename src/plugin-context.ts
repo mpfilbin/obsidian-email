@@ -16,7 +16,8 @@ import { ViewModel } from "./view/view-model";
 import { TokenManager } from "./auth/token-manager";
 import { createProvider } from "./providers/provider-factory";
 import { addAccount, defaultFetchProfileEmail } from "./auth/add-account";
-import type { AddAccountDeps, LoopbackLike } from "./auth/add-account";
+import type { AddAccountDeps, RedirectReceiver } from "./auth/add-account";
+import { AuthRedirectReceiver } from "./auth/redirect-receiver";
 
 export interface ContextHostDeps {
   http: HttpClient;
@@ -50,8 +51,8 @@ export interface ContextHostDeps {
   /** Test-only seam: how long each IndexedDB open may take before the plugin
    *  gives up and degrades. Defaults to `CACHE_OPEN_TIMEOUT_MS`. */
   cacheOpenTimeoutMs?: number;
-  /** Test-only seam: lets a spec inject a fake OAuth loopback server. */
-  makeLoopback?: (host: "127.0.0.1" | "localhost") => LoopbackLike;
+  /** Test-only seam: lets a spec inject a fake OAuth redirect receiver. */
+  redirect?: RedirectReceiver;
 }
 
 /**
@@ -94,6 +95,7 @@ const CACHE_OPEN_TIMEOUT_MS = 8000;
 export class PluginContext {
   private now: () => number;
   private contactTimer?: ReturnType<typeof setInterval>;
+  private authRedirect = new AuthRedirectReceiver();
 
   private constructor(
     private settings: SettingsStore,
@@ -258,8 +260,13 @@ export class PluginContext {
       now: this.now,
       genId,
       fetchProfileEmail: defaultFetchProfileEmail(this.host.http),
-      makeLoopback: this.host.makeLoopback,
+      redirect: this.host.redirect ?? this.authRedirect,
     };
+  }
+
+  /** Entry point for the `obsidian://obsidian-email-auth` protocol handler. */
+  handleAuthRedirect(params: Record<string, string | undefined>): void {
+    this.authRedirect.handle(params);
   }
 
   async addAccountFlow(input: {
@@ -287,7 +294,7 @@ export class PluginContext {
     if (!account) return { ok: false, message: "Account not found." };
     try {
       const { account: refreshed } = await addAccount(
-        { kind: account.provider, clientId: account.clientId },
+        { kind: account.provider, clientId: account.clientId, expectedEmail: account.email },
         this.addAccountDeps(() => accountId),
       );
       await this.settings.addAccount(refreshed);

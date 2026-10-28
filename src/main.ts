@@ -21,6 +21,7 @@ import { makeMenus } from "./host/menus";
 import { makeSaveBlob, makeSaveNote } from "./host/vault-io";
 import { makeNoteCommands, makePickNoteAttachment, type NoteHost } from "./host/note-commands";
 import { buildPaletteCommands } from "./host/palette";
+import { AUTH_REDIRECT_ACTION } from "./auth/redirect-receiver";
 
 /**
  * Composition root: wires Obsidian's APIs to the plugin. The logic lives in
@@ -107,6 +108,8 @@ export default class EmailPlugin extends Plugin {
       logger,
     );
     const ctx = this.ctx;
+
+    this.registerObsidianProtocolHandler(AUTH_REDIRECT_ACTION, (params) => ctx.handleAuthRedirect(params));
 
     this.registerView(
       MAIL_VIEW_TYPE,

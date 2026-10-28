@@ -7,6 +7,8 @@ export interface ConnectInput {
   clientId: string;
 }
 
+const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * DOM-free core of the "Connect" button: validate the inputs, run the OAuth
  * flow, and turn the outcome into a message the caller shows with a `Notice`.
@@ -15,9 +17,16 @@ export async function handleConnect(
   ctx: Pick<PluginContext, "addAccountFlow">,
   input: ConnectInput,
 ): Promise<{ ok: boolean; message: string }> {
-  if (!input.clientId.trim()) return { ok: false, message: "Client ID is required." };
+  const clientId = input.clientId.trim();
+  if (!clientId) return { ok: false, message: "Client ID is required." };
+  if (!GUID_RE.test(clientId)) {
+    return {
+      ok: false,
+      message: "Client ID must be the Application (client) ID GUID from your app registration's Overview page.",
+    };
+  }
   try {
-    const account = await ctx.addAccountFlow({ kind: "ms-graph", clientId: input.clientId });
+    const account = await ctx.addAccountFlow({ kind: "ms-graph", clientId });
     return { ok: true, message: `Connected ${account.email}.` };
   } catch (err) {
     return { ok: false, message: `Could not connect: ${(err as Error).message}` };

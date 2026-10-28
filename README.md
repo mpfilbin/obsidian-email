@@ -46,11 +46,12 @@ You need a Microsoft Entra (Azure AD) app registration. Once, per Microsoft acco
      plugin authenticates through Microsoft's shared `/common` endpoint (it has
      no way to know your tenant ID in advance), which single-tenant apps
      reject with `AADSTS50194`. A single-tenant registration doesn't add any
-     real protection here anyway — your Client ID and this loopback flow are
+     real protection here anyway — your Client ID and this redirect flow are
      already the only way to use the app, so multi-tenant costs you nothing.
    - Register.
 2. **Authentication → Add a platform → Mobile and desktop applications:**
-   - Check the `http://localhost` redirect URI.
+   - Under **Custom redirect URIs**, add `obsidian://obsidian-email-auth`
+     (the `http://localhost` URI used by earlier versions is no longer needed).
    - Save.
 3. **API permissions → Add a permission → Microsoft Graph → Delegated
    permissions**, add:
@@ -64,11 +65,15 @@ You need a Microsoft Entra (Azure AD) app registration. Once, per Microsoft acco
    existed are prompted to grant it the first time they open Contacts.
 4. From the app's **Overview**, copy the **Application (client) ID**.
 5. In Obsidian: **Settings → Email → Add account:**
-   - Paste the **Application (client) ID** (no secret needed).
+   - Paste the **Application (client) ID** (no secret needed). It must be the
+     GUID from your own app registration. Only use a Client ID you created, or
+     one from a publisher you trust: whoever owns the app registration is the
+     app that gets consent to your mailbox.
    - Click **Connect** and approve access in the browser.
 
-**Troubleshooting:** the browser tab always says "Authentication complete" once
-the redirect reaches Obsidian, whether or not the sign-in actually succeeded —
+**Troubleshooting:** after you approve access, the browser hands control back to
+Obsidian via the `obsidian://` link (your browser may ask permission to open
+it). That hand-off happens whether or not the sign-in actually succeeded —
 check the Notice that appears in Obsidian for the real result. If it says
 `AADSTS50194`, your app registration was created as single-tenant: go to the
 app's **Authentication** page, change **Supported account types** to
@@ -182,7 +187,8 @@ the composer, a form), these single keys work on the open conversation:
 - Message HTML is sanitized (scripts, iframes, event handlers, and
   `javascript:` URLs are stripped) before it is rendered.
 - **No telemetry.** The plugin talks only to Microsoft's APIs and to a
-  `localhost` loopback address for the OAuth redirect.
+  `obsidian://` protocol link for the OAuth redirect — the plugin no longer
+  opens a local port.
 - A STRIDE **threat model**, including known gaps and the security invariants
   the code is meant to uphold, is in
   [`docs/security/threat-model.md`](docs/security/threat-model.md).

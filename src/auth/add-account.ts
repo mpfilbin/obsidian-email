@@ -5,12 +5,12 @@ import type { HttpClient } from "../providers/http";
 import { newPkcePair, newState } from "./pkce";
 import { OAUTH_CONFIG } from "./provider-oauth-config";
 import { buildAuthorizeUrl, exchangeCode, type HttpPost } from "./oauth-client";
-import { LoopbackServer } from "./loopback-server";
+import { AuthRedirectReceiver } from "./redirect-receiver";
 import { TokenManager, type SecretStore } from "./token-manager";
 
-export interface LoopbackLike {
-  listen(): Promise<{ port: number; redirectUri: string }>;
-  waitForCode(o?: { timeoutMs?: number }): Promise<{ code: string; state: string }>;
+export interface RedirectReceiver {
+  listen(): Promise<{ redirectUri: string }>;
+  waitForCode(o?: { timeoutMs?: number; expectedState?: string }): Promise<{ code: string; state: string }>;
   close(): void;
 }
 
@@ -21,25 +21,25 @@ export interface AddAccountDeps {
   now: () => number;
   fetchProfileEmail: (accessToken: string, post: HttpPost) => Promise<string>;
   genId: () => string;
-  makeLoopback?: (host: "127.0.0.1" | "localhost") => LoopbackLike;
+  /** The receiver the protocol handler feeds; a fresh one if omitted (tests). */
+  redirect?: RedirectReceiver;
 }
 
 export async function addAccount(
-  input: { kind: ProviderKind; clientId: string },
+  input: { kind: ProviderKind; clientId: string; expectedEmail?: string },
   deps: AddAccountDeps,
 ): Promise<{ account: AccountConfig; token: TokenManager }> {
   const cfg = OAUTH_CONFIG[input.kind];
-  const make = deps.makeLoopback ?? ((host) => new LoopbackServer(host));
-  const loopback = make(cfg.loopbackHost);
+  const redirect = deps.redirect ?? new AuthRedirectReceiver();
   try {
-    const { redirectUri } = await loopback.listen();
+    const { redirectUri } = await redirect.listen();
     const { verifier, challenge } = await newPkcePair();
     const state = newState();
     const authorizeUrl = buildAuthorizeUrl(cfg, {
       clientId: input.clientId, redirectUri, challenge, state,
     });
     deps.openBrowser(authorizeUrl);
-    const { code, state: returnedState } = await loopback.waitForCode();
+    const { code, state: returnedState } = await redirect.waitForCode({ expectedState: state });
     if (returnedState !== state) throw new AuthError("OAuth state mismatch; aborting.");
 
     const tokens = await exchangeCode(cfg, deps.post, {
@@ -49,19 +49,28 @@ export async function addAccount(
       redirectUri,
     });
 
+    // Resolve the identity before persisting anything: a re-auth as a different
+    // mailbox must not overwrite the stored refresh token.
+    const email = await deps.fetchProfileEmail(tokens.accessToken, deps.post);
+    if (input.expectedEmail && email.toLowerCase() !== input.expectedEmail.toLowerCase()) {
+      throw new AuthError(
+        `Signed in as ${email}, but this account is ${input.expectedEmail}. ` +
+          "Remove the account and add it again to switch mailboxes.",
+      );
+    }
+
     const id = deps.genId();
     const token = new TokenManager(id, input.kind, input.clientId, {
       secrets: deps.secrets, post: deps.post, now: deps.now,
     });
     await token.storeInitialTokens(tokens);
 
-    const email = await deps.fetchProfileEmail(tokens.accessToken, deps.post);
     const account: AccountConfig = {
       id, email, provider: input.kind, clientId: input.clientId, addedAt: deps.now(),
     };
     return { account, token };
   } finally {
-    loopback.close();
+    redirect.close();
   }
 }
 

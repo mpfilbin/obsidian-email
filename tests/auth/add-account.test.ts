@@ -2,18 +2,8 @@ import { describe, it, expect, vi } from "vitest";
 import { addAccount } from "../../src/auth/add-account";
 import { buildAuthorizeUrl } from "../../src/auth/oauth-client";
 import { OAUTH_CONFIG } from "../../src/auth/provider-oauth-config";
+import { AUTH_REDIRECT_URI } from "../../src/auth/redirect-receiver";
 import { AuthError } from "../../src/providers/types";
-
-function makeLoopbackFactory(codeResult: { code: string; state: string } | Error) {
-  return () => ({
-    listen: async () => ({ port: 5555, redirectUri: "http://127.0.0.1:5555" }),
-    waitForCode: async () => {
-      if (codeResult instanceof Error) throw codeResult;
-      return codeResult;
-    },
-    close: vi.fn(),
-  });
-}
 
 function baseDeps(over: Partial<Parameters<typeof addAccount>[1]> = {}) {
   return {
@@ -35,15 +25,15 @@ describe("addAccount", () => {
     const deps = baseDeps({
       openBrowser: vi.fn((url: string) => { capturedState.value = new URL(url).searchParams.get("state")!; }),
     });
-    // The loopback must echo back the same state the authorize URL used.
-    const factory = () => ({
-      listen: async () => ({ port: 1, redirectUri: "http://localhost:1" }),
+    // The redirect must echo back the same state the authorize URL used.
+    const redirect = {
+      listen: async () => ({ redirectUri: "obsidian://obsidian-email-auth" }),
       waitForCode: async () => ({ code: "CODE", state: capturedState.value }),
       close: vi.fn(),
-    });
+    };
     const { account } = await addAccount(
       { kind: "ms-graph", clientId: "cid" },
-      { ...deps, makeLoopback: factory },
+      { ...deps, redirect },
     );
     expect(account).toMatchObject({ id: "acct-1", email: "me@example.com", provider: "ms-graph", clientId: "cid" });
     expect(deps.openBrowser).toHaveBeenCalledOnce();
@@ -57,34 +47,74 @@ describe("addAccount", () => {
     const deps = baseDeps({
       openBrowser: (url: string) => { capturedState.value = new URL(url).searchParams.get("state")!; },
     });
-    const factory = () => ({
-      listen: async () => ({ port: 1, redirectUri: "http://localhost:1" }),
+    const redirect = {
+      listen: async () => ({ redirectUri: "obsidian://obsidian-email-auth" }),
       waitForCode: async () => ({ code: "C", state: capturedState.value }),
       close: vi.fn(),
-    });
-    await addAccount({ kind: "ms-graph", clientId: "cid" }, { ...deps, makeLoopback: factory });
+    };
+    await addAccount({ kind: "ms-graph", clientId: "cid" }, { ...deps, redirect });
     expect(deps.secrets.setSecret).toHaveBeenCalledWith("obsidian-email-acct-1-refresh", "rt");
     expect(deps.secrets.setSecret).toHaveBeenCalledOnce();
   });
 
-  it("throws AuthError on a state mismatch and closes the loopback", async () => {
+  it("throws AuthError on a state mismatch and closes the receiver", async () => {
     const close = vi.fn();
-    const factory = () => ({
-      listen: async () => ({ port: 1, redirectUri: "http://localhost:1" }),
+    const redirect = {
+      listen: async () => ({ redirectUri: "obsidian://obsidian-email-auth" }),
       waitForCode: async () => ({ code: "C", state: "WRONG" }),
       close,
-    });
+    };
     await expect(
-      addAccount({ kind: "ms-graph", clientId: "cid" }, { ...baseDeps(), makeLoopback: factory }),
+      addAccount({ kind: "ms-graph", clientId: "cid" }, { ...baseDeps(), redirect }),
     ).rejects.toBeInstanceOf(AuthError);
     expect(close).toHaveBeenCalled();
   });
 
-  it("builds a Microsoft authorize URL with the localhost redirect", async () => {
+  it("waits for the state it put in the authorize URL", async () => {
+    const seen: { expectedState?: string; url?: string } = {};
+    const deps = baseDeps({ openBrowser: vi.fn((u: string) => { seen.url = u; }) });
+    const redirect = {
+      listen: async () => ({ redirectUri: "obsidian://obsidian-email-auth" }),
+      waitForCode: async (o?: { expectedState?: string }) => {
+        seen.expectedState = o?.expectedState;
+        return { code: "C", state: o!.expectedState! };
+      },
+      close: vi.fn(),
+    };
+    await addAccount({ kind: "ms-graph", clientId: "cid" }, { ...deps, redirect });
+    expect(seen.expectedState).toBe(new URL(seen.url!).searchParams.get("state"));
+  });
+
+  it("refuses a different mailbox on re-auth without storing tokens", async () => {
+    const deps = baseDeps({ fetchProfileEmail: vi.fn().mockResolvedValue("other@example.com") });
+    const redirect = {
+      listen: async () => ({ redirectUri: "obsidian://obsidian-email-auth" }),
+      waitForCode: async (o?: { expectedState?: string }) => ({ code: "C", state: o!.expectedState! }),
+      close: vi.fn(),
+    };
+    await expect(
+      addAccount({ kind: "ms-graph", clientId: "cid", expectedEmail: "me@example.com" }, { ...deps, redirect }),
+    ).rejects.toThrow(/other@example.com.*me@example.com/);
+    expect(deps.secrets.setSecret).not.toHaveBeenCalled();
+  });
+
+  it("accepts the same mailbox on re-auth, ignoring case", async () => {
+    const deps = baseDeps({ fetchProfileEmail: vi.fn().mockResolvedValue("Me@Example.com") });
+    const redirect = {
+      listen: async () => ({ redirectUri: "obsidian://obsidian-email-auth" }),
+      waitForCode: async (o?: { expectedState?: string }) => ({ code: "C", state: o!.expectedState! }),
+      close: vi.fn(),
+    };
+    await expect(
+      addAccount({ kind: "ms-graph", clientId: "cid", expectedEmail: "me@example.com" }, { ...deps, redirect }),
+    ).resolves.toBeTruthy();
+  });
+
+  it("builds a Microsoft authorize URL with the obsidian:// redirect", async () => {
     const url = buildAuthorizeUrl(OAUTH_CONFIG["ms-graph"], {
-      clientId: "c", redirectUri: "http://localhost:9", challenge: "x", state: "s",
+      clientId: "c", redirectUri: AUTH_REDIRECT_URI, challenge: "x", state: "s",
     });
-    expect(url).toContain("redirect_uri=http%3A%2F%2Flocalhost%3A9");
+    expect(url).toContain("redirect_uri=obsidian%3A%2F%2Fobsidian-email-auth");
     expect(url).toContain("offline_access");
   });
 });
