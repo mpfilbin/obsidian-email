@@ -2114,6 +2114,51 @@ describe("App — Flagged view", () => {
       k.cleanup();
     });
 
+    it("x ticks the open conversation, and ticks it off again", () => {
+      const k = mountKeys({ openThreadId: "t2" });
+      k.press("x");
+      expect(k.vm.toggleThreadSelection).toHaveBeenCalledWith("t2");
+      expect(k.vm.toggleThreadSelection).toHaveBeenCalledTimes(1);
+      k.press("x");
+      expect(k.vm.toggleThreadSelection).toHaveBeenCalledTimes(2);
+      k.cleanup();
+    });
+
+    it("x does nothing with no conversation open, one that isn't in the list, or one mid-operation", () => {
+      const none = mountKeys();
+      none.press("x");
+      expect(none.vm.toggleThreadSelection).not.toHaveBeenCalled();
+      none.cleanup();
+
+      const unlisted = mountKeys({ openThreadId: "elsewhere" });
+      unlisted.press("x");
+      expect(unlisted.app.canPerform("select")).toBe(false);
+      expect(unlisted.vm.toggleThreadSelection).not.toHaveBeenCalled();
+      unlisted.cleanup();
+
+      const pending = mountKeys({
+        openThreadId: "t2",
+        pendingOps: [{ id: "op1", accountId: "a1", pastTense: "Archived", threadIds: ["t2"], messageIds: ["m2"], total: 1, done: 0 }],
+      });
+      pending.press("x");
+      expect(pending.vm.toggleThreadSelection).not.toHaveBeenCalled();
+      pending.cleanup();
+    });
+
+    it("x is ignored in a text field, with a modifier held, or with the setting off", () => {
+      const k = mountKeys({ openThreadId: "t1" });
+      const input = document.createElement("input");
+      k.grid().appendChild(input);
+      k.press("x", {}, input);
+      k.press("x", { ctrlKey: true });
+      expect(k.vm.toggleThreadSelection).not.toHaveBeenCalled();
+      k.cleanup();
+      const off = mountKeys({ keyboardShortcuts: false, openThreadId: "t1" });
+      off.press("x");
+      expect(off.vm.toggleThreadSelection).not.toHaveBeenCalled();
+      off.cleanup();
+    });
+
     it("f flags and p pins the open conversation", () => {
       const k = mountKeys({ openThreadId: "t2" });
       k.press("f");
@@ -2251,7 +2296,7 @@ describe("App — Flagged view", () => {
     it("prevents the default action of a key it handles, and only of those", () => {
       const k = mountKeys({ openThreadId: "t1" });
       expect(k.press("j").defaultPrevented).toBe(true);
-      expect(k.press("x").defaultPrevented).toBe(false);
+      expect(k.press("z").defaultPrevented).toBe(false);
       k.cleanup();
     });
 
@@ -2284,14 +2329,14 @@ describe("App — Flagged view", () => {
 
     it("canPerform mirrors what the keys would do, and perform is what the palette calls", () => {
       const k = mountKeys({ openThreadId: "t2" });
-      for (const a of ["next", "previous", "flag", "pin", "archive", "delete"]) expect(k.app.canPerform(a), a).toBe(true);
+      for (const a of ["next", "previous", "select", "flag", "pin", "archive", "delete"]) expect(k.app.canPerform(a), a).toBe(true);
       k.app.perform("flag");
       expect(k.vm.toggleThreadFlag).toHaveBeenCalledWith("t2");
       k.cleanup();
 
       const none = mountKeys();
       expect(none.app.canPerform("next")).toBe(true);
-      for (const a of ["previous", "flag", "pin", "archive", "delete"]) expect(none.app.canPerform(a), a).toBe(false);
+      for (const a of ["previous", "select", "flag", "pin", "archive", "delete"]) expect(none.app.canPerform(a), a).toBe(false);
       none.app.perform("delete");
       expect(none.vm.deleteThread).not.toHaveBeenCalled();
       none.cleanup();

@@ -140,6 +140,7 @@ the composer, a form), these single keys work on the open conversation:
 | Key | Action |
 | --- | --- |
 | `j` / `k` | Open the next / previous conversation in the list |
+| `x` | Tick or untick the open conversation (for bulk actions) |
 | `f` | Flag or unflag |
 | `p` | Pin or unpin |
 | `e` | Archive (not in Drafts, Archive or Trash) |
@@ -148,14 +149,15 @@ the composer, a form), these single keys work on the open conversation:
 - After you archive or delete the open conversation, the next one opens
   straight away (the previous one if it was the last), so you can work through a
   folder by tapping one key. With conversations ticked, `e` and `#` act on the
-  selection instead and nothing opens.
+  selection instead and nothing opens — so `x`, `j`, `x`, `j`, `e` archives a
+  hand-picked set.
 - Navigation stops at the ends of the list rather than wrapping, and holding a
   key down repeats `j` / `k` only.
 - Keys are ignored while a prompt is showing, with Ctrl/Cmd/Alt held, and in the
   Contacts view. The shortcuts can be turned off under **Settings → Email →
   Keyboard shortcuts**; button tooltips show each key while they are on.
 - Every action is also an Obsidian command — **Next email**, **Previous email**,
-  **Flag or unflag email**, **Pin or unpin email**, **Archive email**,
+  **Select or deselect email**, **Flag or unflag email**, **Pin or unpin email**, **Archive email**,
   **Delete email** — so you can bind your own keys in **Settings → Hotkeys**.
   They only run while the mail view is the active pane (so a hotkey can't
   archive mail while you are typing in a note), go through the same unsaved-draft

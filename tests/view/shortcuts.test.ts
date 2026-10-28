@@ -8,6 +8,7 @@ describe("keyToAction", () => {
   it("maps each built-in key", () => {
     expect(keyToAction(key("j"))).toBe("next");
     expect(keyToAction(key("k"))).toBe("previous");
+    expect(keyToAction(key("x"))).toBe("select");
     expect(keyToAction(key("f"))).toBe("flag");
     expect(keyToAction(key("p"))).toBe("pin");
     expect(keyToAction(key("e"))).toBe("archive");
@@ -23,7 +24,7 @@ describe("keyToAction", () => {
   it("honours key repeat for navigation only", () => {
     expect(keyToAction(key("j", { repeat: true }))).toBe("next");
     expect(keyToAction(key("k", { repeat: true }))).toBe("previous");
-    for (const k of ["f", "p", "e", "#", "Delete"]) expect(keyToAction(key(k, { repeat: true })), k).toBeNull();
+    for (const k of ["x", "f", "p", "e", "#", "Delete"]) expect(keyToAction(key(k, { repeat: true })), k).toBeNull();
   });
 });
 

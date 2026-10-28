@@ -310,6 +310,7 @@
     switch (action) {
       case "next": return adjacentThreadId(state.threads, open, 1, pendingThreadSet) !== null;
       case "previous": return adjacentThreadId(state.threads, open, -1, pendingThreadSet) !== null;
+      case "select": return idle && state.threads.some((t) => t.threadId === open);
       case "flag": return idle;
       case "pin": return idle;
       case "archive": return showBulkArchive && (ticked || idle);
@@ -327,6 +328,7 @@
         if (id) requestSwitch(() => openAndFocus(id));
         return;
       }
+      case "select": if (open) vm.toggleThreadSelection(open); return;
       case "flag": if (open) void vm.toggleThreadFlag(open); return;
       case "pin": if (open) void vm.toggleThreadPin(open); return;
       case "archive":

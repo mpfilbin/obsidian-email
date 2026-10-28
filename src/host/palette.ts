@@ -103,6 +103,7 @@ export function buildPaletteCommands(host: PaletteHost): PaletteCommand[] {
     },
     keyCommand("next-email", "Next email", "next"),
     keyCommand("previous-email", "Previous email", "previous"),
+    keyCommand("toggle-select", "Select or deselect email", "select"),
     keyCommand("toggle-flag", "Flag or unflag email", "flag"),
     keyCommand("toggle-pin", "Pin or unpin email", "pin"),
     keyCommand("archive-email", "Archive email", "archive"),
