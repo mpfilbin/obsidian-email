@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import type { ViewModel, ViewState } from "./view-model";
   import Ribbon from "./ribbon/Ribbon.svelte";
   import type { RibbonContext } from "./ribbon/registry";
@@ -17,6 +18,7 @@
   import { clampPaneWidths, loadPaneWidths, savePaneWidths, type PaneWidths } from "./pane-layout";
   import { showSyncingToast } from "./refresh-toast";
   import { showOperationToast, type OperationToast } from "./operation-toast";
+  import { adjacentThreadId, advanceTarget, keyToAction, shouldIgnoreTarget, type KeyAction } from "./shortcuts";
   import { OPERATION_TOAST_DELAY_MS, describePendingOps, pendingMessageIds, pendingThreadIds } from "./pending-ops";
 
   let { vm, onAddAccount, onThreadContextMenu, onMailboxContextMenu, onBulkContextMenu, noteCommands }: {
@@ -292,6 +294,134 @@
     if (e.key === "Escape" && state.selectedThreadIds.length > 0) vm.clearSelection();
   }
 
+  // --- Keyboard shortcuts ---------------------------------------------------
+  // One dispatcher serves both the built-in keys (onGridKeydown) and the
+  // palette commands (via MailView), so the unsaved-composer prompt and the
+  // delete confirmation guard them exactly as they guard the buttons.
+
+  let gridEl = $state<HTMLElement | null>(null);
+
+  /** Whether `action` would do anything right now. */
+  export function canPerform(action: KeyAction): boolean {
+    if (state.mode !== "mail" || paneShowsComposer || state.activeAccountId === null) return false;
+    const open = state.openThreadId;
+    const idle = open !== null && !pendingThreadSet.has(open);
+    const ticked = state.selectedThreadIds.length > 0;
+    switch (action) {
+      case "next": return adjacentThreadId(state.threads, open, 1, pendingThreadSet) !== null;
+      case "previous": return adjacentThreadId(state.threads, open, -1, pendingThreadSet) !== null;
+      case "select": return idle && state.threads.some((t) => t.threadId === open);
+      case "read": return ticked || idle;
+      case "flag": return idle;
+      case "pin": return idle;
+      case "archive": return showBulkArchive && (ticked || idle);
+      case "delete": return ticked || idle;
+    }
+  }
+
+  export function perform(action: KeyAction): void {
+    if (!canPerform(action)) return;
+    const open = state.openThreadId;
+    switch (action) {
+      case "next":
+      case "previous": {
+        const id = adjacentThreadId(state.threads, open, action === "next" ? 1 : -1, pendingThreadSet);
+        if (id) requestSwitch(() => openAndFocus(id));
+        return;
+      }
+      case "select": if (open) vm.toggleThreadSelection(open); return;
+      case "read": toggleRead(); return;
+      case "flag": if (open) void vm.toggleThreadFlag(open); return;
+      case "pin": if (open) void vm.toggleThreadPin(open); return;
+      case "archive":
+        if (state.selectedThreadIds.length > 0) bulkArchive([...state.selectedThreadIds]);
+        else if (open) requestRowAction(() => { void vm.archiveThread(open); advanceFrom(open); });
+        return;
+      case "delete":
+        if (state.selectedThreadIds.length > 0) bulkDelete([...state.selectedThreadIds]);
+        else if (open) requestRowAction(() => requestDelete("thread", () => { void vm.deleteThread(open); advanceFrom(open); }));
+        return;
+    }
+  }
+
+  /** Flips read state for the ticked conversations, else the open one: anything
+   *  unread among them is marked read; if it is all read, it is marked unread
+   *  (the newest message, as the bulk bar's Unread does). */
+  function toggleRead(): void {
+    const ticked = state.selectedThreadIds;
+    if (ticked.length > 0) {
+      const anyUnread = state.threads.some((t) => ticked.includes(t.threadId) && t.unread);
+      void vm.markThreadsRead([...ticked], anyUnread);
+      return;
+    }
+    const open = state.openThreadId;
+    if (!open) return;
+    const row = state.threads.find((t) => t.threadId === open);
+    const anyUnread = row ? row.unread : state.openMessages.some((m) => m.summary.unread);
+    void vm.markThreadsRead([open], anyUnread);
+  }
+
+  function openAndFocus(threadId: string): void {
+    void vm.openThread(threadId);
+    setReadingPaneCollapsed(false);
+    void focusRow(threadId);
+  }
+
+  /** After archiving/deleting the open conversation, move on to its neighbour
+   *  straight away rather than waiting for the server: the old row stays in the
+   *  list, dimmed, until the call settles, so waiting would leave a second key
+   *  press aimed at the conversation that is already on its way out. Worked out
+   *  here, not before the prompt, so a confirmed delete uses the list as it is
+   *  now. Nothing to move to (the last row) leaves the pane to close on settle. */
+  function advanceFrom(threadId: string): void {
+    const next = advanceTarget(state.threads, threadId, pendingThreadSet);
+    if (next) openAndFocus(next);
+  }
+
+  // Keys only reach the view while focus is inside it, and archiving/deleting
+  // removes the focused row — dropping focus to <body> and silently killing
+  // every later key. So the row that takes over, or failing that the grid
+  // itself, is focused.
+  async function focusRow(threadId: string): Promise<void> {
+    await tick();
+    // Matched by property rather than a selector: thread ids are arbitrary strings.
+    const row = [...(gridEl?.querySelectorAll<HTMLElement>("[data-thread-id]") ?? [])].find((el) => el.dataset.threadId === threadId);
+    if (!row) return;
+    row.focus({ preventScroll: true });
+    row.scrollIntoView?.({ block: "nearest" });
+  }
+  // Only ever reclaims focus that was *lost* — removing the focused row leaves
+  // it on <body> — never focus the user moved elsewhere (a note in a split, say)
+  // before a background refresh replaced the list. A pointer press anywhere, or
+  // focus moving to another element, ends the keyboard session.
+  let keyboardDriven = false;
+  $effect(() => {
+    void state.threads;
+    const active = document.activeElement;
+    if (keyboardDriven && gridEl && (active === null || active === document.body)) gridEl.focus({ preventScroll: true });
+  });
+  $effect(() => {
+    const stop = (): void => { keyboardDriven = false; };
+    document.addEventListener("pointerdown", stop, true);
+    return () => document.removeEventListener("pointerdown", stop, true);
+  });
+  function onGridFocusout(e: FocusEvent): void {
+    const to = e.relatedTarget;
+    if (to instanceof Node && !gridEl?.contains(to)) keyboardDriven = false;
+  }
+
+  function onGridKeydown(e: KeyboardEvent): void {
+    if (!state.keyboardShortcuts || e.defaultPrevented || e.isComposing) return;
+    // A prompt is up: its buttons take the keyboard until it is answered.
+    if (pendingSwitch || pendingDelete || pendingContactSwitch) return;
+    if (shouldIgnoreTarget(e.target)) return;
+    const action = keyToAction(e);
+    if (!action || !canPerform(action)) return;
+    e.preventDefault();
+    keyboardDriven = true;
+    perform(action);
+  }
+
   // Whether the search field is showing above the message list — view-only
   // chrome, toggled from the ribbon's Search button. Dismissing it also ends
   // an active search so the list returns to the current folder instead of
@@ -311,6 +441,7 @@
     hasAccount: state.activeAccountId !== null,
     hasOpenThread: !paneShowsComposer && state.openThreadId !== null,
     hasTargetMessage: !paneShowsComposer && targetMessageId !== null,
+    keyboardShortcuts: state.keyboardShortcuts,
     targetMessagePending: targetMessageId !== null && pendingMessageSet.has(targetMessageId),
     openThreadPending: state.openThreadId !== null && pendingThreadSet.has(state.openThreadId),
     openThreadFlagged: state.openMessages.some((m) => m.summary.flagged),
@@ -454,7 +585,11 @@
 {#if state.ribbonEnabled}
   <Ribbon ctx={ribbonCtx} defaultCollapsed={state.ribbonCollapsedByDefault} />
 {/if}
-<div class="oe-grid" style={gridStyle}>
+<!-- Keyboard shortcuts: the grid is focusable only so focus has somewhere to
+     land when the focused row is removed; the keys themselves are filtered in
+     onGridKeydown. -->
+<!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_static_element_interactions -->
+<div class="oe-grid" style={gridStyle} bind:this={gridEl} tabindex="-1" onkeydown={onGridKeydown} onfocusout={onGridFocusout}>
   <AccountSwitcher
     accounts={state.accounts}
     activeId={state.activeAccountId}
@@ -527,6 +662,7 @@
         selectedIds={state.selectedThreadIds}
         onSelectThread={selectThread}
         pendingIds={[...pendingThreadSet]}
+        keyHints={state.keyboardShortcuts}
         threads={state.threads}
         openThreadId={state.openThreadId}
         hasMore={state.hasMore}

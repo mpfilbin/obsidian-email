@@ -23,7 +23,7 @@ describe("printTargetMessageId", () => {
   });
 });
 
-function setup(state: Record<string, unknown> = { composer: null, openMessages: open("m1") }, unsaved = false) {
+function setup(state: Record<string, unknown> = { composer: null, openMessages: open("m1") }, unsaved = false, mail: { canPerform: (a: string) => boolean; perform: (a: string) => void } | null = null) {
   const vm = {
     getState: vi.fn(() => state),
     hasUnsavedComposerContent: vi.fn(() => unsaved),
@@ -35,6 +35,7 @@ function setup(state: Record<string, unknown> = { composer: null, openMessages: 
     activateView: vi.fn(async () => {}),
     noteCommands: { composeFromNote: vi.fn(), composeWithNoteAttached: vi.fn() },
     notify: vi.fn(),
+    mail: vi.fn(() => mail),
     vm,
   };
   const commands = buildPaletteCommands(host as never);
@@ -42,7 +43,7 @@ function setup(state: Record<string, unknown> = { composer: null, openMessages: 
 }
 
 describe("buildPaletteCommands", () => {
-  it("registers the six palette commands", () => {
+  it("registers the palette commands", () => {
     expect(setup().commands.map((c) => [c.id, c.name])).toEqual([
       ["open", "Open mail"],
       ["compose-from-note", "Create email from note"],
@@ -50,6 +51,14 @@ describe("buildPaletteCommands", () => {
       ["open-contacts", "Open contacts"],
       ["print-message", "Print email"],
       ["view-message-headers", "View email headers"],
+      ["next-email", "Next email"],
+      ["previous-email", "Previous email"],
+      ["toggle-select", "Select or deselect email"],
+      ["toggle-read", "Mark email read or unread"],
+      ["toggle-flag", "Flag or unflag email"],
+      ["toggle-pin", "Pin or unpin email"],
+      ["archive-email", "Archive email"],
+      ["delete-email", "Delete email"],
     ]);
   });
 
@@ -123,6 +132,51 @@ describe("buildPaletteCommands", () => {
       expect(vm.viewMessageHeaders).not.toHaveBeenCalled();
       expect(cmd("view-message-headers").checkCallback!(false)).toBe(true);
       expect(vm.viewMessageHeaders).toHaveBeenCalledWith("m2");
+    });
+  });
+
+  describe("keyboard commands", () => {
+    const COMMANDS = [
+      ["next-email", "next"], ["previous-email", "previous"], ["toggle-select", "select"], ["toggle-read", "read"], ["toggle-flag", "flag"],
+      ["toggle-pin", "pin"], ["archive-email", "archive"], ["delete-email", "delete"],
+    ] as const;
+    const mailKeys = (allowed: (a: string) => boolean = () => true) => ({ canPerform: vi.fn(allowed), perform: vi.fn() });
+
+    it("are unavailable, and do nothing, unless the mail view is the active view", () => {
+      const { cmd } = setup(undefined, false, null);
+      for (const [id] of COMMANDS) {
+        expect(cmd(id).checkCallback!(true), id).toBe(false);
+        expect(cmd(id).checkCallback!(false), id).toBe(false);
+      }
+    });
+
+    it("are available when the view says the action is possible, without running it while only checking", () => {
+      const mail = mailKeys();
+      const { cmd } = setup(undefined, false, mail);
+      for (const [id, action] of COMMANDS) {
+        expect(cmd(id).checkCallback!(true), id).toBe(true);
+        expect(mail.canPerform).toHaveBeenLastCalledWith(action);
+      }
+      expect(mail.perform).not.toHaveBeenCalled();
+    });
+
+    it("are unavailable when the view says the action is not possible", () => {
+      const mail = mailKeys((a) => a !== "archive");
+      const { cmd } = setup(undefined, false, mail);
+      expect(cmd("archive-email").checkCallback!(true)).toBe(false);
+      expect(cmd("archive-email").checkCallback!(false)).toBe(false);
+      expect(mail.perform).not.toHaveBeenCalled();
+      expect(cmd("delete-email").checkCallback!(true)).toBe(true);
+    });
+
+    it("run the matching action through the view's dispatcher", () => {
+      const mail = mailKeys();
+      const { cmd } = setup(undefined, false, mail);
+      for (const [id, action] of COMMANDS) {
+        expect(cmd(id).checkCallback!(false), id).toBe(true);
+        expect(mail.perform).toHaveBeenLastCalledWith(action);
+      }
+      expect(mail.perform).toHaveBeenCalledTimes(COMMANDS.length);
     });
   });
 });

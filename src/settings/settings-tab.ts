@@ -140,6 +140,14 @@ export class EmailSettingTab extends PluginSettingTab {
           .onChange((v) => this.settings.updatePrefs({ ribbonCollapsedByDefault: v })),
       );
     new Setting(containerEl)
+      .setName("Keyboard shortcuts")
+      .setDesc("Single-key shortcuts while the mail view has focus and you aren't typing: j / k next and previous conversation, x tick or untick it, u mark read or unread, f flag, p pin, e archive, # or Delete delete. To use your own keys instead, turn this off and bind the \"Email\" commands in Settings → Hotkeys. Takes effect the next time the mail view opens or refreshes.")
+      .addToggle((t) =>
+        t
+          .setValue(cfg.prefs.keyboardShortcuts)
+          .onChange((v) => this.settings.updatePrefs({ keyboardShortcuts: v })),
+      );
+    new Setting(containerEl)
       .setName("Attachment save folder")
       .setDesc("Vault-relative path. Blank = ask each time.")
       .addText((t) =>

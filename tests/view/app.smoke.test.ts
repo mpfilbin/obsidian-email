@@ -40,7 +40,7 @@ function fakeVm(state: Partial<ViewState> = {}): ViewModel {
     selectedThreadIds: [], selectionAnchorId: null,
     composer: null, mode: "mail",
     contacts: [], contactsStatus: "idle", contactSearch: "", selectedContactId: null, contactEdit: null,
-    ribbonEnabled: true, ribbonCollapsedByDefault: false,
+    ribbonEnabled: true, ribbonCollapsedByDefault: false, keyboardShortcuts: true,
     ...state,
   };
   // A minimal reactive store so the default (un-overridden) `openNewMessage`
@@ -2046,5 +2046,423 @@ describe("App — Flagged view", () => {
     const { host, done } = mountApp(vm);
     expect(host.querySelector('.oe-thread-row [data-action="archive"]')).not.toBeNull();
     done();
+  });
+
+  describe("keyboard shortcuts", () => {
+    const rows = () => [threadView("t1", "m1", "One"), threadView("t2", "m2", "Two"), threadView("t3", "m3", "Three")];
+    const mailbox = (kind: Mailbox["kind"]): Partial<ViewState> =>
+      ({ mailboxes: [{ id: "BOX", name: "Box", kind }], activeMailboxId: "BOX" });
+
+    function mountKeys(state: Partial<ViewState> = {}) {
+      const vm = fakeVm({ threads: rows(), ...state });
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      const app = mount(App, { target: host, props: appProps(vm) });
+      flushSync();
+      const grid = () => host.querySelector<HTMLElement>(".oe-grid")!;
+      const row = (id: string) => host.querySelector<HTMLElement>(`[data-thread-id="${id}"]`)!;
+      const press = (key: string, over: KeyboardEventInit = {}, target: EventTarget = row("t1") ?? grid()) => {
+        const ev = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...over });
+        target.dispatchEvent(ev);
+        flushSync();
+        return ev;
+      };
+      const cleanup = () => { unmount(app); host.remove(); };
+      return { vm, host, app: app as unknown as { canPerform(a: string): boolean; perform(a: string): void }, grid, row, press, cleanup };
+    }
+
+    it("j opens the first conversation when none is open, then steps down the list; k steps back", () => {
+      const k = mountKeys();
+      k.press("j");
+      expect(k.vm.openThread).toHaveBeenLastCalledWith("t1");
+      setStateOf(k.vm)({ openThreadId: "t1" });
+      flushSync();
+      k.press("j");
+      expect(k.vm.openThread).toHaveBeenLastCalledWith("t2");
+      setStateOf(k.vm)({ openThreadId: "t2" });
+      flushSync();
+      k.press("k");
+      expect(k.vm.openThread).toHaveBeenLastCalledWith("t1");
+      k.cleanup();
+    });
+
+    it("does nothing past either end of the list", () => {
+      const k = mountKeys({ openThreadId: "t3" });
+      k.press("j");
+      expect(k.vm.openThread).not.toHaveBeenCalled();
+      setStateOf(k.vm)({ openThreadId: "t1" });
+      flushSync();
+      k.press("k");
+      expect(k.vm.openThread).not.toHaveBeenCalled();
+      k.cleanup();
+    });
+
+    it("skips a conversation that is mid-delete", () => {
+      const k = mountKeys({
+        openThreadId: "t1",
+        pendingOps: [{ id: "op1", accountId: "a1", pastTense: "Deleted", threadIds: ["t2"], messageIds: ["m2"], total: 1, done: 0 }],
+      });
+      k.press("j", {}, k.row("t1"));
+      expect(k.vm.openThread).toHaveBeenLastCalledWith("t3");
+      k.cleanup();
+    });
+
+    it("moves focus to the conversation it opens", async () => {
+      const k = mountKeys();
+      k.press("j");
+      await vi.waitFor(() => expect(document.activeElement).toBe(k.row("t1")));
+      k.cleanup();
+    });
+
+    it("x ticks the open conversation, and ticks it off again", () => {
+      const k = mountKeys({ openThreadId: "t2" });
+      k.press("x");
+      expect(k.vm.toggleThreadSelection).toHaveBeenCalledWith("t2");
+      expect(k.vm.toggleThreadSelection).toHaveBeenCalledTimes(1);
+      k.press("x");
+      expect(k.vm.toggleThreadSelection).toHaveBeenCalledTimes(2);
+      k.cleanup();
+    });
+
+    it("x does nothing with no conversation open, one that isn't in the list, or one mid-operation", () => {
+      const none = mountKeys();
+      none.press("x");
+      expect(none.vm.toggleThreadSelection).not.toHaveBeenCalled();
+      none.cleanup();
+
+      const unlisted = mountKeys({ openThreadId: "elsewhere" });
+      unlisted.press("x");
+      expect(unlisted.app.canPerform("select")).toBe(false);
+      expect(unlisted.vm.toggleThreadSelection).not.toHaveBeenCalled();
+      unlisted.cleanup();
+
+      const pending = mountKeys({
+        openThreadId: "t2",
+        pendingOps: [{ id: "op1", accountId: "a1", pastTense: "Archived", threadIds: ["t2"], messageIds: ["m2"], total: 1, done: 0 }],
+      });
+      pending.press("x");
+      expect(pending.vm.toggleThreadSelection).not.toHaveBeenCalled();
+      pending.cleanup();
+    });
+
+    it("x is ignored in a text field, with a modifier held, or with the setting off", () => {
+      const k = mountKeys({ openThreadId: "t1" });
+      const input = document.createElement("input");
+      k.grid().appendChild(input);
+      k.press("x", {}, input);
+      k.press("x", { ctrlKey: true });
+      expect(k.vm.toggleThreadSelection).not.toHaveBeenCalled();
+      k.cleanup();
+      const off = mountKeys({ keyboardShortcuts: false, openThreadId: "t1" });
+      off.press("x");
+      expect(off.vm.toggleThreadSelection).not.toHaveBeenCalled();
+      off.cleanup();
+    });
+
+    it("u marks the open conversation read when it has unread mail, and unread when it is all read", () => {
+      const unreadRow = threadView("t1", "m1", "One"); // threadView rows are unread
+      const readRow = { ...threadView("t2", "m2", "Two"), unread: false };
+      const k = mountKeys({ threads: [unreadRow, readRow], openThreadId: "t1" });
+      k.press("u");
+      expect(k.vm.markThreadsRead).toHaveBeenLastCalledWith(["t1"], true);
+      setStateOf(k.vm)({ openThreadId: "t2" });
+      flushSync();
+      k.press("u");
+      expect(k.vm.markThreadsRead).toHaveBeenLastCalledWith(["t2"], false);
+      k.cleanup();
+    });
+
+    it("u falls back to the open messages when the conversation isn't a listed row", () => {
+      const summary = (unread: boolean) => ({
+        id: "m9", threadId: "elsewhere", mailboxIds: ["INBOX"], from: { email: "j@x.com" }, to: [], cc: [],
+        subject: "S", snippet: "", date: 1, unread, hasAttachments: false, flagged: false,
+      });
+      const k = mountKeys({ openThreadId: "elsewhere", openMessages: [{ summary: summary(true) }] });
+      k.press("u");
+      expect(k.vm.markThreadsRead).toHaveBeenLastCalledWith(["elsewhere"], true);
+      k.cleanup();
+    });
+
+    it("with conversations ticked, u marks them read if any is unread, otherwise unread", () => {
+      const read = (id: string) => ({ ...threadView(id, `m${id}`, id), unread: false });
+      const k = mountKeys({ threads: [read("a"), threadView("b", "mb", "b"), read("c")], selectedThreadIds: ["a", "b"], openThreadId: "c" });
+      k.press("u");
+      expect(k.vm.markThreadsRead).toHaveBeenLastCalledWith(["a", "b"], true);
+      setStateOf(k.vm)({ selectedThreadIds: ["a", "c"] });
+      flushSync();
+      k.press("u");
+      expect(k.vm.markThreadsRead).toHaveBeenLastCalledWith(["a", "c"], false);
+      k.cleanup();
+    });
+
+    it("u does nothing with nothing open or ticked, and is ignored while typing or with the setting off", () => {
+      const none = mountKeys();
+      none.press("u");
+      expect(none.vm.markThreadsRead).not.toHaveBeenCalled();
+      expect(none.app.canPerform("read")).toBe(false);
+      none.cleanup();
+
+      const k = mountKeys({ openThreadId: "t1" });
+      const input = document.createElement("input");
+      k.grid().appendChild(input);
+      k.press("u", {}, input);
+      k.press("u", { repeat: true });
+      expect(k.vm.markThreadsRead).not.toHaveBeenCalled();
+      k.cleanup();
+
+      const off = mountKeys({ keyboardShortcuts: false, openThreadId: "t1" });
+      off.press("u");
+      expect(off.vm.markThreadsRead).not.toHaveBeenCalled();
+      off.cleanup();
+    });
+
+    it("f flags and p pins the open conversation", () => {
+      const k = mountKeys({ openThreadId: "t2" });
+      k.press("f");
+      expect(k.vm.toggleThreadFlag).toHaveBeenCalledWith("t2");
+      k.press("p");
+      expect(k.vm.toggleThreadPin).toHaveBeenCalledWith("t2");
+      k.cleanup();
+    });
+
+    it("f and p do nothing with no conversation open", () => {
+      const k = mountKeys();
+      k.press("f");
+      k.press("p");
+      expect(k.vm.toggleThreadFlag).not.toHaveBeenCalled();
+      expect(k.vm.toggleThreadPin).not.toHaveBeenCalled();
+      k.cleanup();
+    });
+
+    it("e archives the open conversation and opens its neighbour straight away", () => {
+      const k = mountKeys({ openThreadId: "t2" });
+      k.press("e");
+      expect(k.vm.archiveThread).toHaveBeenCalledWith("t2");
+      expect(k.vm.openThread).toHaveBeenCalledWith("t3");
+      k.cleanup();
+    });
+
+    it("falls back to the previous conversation when archiving the last one", () => {
+      const k = mountKeys({ openThreadId: "t3" });
+      k.press("e");
+      expect(k.vm.archiveThread).toHaveBeenCalledWith("t3");
+      expect(k.vm.openThread).toHaveBeenCalledWith("t2");
+      k.cleanup();
+    });
+
+    it("opens nothing after archiving the only conversation", () => {
+      const k = mountKeys({ threads: [threadView("t1", "m1", "One")], openThreadId: "t1" });
+      k.press("e");
+      expect(k.vm.archiveThread).toHaveBeenCalledWith("t1");
+      expect(k.vm.openThread).not.toHaveBeenCalled();
+      k.cleanup();
+    });
+
+    it("e is ignored where archiving isn't offered", () => {
+      for (const kind of ["drafts", "archive", "trash"] as const) {
+        const k = mountKeys({ ...mailbox(kind), openThreadId: "t1" });
+        k.press("e");
+        expect(k.vm.archiveThread, kind).not.toHaveBeenCalled();
+        k.cleanup();
+      }
+    });
+
+    it("# and Delete delete the open conversation and open its neighbour", () => {
+      for (const key of ["#", "Delete"]) {
+        const k = mountKeys({ openThreadId: "t1" });
+        k.press(key);
+        expect(k.vm.deleteThread, key).toHaveBeenCalledWith("t1");
+        expect(k.vm.openThread, key).toHaveBeenCalledWith("t2");
+        k.cleanup();
+      }
+    });
+
+    it("in Trash, delete asks first and only advances once confirmed", () => {
+      const k = mountKeys({ ...mailbox("trash"), openThreadId: "t1" });
+      k.press("#");
+      expect(k.vm.deleteThread).not.toHaveBeenCalled();
+      expect(k.vm.openThread).not.toHaveBeenCalled();
+      k.host.querySelector<HTMLElement>(".oe-delete-confirm")!.click();
+      flushSync();
+      expect(k.vm.deleteThread).toHaveBeenCalledWith("t1");
+      expect(k.vm.openThread).toHaveBeenCalledWith("t2");
+      k.cleanup();
+    });
+
+    it("keys are ignored while the delete confirmation is showing", () => {
+      const k = mountKeys({ ...mailbox("trash"), openThreadId: "t1" });
+      k.press("#");
+      k.press("j");
+      k.press("f");
+      expect(k.vm.openThread).not.toHaveBeenCalled();
+      expect(k.vm.toggleThreadFlag).not.toHaveBeenCalled();
+      k.cleanup();
+    });
+
+    it("with conversations ticked, e and # act on the selection and do not advance", () => {
+      const k = mountKeys({ openThreadId: "t1", selectedThreadIds: ["t2", "t3"] });
+      k.press("e");
+      expect(k.vm.archiveThreads).toHaveBeenCalledWith(["t2", "t3"]);
+      k.press("#");
+      expect(k.vm.deleteThreads).toHaveBeenCalledWith(["t2", "t3"]);
+      expect(k.vm.archiveThread).not.toHaveBeenCalled();
+      expect(k.vm.openThread).not.toHaveBeenCalled();
+      k.cleanup();
+    });
+
+    it("asks before navigating away from an unsaved composer", () => {
+      const k = mountKeys({ openThreadId: "t1" });
+      (k.vm.hasUnsavedComposerContent as ReturnType<typeof vi.fn>).mockReturnValue(true);
+      k.press("j");
+      expect(k.vm.openThread).not.toHaveBeenCalled();
+      expect(k.host.querySelector(".oe-composer-prompt")).not.toBeNull();
+      k.cleanup();
+    });
+
+    it("ignores keys typed into a text field", () => {
+      const k = mountKeys({ openThreadId: "t1" });
+      const input = document.createElement("input");
+      k.grid().appendChild(input);
+      k.press("j", {}, input);
+      k.press("e", {}, input);
+      const editable = document.createElement("div");
+      editable.setAttribute("contenteditable", "true");
+      k.grid().appendChild(editable);
+      k.press("f", {}, editable);
+      expect(k.vm.openThread).not.toHaveBeenCalled();
+      expect(k.vm.archiveThread).not.toHaveBeenCalled();
+      expect(k.vm.toggleThreadFlag).not.toHaveBeenCalled();
+      k.cleanup();
+    });
+
+    it("ignores modified keys, a held action key, and already-handled events", () => {
+      const k = mountKeys({ openThreadId: "t1" });
+      k.press("e", { ctrlKey: true });
+      k.press("e", { metaKey: true });
+      k.press("e", { altKey: true });
+      k.press("e", { repeat: true });
+      const handled = new KeyboardEvent("keydown", { key: "e", bubbles: true, cancelable: true });
+      handled.preventDefault();
+      k.row("t1").dispatchEvent(handled);
+      expect(k.vm.archiveThread).not.toHaveBeenCalled();
+      k.press("j", { repeat: true });
+      expect(k.vm.openThread).toHaveBeenCalledWith("t2"); // navigation may repeat
+      k.cleanup();
+    });
+
+    it("prevents the default action of a key it handles, and only of those", () => {
+      const k = mountKeys({ openThreadId: "t1" });
+      expect(k.press("j").defaultPrevented).toBe(true);
+      expect(k.press("z").defaultPrevented).toBe(false);
+      k.cleanup();
+    });
+
+    it("does nothing when the setting is off", () => {
+      const k = mountKeys({ keyboardShortcuts: false, openThreadId: "t1" });
+      for (const key of ["j", "k", "f", "p", "e", "#"]) k.press(key);
+      expect(k.vm.openThread).not.toHaveBeenCalled();
+      expect(k.vm.toggleThreadFlag).not.toHaveBeenCalled();
+      expect(k.vm.archiveThread).not.toHaveBeenCalled();
+      expect(k.vm.deleteThread).not.toHaveBeenCalled();
+      k.cleanup();
+    });
+
+    it("does nothing in Contacts mode or while a new message is being composed", () => {
+      const contacts = mountKeys({ mode: "contacts", openThreadId: "t1" });
+      contacts.press("j", {}, contacts.grid());
+      expect(contacts.vm.openThread).not.toHaveBeenCalled();
+      contacts.cleanup();
+
+      const composing = mountKeys({
+        openThreadId: "t1",
+        composer: { mode: "new", to: [], cc: [], bcc: [], subject: "", bodyHtml: "", attachments: [], sending: false, error: null, savedSnapshot: null },
+      });
+      composing.press("j", {}, composing.grid());
+      composing.press("e", {}, composing.grid());
+      expect(composing.vm.openThread).not.toHaveBeenCalled();
+      expect(composing.vm.archiveThread).not.toHaveBeenCalled();
+      composing.cleanup();
+    });
+
+    it("canPerform mirrors what the keys would do, and perform is what the palette calls", () => {
+      const k = mountKeys({ openThreadId: "t2" });
+      for (const a of ["next", "previous", "select", "read", "flag", "pin", "archive", "delete"]) expect(k.app.canPerform(a), a).toBe(true);
+      k.app.perform("flag");
+      expect(k.vm.toggleThreadFlag).toHaveBeenCalledWith("t2");
+      k.cleanup();
+
+      const none = mountKeys();
+      expect(none.app.canPerform("next")).toBe(true);
+      for (const a of ["previous", "select", "read", "flag", "pin", "archive", "delete"]) expect(none.app.canPerform(a), a).toBe(false);
+      none.app.perform("delete");
+      expect(none.vm.deleteThread).not.toHaveBeenCalled();
+      none.cleanup();
+
+      const trash = mountKeys({ ...mailbox("trash"), openThreadId: "t1" });
+      expect(trash.app.canPerform("archive")).toBe(false);
+      expect(trash.app.canPerform("delete")).toBe(true);
+      trash.cleanup();
+    });
+
+    it("a conversation that is mid-operation can't be acted on again", () => {
+      const k = mountKeys({
+        openThreadId: "t2",
+        pendingOps: [{ id: "op1", accountId: "a1", pastTense: "Archived", threadIds: ["t2"], messageIds: ["m2"], total: 1, done: 0 }],
+      });
+      for (const a of ["flag", "pin", "archive", "delete"]) expect(k.app.canPerform(a), a).toBe(false);
+      k.cleanup();
+    });
+
+    it("never pulls focus back from another pane when a background refresh replaces the list", () => {
+      const k = mountKeys({ openThreadId: "t1" });
+      const elsewhere = document.createElement("textarea"); // e.g. a note in a split
+      document.body.appendChild(elsewhere);
+      k.row("t1").focus();
+      k.press("f");
+      elsewhere.focus();
+      setStateOf(k.vm)({ threads: [threadView("t2", "m2", "Two")] });
+      flushSync();
+      expect(document.activeElement).toBe(elsewhere);
+      elsewhere.remove();
+      k.cleanup();
+    });
+
+    it("stops reclaiming focus once the user clicks anywhere", () => {
+      const k = mountKeys({ openThreadId: "t1" });
+      k.row("t1").focus();
+      k.press("f");
+      document.body.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+      k.row("t1").blur();
+      setStateOf(k.vm)({ threads: [threadView("t2", "m2", "Two")] });
+      flushSync();
+      expect(document.activeElement).toBe(document.body);
+      k.cleanup();
+    });
+
+    it("stops reclaiming focus once focus has moved to another element", () => {
+      const k = mountKeys({ openThreadId: "t1" });
+      const elsewhere = document.createElement("input");
+      document.body.appendChild(elsewhere);
+      k.row("t1").focus();
+      k.press("f");
+      elsewhere.focus(); // focusout from the grid with a relatedTarget outside it
+      elsewhere.blur();  // ...and then it lets go, leaving <body> focused
+      setStateOf(k.vm)({ threads: [threadView("t2", "m2", "Two")] });
+      flushSync();
+      expect(document.activeElement).toBe(document.body);
+      elsewhere.remove();
+      k.cleanup();
+    });
+
+    it("puts focus back on the grid when the focused row disappears after a key press", () => {
+      const k = mountKeys({ openThreadId: "t1" });
+      k.row("t1").focus();
+      k.press("e");
+      setStateOf(k.vm)({ threads: [threadView("t2", "m2", "Two"), threadView("t3", "m3", "Three")] });
+      flushSync();
+      expect(document.activeElement).not.toBe(document.body);
+      expect(k.grid().contains(document.activeElement)).toBe(true);
+      k.cleanup();
+    });
   });
 });

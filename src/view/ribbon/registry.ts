@@ -49,11 +49,13 @@ export interface RibbonContext {
   hasOpenThread: boolean;
   /** An expanded message exists in the open thread — the target of Reply, Archive, Delete… */
   hasTargetMessage: boolean;
-  /** An open message is flagged. */
+  /** Built-in key shortcuts are on, so buttons can advertise their key. */
+  keyboardShortcuts: boolean;
   /** The expanded message has a delete/archive/move on its way to the server. */
   targetMessagePending: boolean;
   /** The open conversation has a delete/archive/move on its way. */
   openThreadPending: boolean;
+  /** An open message is flagged. */
   openThreadFlagged: boolean;
   /** The open thread is pinned. */
   openThreadPinned: boolean;
@@ -90,6 +92,8 @@ export interface RibbonCommand {
   group: string;
   icon: string;
   label: string;
+  /** The built-in shortcut key, shown in the tooltip while shortcuts are on. */
+  key?: string;
   enabled: (ctx: RibbonContext) => boolean;
   /** Toggle-style commands: whether the button renders as pressed. */
   pressed?: (ctx: RibbonContext) => boolean;
@@ -125,9 +129,9 @@ const BASE_COMMANDS: RibbonCommand[] = [
     enabled: canRespond, run: (c) => c.actions.forward() },
   { id: "edit-draft", tab: "home", group: "Respond", icon: ACTION_ICON.editDraft, label: "Edit",
     visible: (c) => kindIs(c, "drafts"), enabled: (c) => c.hasTargetMessage, run: (c) => c.actions.editDraft() },
-  { id: "archive", tab: "home", group: "Manage", icon: ACTION_ICON.archive, label: "Archive",
+  { id: "archive", tab: "home", group: "Manage", icon: ACTION_ICON.archive, label: "Archive", key: "e",
     enabled: canArchive, run: (c) => c.actions.archive() },
-  { id: "delete", tab: "home", group: "Manage", icon: ACTION_ICON.delete, label: "Delete",
+  { id: "delete", tab: "home", group: "Manage", icon: ACTION_ICON.delete, label: "Delete", key: "#",
     enabled: (c) => c.selectedCount > 0 || (c.hasTargetMessage && !c.targetMessagePending), run: (c) => c.actions.deleteMessage() },
   { id: "move", tab: "home", group: "Manage", icon: "folder-input", label: "Move",
     enabled: (c) => (c.selectedCount > 0 || (c.hasOpenThread && !c.openThreadPending)) && c.otherMailboxes.length > 0,
@@ -138,7 +142,7 @@ const BASE_COMMANDS: RibbonCommand[] = [
     enabled: (c) => c.hasTargetMessage, run: (c) => c.actions.print() },
   { id: "view-headers", tab: "home", group: "Manage", icon: "scroll-text", label: "View headers",
     enabled: (c) => c.hasTargetMessage, run: (c) => c.actions.viewHeaders() },
-  { id: "flag", tab: "home", group: "Mark", icon: ACTION_ICON.flag, label: "Flag",
+  { id: "flag", tab: "home", group: "Mark", icon: ACTION_ICON.flag, label: "Flag", key: "f",
     enabled: (c) => c.hasOpenThread, pressed: (c) => c.openThreadFlagged, run: (c) => c.actions.toggleFlag() },
   { id: "follow-up", tab: "home", group: "Mark", icon: ACTION_ICON.followUp, label: "Follow up",
     enabled: (c) => c.hasOpenThread,
@@ -148,7 +152,7 @@ const BASE_COMMANDS: RibbonCommand[] = [
     ] },
   { id: "complete-flag", tab: "home", group: "Mark", icon: ACTION_ICON.complete, label: "Complete",
     enabled: (c) => c.hasOpenThread && c.openThreadFlagged, run: (c) => c.actions.completeFlag() },
-  { id: "pin", tab: "home", group: "Mark", icon: ACTION_ICON.pin, label: "Pin",
+  { id: "pin", tab: "home", group: "Mark", icon: ACTION_ICON.pin, label: "Pin", key: "p",
     enabled: (c) => c.hasOpenThread, pressed: (c) => c.openThreadPinned, run: (c) => c.actions.togglePin() },
   { id: "refresh", tab: "home", group: "Sync", icon: "refresh-cw", label: "Refresh",
     enabled: (c) => c.hasAccount && !c.syncing, run: (c) => c.actions.refresh() },

@@ -64,6 +64,16 @@ describe("SettingsStore", () => {
     expect(s2.get().prefs.ribbonCollapsedByDefault).toBe(true);
   });
 
+  it("defaults keyboard shortcuts to on, loads old files without the pref, and persists changes", async () => {
+    const h = host();
+    const s = await SettingsStore.load(h);
+    expect(s.get().prefs.keyboardShortcuts).toBe(true);
+    await s.updatePrefs({ keyboardShortcuts: false });
+    expect((await SettingsStore.load(h)).get().prefs.keyboardShortcuts).toBe(false);
+    const old = await SettingsStore.load(host({ schemaVersion: 1, accounts: [], prefs: { pollMinutes: 10 } }));
+    expect(old.get().prefs.keyboardShortcuts).toBe(true);
+  });
+
   describe("pins", () => {
     it("loads an old data file with no pins as an empty list", async () => {
       const s = await SettingsStore.load(host({ schemaVersion: 1, accounts: [], prefs: {} }));
