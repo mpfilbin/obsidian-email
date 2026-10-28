@@ -68,8 +68,9 @@ You need a Microsoft Entra (Azure AD) app registration. Once, per Microsoft acco
    - Paste the **Application (client) ID** (no secret needed).
    - Click **Connect** and approve access in the browser.
 
-**Troubleshooting:** the browser tab always says "Authentication complete" once
-the redirect reaches Obsidian, whether or not the sign-in actually succeeded —
+**Troubleshooting:** after you approve access, the browser hands control back to
+Obsidian via the `obsidian://` link (your browser may ask permission to open
+it). That hand-off happens whether or not the sign-in actually succeeded —
 check the Notice that appears in Obsidian for the real result. If it says
 `AADSTS50194`, your app registration was created as single-tenant: go to the
 app's **Authentication** page, change **Supported account types** to

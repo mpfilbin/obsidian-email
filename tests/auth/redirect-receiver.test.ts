@@ -44,6 +44,17 @@ describe("AuthRedirectReceiver", () => {
     expect(() => new AuthRedirectReceiver().handle({ code: "c", state: "s" })).not.toThrow();
   });
 
+  it("fails a pending sign-in when a newer one starts", async () => {
+    const r = new AuthRedirectReceiver();
+    const first = r.waitForCode();
+    const firstExpectation = expect(first).rejects.toThrow("Superseded");
+    const second = r.waitForCode();
+    await firstExpectation;
+    r.close(); // the superseded flow's cleanup must not cancel the new one
+    r.handle({ code: "c", state: "s" });
+    await expect(second).resolves.toEqual({ code: "c", state: "s" });
+  });
+
   it("times out", async () => {
     await expect(new AuthRedirectReceiver().waitForCode({ timeoutMs: 10 })).rejects.toBeInstanceOf(AuthError);
   });

@@ -28,6 +28,10 @@ export class AuthRedirectReceiver {
   waitForCode(opts: { timeoutMs?: number } = {}): Promise<RedirectResult> {
     const timeoutMs = opts.timeoutMs ?? 300_000;
     return new Promise<RedirectResult>((resolve, reject) => {
+      // One sign-in at a time: a newer flow supersedes (and fails) a pending one
+      // so a redirect can't be delivered to the wrong flow.
+      if (this.timer) clearTimeout(this.timer);
+      this.settle?.reject(new AuthError("Superseded by a newer sign-in attempt."));
       this.settle = { resolve, reject };
       this.timer = setTimeout(() => {
         this.settle = undefined;
@@ -54,8 +58,11 @@ export class AuthRedirectReceiver {
     }
   }
 
-  close(): void {
-    if (this.timer) clearTimeout(this.timer);
-    this.settle = undefined;
-  }
+  /**
+   * No-op by design: the receiver is shared, and a superseded flow's `finally`
+   * runs after its successor has registered, so clearing here would cancel the
+   * successor. A pending wait is cleaned up by `handle()`, the timeout, or the
+   * next `waitForCode()`.
+   */
+  close(): void {}
 }
