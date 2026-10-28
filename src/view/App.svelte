@@ -311,6 +311,7 @@
       case "next": return adjacentThreadId(state.threads, open, 1, pendingThreadSet) !== null;
       case "previous": return adjacentThreadId(state.threads, open, -1, pendingThreadSet) !== null;
       case "select": return idle && state.threads.some((t) => t.threadId === open);
+      case "read": return ticked || idle;
       case "flag": return idle;
       case "pin": return idle;
       case "archive": return showBulkArchive && (ticked || idle);
@@ -329,6 +330,7 @@
         return;
       }
       case "select": if (open) vm.toggleThreadSelection(open); return;
+      case "read": toggleRead(); return;
       case "flag": if (open) void vm.toggleThreadFlag(open); return;
       case "pin": if (open) void vm.toggleThreadPin(open); return;
       case "archive":
@@ -340,6 +342,23 @@
         else if (open) requestRowAction(() => requestDelete("thread", () => { void vm.deleteThread(open); advanceFrom(open); }));
         return;
     }
+  }
+
+  /** Flips read state for the ticked conversations, else the open one: anything
+   *  unread among them is marked read; if it is all read, it is marked unread
+   *  (the newest message, as the bulk bar's Unread does). */
+  function toggleRead(): void {
+    const ticked = state.selectedThreadIds;
+    if (ticked.length > 0) {
+      const anyUnread = state.threads.some((t) => ticked.includes(t.threadId) && t.unread);
+      void vm.markThreadsRead([...ticked], anyUnread);
+      return;
+    }
+    const open = state.openThreadId;
+    if (!open) return;
+    const row = state.threads.find((t) => t.threadId === open);
+    const anyUnread = row ? row.unread : state.openMessages.some((m) => m.summary.unread);
+    void vm.markThreadsRead([open], anyUnread);
   }
 
   function openAndFocus(threadId: string): void {

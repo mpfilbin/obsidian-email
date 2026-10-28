@@ -1,5 +1,5 @@
 /** What a keyboard shortcut (or the matching palette command) can do. */
-export type KeyAction = "next" | "previous" | "select" | "flag" | "pin" | "archive" | "delete";
+export type KeyAction = "next" | "previous" | "select" | "read" | "flag" | "pin" | "archive" | "delete";
 
 interface KeyLike {
   key: string;
@@ -13,6 +13,7 @@ const KEY_ACTION: Record<string, KeyAction> = {
   j: "next",
   k: "previous",
   x: "select",
+  u: "read",
   f: "flag",
   p: "pin",
   e: "archive",

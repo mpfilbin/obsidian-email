@@ -32,12 +32,13 @@ the Contacts view or the composer; wrapping at the ends of the list.
 | `j` | Next conversation | opens it; no wrap at the end |
 | `k` | Previous conversation | opens it; no wrap at the start |
 | `x` | Tick / untick | open conversation's selection checkbox; ticked rows are what `e` and `#` then act on |
+| `u` | Mark read / unread | read if anything is unread, else unread (newest message, as the bulk bar does); acts on ticked rows when any are ticked |
 | `f` | Flag / unflag | open conversation, same toggle as the row button |
 | `p` | Pin / unpin | open conversation |
 | `e` | Archive | not offered in Drafts, Archive or Trash |
 | `#` or `Delete` | Delete | confirmation rules unchanged (Trash, search results) |
 
-Held-key repeat is ignored for `x f p e # Delete` (a held key would act on the
+Held-key repeat is ignored for `x u f p e # Delete` (a held key would act on the
 whole list) and honoured for `j`/`k`.
 
 ### When a key is handled
@@ -83,7 +84,7 @@ command has to special-case this). Instead `App.svelte` exports two functions an
 **both layers go through them**:
 
 ```ts
-export type KeyAction = "next" | "previous" | "select" | "flag" | "pin" | "archive" | "delete";
+export type KeyAction = "next" | "previous" | "select" | "read" | "flag" | "pin" | "archive" | "delete";
 export function canPerform(action: KeyAction): boolean;
 export function perform(action: KeyAction): void;
 ```
@@ -159,6 +160,7 @@ completion, as it does today.
 | `next-email` | Next email |
 | `previous-email` | Previous email |
 | `toggle-select` | Select or deselect email |
+| `toggle-read` | Mark email read or unread |
 | `toggle-flag` | Flag or unflag email |
 | `toggle-pin` | Pin or unpin email |
 | `archive-email` | Archive email |

@@ -2159,6 +2159,63 @@ describe("App — Flagged view", () => {
       off.cleanup();
     });
 
+    it("u marks the open conversation read when it has unread mail, and unread when it is all read", () => {
+      const unreadRow = threadView("t1", "m1", "One"); // threadView rows are unread
+      const readRow = { ...threadView("t2", "m2", "Two"), unread: false };
+      const k = mountKeys({ threads: [unreadRow, readRow], openThreadId: "t1" });
+      k.press("u");
+      expect(k.vm.markThreadsRead).toHaveBeenLastCalledWith(["t1"], true);
+      setStateOf(k.vm)({ openThreadId: "t2" });
+      flushSync();
+      k.press("u");
+      expect(k.vm.markThreadsRead).toHaveBeenLastCalledWith(["t2"], false);
+      k.cleanup();
+    });
+
+    it("u falls back to the open messages when the conversation isn't a listed row", () => {
+      const summary = (unread: boolean) => ({
+        id: "m9", threadId: "elsewhere", mailboxIds: ["INBOX"], from: { email: "j@x.com" }, to: [], cc: [],
+        subject: "S", snippet: "", date: 1, unread, hasAttachments: false, flagged: false,
+      });
+      const k = mountKeys({ openThreadId: "elsewhere", openMessages: [{ summary: summary(true) }] });
+      k.press("u");
+      expect(k.vm.markThreadsRead).toHaveBeenLastCalledWith(["elsewhere"], true);
+      k.cleanup();
+    });
+
+    it("with conversations ticked, u marks them read if any is unread, otherwise unread", () => {
+      const read = (id: string) => ({ ...threadView(id, `m${id}`, id), unread: false });
+      const k = mountKeys({ threads: [read("a"), threadView("b", "mb", "b"), read("c")], selectedThreadIds: ["a", "b"], openThreadId: "c" });
+      k.press("u");
+      expect(k.vm.markThreadsRead).toHaveBeenLastCalledWith(["a", "b"], true);
+      setStateOf(k.vm)({ selectedThreadIds: ["a", "c"] });
+      flushSync();
+      k.press("u");
+      expect(k.vm.markThreadsRead).toHaveBeenLastCalledWith(["a", "c"], false);
+      k.cleanup();
+    });
+
+    it("u does nothing with nothing open or ticked, and is ignored while typing or with the setting off", () => {
+      const none = mountKeys();
+      none.press("u");
+      expect(none.vm.markThreadsRead).not.toHaveBeenCalled();
+      expect(none.app.canPerform("read")).toBe(false);
+      none.cleanup();
+
+      const k = mountKeys({ openThreadId: "t1" });
+      const input = document.createElement("input");
+      k.grid().appendChild(input);
+      k.press("u", {}, input);
+      k.press("u", { repeat: true });
+      expect(k.vm.markThreadsRead).not.toHaveBeenCalled();
+      k.cleanup();
+
+      const off = mountKeys({ keyboardShortcuts: false, openThreadId: "t1" });
+      off.press("u");
+      expect(off.vm.markThreadsRead).not.toHaveBeenCalled();
+      off.cleanup();
+    });
+
     it("f flags and p pins the open conversation", () => {
       const k = mountKeys({ openThreadId: "t2" });
       k.press("f");
@@ -2329,14 +2386,14 @@ describe("App — Flagged view", () => {
 
     it("canPerform mirrors what the keys would do, and perform is what the palette calls", () => {
       const k = mountKeys({ openThreadId: "t2" });
-      for (const a of ["next", "previous", "select", "flag", "pin", "archive", "delete"]) expect(k.app.canPerform(a), a).toBe(true);
+      for (const a of ["next", "previous", "select", "read", "flag", "pin", "archive", "delete"]) expect(k.app.canPerform(a), a).toBe(true);
       k.app.perform("flag");
       expect(k.vm.toggleThreadFlag).toHaveBeenCalledWith("t2");
       k.cleanup();
 
       const none = mountKeys();
       expect(none.app.canPerform("next")).toBe(true);
-      for (const a of ["previous", "select", "flag", "pin", "archive", "delete"]) expect(none.app.canPerform(a), a).toBe(false);
+      for (const a of ["previous", "select", "read", "flag", "pin", "archive", "delete"]) expect(none.app.canPerform(a), a).toBe(false);
       none.app.perform("delete");
       expect(none.vm.deleteThread).not.toHaveBeenCalled();
       none.cleanup();

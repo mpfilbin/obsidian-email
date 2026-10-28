@@ -54,6 +54,7 @@ describe("buildPaletteCommands", () => {
       ["next-email", "Next email"],
       ["previous-email", "Previous email"],
       ["toggle-select", "Select or deselect email"],
+      ["toggle-read", "Mark email read or unread"],
       ["toggle-flag", "Flag or unflag email"],
       ["toggle-pin", "Pin or unpin email"],
       ["archive-email", "Archive email"],
@@ -136,7 +137,7 @@ describe("buildPaletteCommands", () => {
 
   describe("keyboard commands", () => {
     const COMMANDS = [
-      ["next-email", "next"], ["previous-email", "previous"], ["toggle-select", "select"], ["toggle-flag", "flag"],
+      ["next-email", "next"], ["previous-email", "previous"], ["toggle-select", "select"], ["toggle-read", "read"], ["toggle-flag", "flag"],
       ["toggle-pin", "pin"], ["archive-email", "archive"], ["delete-email", "delete"],
     ] as const;
     const mailKeys = (allowed: (a: string) => boolean = () => true) => ({ canPerform: vi.fn(allowed), perform: vi.fn() });
