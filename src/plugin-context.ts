@@ -294,7 +294,7 @@ export class PluginContext {
     if (!account) return { ok: false, message: "Account not found." };
     try {
       const { account: refreshed } = await addAccount(
-        { kind: account.provider, clientId: account.clientId },
+        { kind: account.provider, clientId: account.clientId, expectedEmail: account.email },
         this.addAccountDeps(() => accountId),
       );
       await this.settings.addAccount(refreshed);

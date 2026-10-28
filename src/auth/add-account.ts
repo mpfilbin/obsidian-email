@@ -10,7 +10,7 @@ import { TokenManager, type SecretStore } from "./token-manager";
 
 export interface RedirectReceiver {
   listen(): Promise<{ redirectUri: string }>;
-  waitForCode(o?: { timeoutMs?: number }): Promise<{ code: string; state: string }>;
+  waitForCode(o?: { timeoutMs?: number; expectedState?: string }): Promise<{ code: string; state: string }>;
   close(): void;
 }
 
@@ -26,7 +26,7 @@ export interface AddAccountDeps {
 }
 
 export async function addAccount(
-  input: { kind: ProviderKind; clientId: string },
+  input: { kind: ProviderKind; clientId: string; expectedEmail?: string },
   deps: AddAccountDeps,
 ): Promise<{ account: AccountConfig; token: TokenManager }> {
   const cfg = OAUTH_CONFIG[input.kind];
@@ -39,7 +39,7 @@ export async function addAccount(
       clientId: input.clientId, redirectUri, challenge, state,
     });
     deps.openBrowser(authorizeUrl);
-    const { code, state: returnedState } = await redirect.waitForCode();
+    const { code, state: returnedState } = await redirect.waitForCode({ expectedState: state });
     if (returnedState !== state) throw new AuthError("OAuth state mismatch; aborting.");
 
     const tokens = await exchangeCode(cfg, deps.post, {
@@ -49,13 +49,22 @@ export async function addAccount(
       redirectUri,
     });
 
+    // Resolve the identity before persisting anything: a re-auth as a different
+    // mailbox must not overwrite the stored refresh token.
+    const email = await deps.fetchProfileEmail(tokens.accessToken, deps.post);
+    if (input.expectedEmail && email.toLowerCase() !== input.expectedEmail.toLowerCase()) {
+      throw new AuthError(
+        `Signed in as ${email}, but this account is ${input.expectedEmail}. ` +
+          "Remove the account and add it again to switch mailboxes.",
+      );
+    }
+
     const id = deps.genId();
     const token = new TokenManager(id, input.kind, input.clientId, {
       secrets: deps.secrets, post: deps.post, now: deps.now,
     });
     await token.storeInitialTokens(tokens);
 
-    const email = await deps.fetchProfileEmail(tokens.accessToken, deps.post);
     const account: AccountConfig = {
       id, email, provider: input.kind, clientId: input.clientId, addedAt: deps.now(),
     };

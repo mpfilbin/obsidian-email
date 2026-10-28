@@ -5,12 +5,23 @@ import type { PluginContext } from "../../src/plugin-context";
 import type { SettingsStore } from "../../src/settings/settings-store";
 import { DEFAULT_SETTINGS } from "../../src/settings/settings-store";
 
+const GUID = "11111111-2222-3333-4444-555555555555";
+
 describe("handleConnect", () => {
+  it("rejects a Client ID that is not a GUID and trims whitespace", async () => {
+    const ctx = { addAccountFlow: vi.fn().mockResolvedValue({ email: "a@x.com" }) };
+    const bad = await handleConnect(ctx as never, { clientId: "not-a-guid" });
+    expect(bad.ok).toBe(false);
+    expect(ctx.addAccountFlow).not.toHaveBeenCalled();
+    await handleConnect(ctx as never, { clientId: `  ${GUID}\n` });
+    expect(ctx.addAccountFlow).toHaveBeenCalledWith({ kind: "ms-graph", clientId: GUID });
+  });
+
   it("returns ok with the new account email on success", async () => {
     const ctx = { addAccountFlow: vi.fn().mockResolvedValue({ email: "new@x.com" }) };
-    const r = await handleConnect(ctx as never, { clientId: "c" });
+    const r = await handleConnect(ctx as never, { clientId: GUID });
     expect(r).toEqual({ ok: true, message: expect.stringContaining("new@x.com") });
-    expect(ctx.addAccountFlow).toHaveBeenCalledWith({ kind: "ms-graph", clientId: "c" });
+    expect(ctx.addAccountFlow).toHaveBeenCalledWith({ kind: "ms-graph", clientId: GUID });
   });
 
   it("requires a client ID", async () => {
@@ -22,7 +33,7 @@ describe("handleConnect", () => {
 
   it("returns a failure message when the flow throws", async () => {
     const ctx = { addAccountFlow: vi.fn().mockRejectedValue(new Error("state mismatch")) };
-    const r = await handleConnect(ctx as never, { clientId: "c" });
+    const r = await handleConnect(ctx as never, { clientId: GUID });
     expect(r).toEqual({ ok: false, message: expect.stringContaining("state mismatch") });
   });
 });
@@ -71,10 +82,10 @@ describe("EmailSettingTab — Add account", () => {
     const { tab, addAccountFlow } = buildTab();
     tab.display();
 
-    await find((c) => c.kind === "text" && c.name === "Client ID").emitChange("client-123");
+    await find((c) => c.kind === "text" && c.name === "Client ID").emitChange(GUID);
     await find((c) => c.kind === "button" && c.buttonText === "Connect").emitClick();
 
-    expect(addAccountFlow).toHaveBeenCalledWith({ kind: "ms-graph", clientId: "client-123" });
+    expect(addAccountFlow).toHaveBeenCalledWith({ kind: "ms-graph", clientId: GUID });
 
     resetSettingStubs();
     tab.display();
@@ -84,12 +95,12 @@ describe("EmailSettingTab — Add account", () => {
   it("keeps the typed Client ID across a re-entrant display() call after a failed Connect", async () => {
     const { tab } = buildTab(vi.fn().mockRejectedValue(new Error("nope")));
     tab.display();
-    await find((c) => c.kind === "text" && c.name === "Client ID").emitChange("client-123");
+    await find((c) => c.kind === "text" && c.name === "Client ID").emitChange(GUID);
     await find((c) => c.kind === "button" && c.buttonText === "Connect").emitClick();
 
     resetSettingStubs();
     tab.display();
-    expect(find((c) => c.kind === "text" && c.name === "Client ID").value).toBe("client-123");
+    expect(find((c) => c.kind === "text" && c.name === "Client ID").value).toBe(GUID);
   });
 });
 

@@ -70,6 +70,46 @@ describe("addAccount", () => {
     expect(close).toHaveBeenCalled();
   });
 
+  it("waits for the state it put in the authorize URL", async () => {
+    const seen: { expectedState?: string; url?: string } = {};
+    const deps = baseDeps({ openBrowser: vi.fn((u: string) => { seen.url = u; }) });
+    const redirect = {
+      listen: async () => ({ redirectUri: "obsidian://obsidian-email-auth" }),
+      waitForCode: async (o?: { expectedState?: string }) => {
+        seen.expectedState = o?.expectedState;
+        return { code: "C", state: o!.expectedState! };
+      },
+      close: vi.fn(),
+    };
+    await addAccount({ kind: "ms-graph", clientId: "cid" }, { ...deps, redirect });
+    expect(seen.expectedState).toBe(new URL(seen.url!).searchParams.get("state"));
+  });
+
+  it("refuses a different mailbox on re-auth without storing tokens", async () => {
+    const deps = baseDeps({ fetchProfileEmail: vi.fn().mockResolvedValue("other@example.com") });
+    const redirect = {
+      listen: async () => ({ redirectUri: "obsidian://obsidian-email-auth" }),
+      waitForCode: async (o?: { expectedState?: string }) => ({ code: "C", state: o!.expectedState! }),
+      close: vi.fn(),
+    };
+    await expect(
+      addAccount({ kind: "ms-graph", clientId: "cid", expectedEmail: "me@example.com" }, { ...deps, redirect }),
+    ).rejects.toThrow(/other@example.com.*me@example.com/);
+    expect(deps.secrets.setSecret).not.toHaveBeenCalled();
+  });
+
+  it("accepts the same mailbox on re-auth, ignoring case", async () => {
+    const deps = baseDeps({ fetchProfileEmail: vi.fn().mockResolvedValue("Me@Example.com") });
+    const redirect = {
+      listen: async () => ({ redirectUri: "obsidian://obsidian-email-auth" }),
+      waitForCode: async (o?: { expectedState?: string }) => ({ code: "C", state: o!.expectedState! }),
+      close: vi.fn(),
+    };
+    await expect(
+      addAccount({ kind: "ms-graph", clientId: "cid", expectedEmail: "me@example.com" }, { ...deps, redirect }),
+    ).resolves.toBeTruthy();
+  });
+
   it("builds a Microsoft authorize URL with the obsidian:// redirect", async () => {
     const url = buildAuthorizeUrl(OAUTH_CONFIG["ms-graph"], {
       clientId: "c", redirectUri: AUTH_REDIRECT_URI, challenge: "x", state: "s",

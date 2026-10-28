@@ -143,7 +143,7 @@ describe("PluginContext", () => {
       http: {
         request: vi.fn().mockResolvedValue({
           status: 200,
-          json: { mail: "new@x.com" },
+          json: { mail: "old@x.com" },
           text: "{}",
           arrayBuffer: new ArrayBuffer(0),
           headers: {},
@@ -168,12 +168,42 @@ describe("PluginContext", () => {
 
     const r = await ctx.reauthAccount("acct-1");
 
-    expect(r).toEqual({ ok: true, message: expect.stringContaining("new@x.com") });
+    expect(r).toEqual({ ok: true, message: expect.stringContaining("old@x.com") });
     // no duplicate — same id replaced in place
     expect(settings.get().accounts).toHaveLength(1);
     expect(settings.get().accounts[0].id).toBe("acct-1");
-    expect(settings.get().accounts[0].email).toBe("new@x.com");
+    expect(settings.get().accounts[0].email).toBe("old@x.com");
     expect(syncSpy).toHaveBeenCalledWith("acct-1");
+    ctx.dispose();
+  });
+
+  it("reauthAccount refuses a different mailbox and leaves the account untouched", async () => {
+    const settings = await SettingsStore.load({ loadData: async () => null, saveData: async () => {} });
+    await settings.addAccount({ id: "acct-1", email: "old@x.com", provider: "ms-graph", clientId: "cid", addedAt: 0 });
+    const setSecret = vi.fn().mockResolvedValue(undefined);
+    const deps = {
+      ...hostDeps(),
+      secrets: { getSecret: vi.fn().mockResolvedValue(null), setSecret },
+      http: {
+        request: vi.fn().mockResolvedValue({
+          status: 200, json: { mail: "other@x.com" }, text: "{}", arrayBuffer: new ArrayBuffer(0), headers: {},
+        }),
+      },
+      post: vi.fn().mockResolvedValue({
+        status: 200, json: { access_token: "at", refresh_token: "rt", expires_in: 3600 },
+      }),
+      redirect: {
+        listen: async () => ({ redirectUri: "obsidian://obsidian-email-auth" }),
+        waitForCode: async (o?: { expectedState?: string }) => ({ code: "C", state: o!.expectedState! }),
+        close: vi.fn(),
+      },
+    };
+    const ctx = await PluginContext.create(settings, deps, logger);
+    const r = await ctx.reauthAccount("acct-1");
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain("other@x.com");
+    expect(settings.get().accounts[0].email).toBe("old@x.com");
+    expect(setSecret).not.toHaveBeenCalled();
     ctx.dispose();
   });
 

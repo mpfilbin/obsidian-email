@@ -65,7 +65,10 @@ You need a Microsoft Entra (Azure AD) app registration. Once, per Microsoft acco
    existed are prompted to grant it the first time they open Contacts.
 4. From the app's **Overview**, copy the **Application (client) ID**.
 5. In Obsidian: **Settings → Email → Add account:**
-   - Paste the **Application (client) ID** (no secret needed).
+   - Paste the **Application (client) ID** (no secret needed). It must be the
+     GUID from your own app registration. Only use a Client ID you created, or
+     one from a publisher you trust: whoever owns the app registration is the
+     app that gets consent to your mailbox.
    - Click **Connect** and approve access in the browser.
 
 **Troubleshooting:** after you approve access, the browser hands control back to

@@ -20,12 +20,17 @@ export class AuthRedirectReceiver {
     reject: (e: Error) => void;
   };
   private timer?: ReturnType<typeof setTimeout>;
+  private expectedState?: string;
 
   async listen(): Promise<{ redirectUri: string }> {
     return { redirectUri: AUTH_REDIRECT_URI };
   }
 
-  waitForCode(opts: { timeoutMs?: number } = {}): Promise<RedirectResult> {
+  /**
+   * `expectedState`, when given, makes the receiver ignore any redirect whose
+   * `state` differs, so a forged link can't abort the pending sign-in.
+   */
+  waitForCode(opts: { timeoutMs?: number; expectedState?: string } = {}): Promise<RedirectResult> {
     const timeoutMs = opts.timeoutMs ?? 300_000;
     return new Promise<RedirectResult>((resolve, reject) => {
       // One sign-in at a time: a newer flow supersedes (and fails) a pending one
@@ -33,6 +38,7 @@ export class AuthRedirectReceiver {
       if (this.timer) clearTimeout(this.timer);
       this.settle?.reject(new AuthError("Superseded by a newer sign-in attempt."));
       this.settle = { resolve, reject };
+      this.expectedState = opts.expectedState;
       this.timer = setTimeout(() => {
         this.settle = undefined;
         reject(new AuthError("Timed out waiting for the authentication redirect."));
@@ -47,6 +53,7 @@ export class AuthRedirectReceiver {
     const state = params.state ?? "";
     // Ignore stray links that carry neither a code nor an error.
     if (!error && !code) return;
+    if (this.expectedState !== undefined && state !== this.expectedState) return;
     if (this.timer) clearTimeout(this.timer);
     const settle = this.settle;
     this.settle = undefined;

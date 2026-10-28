@@ -40,6 +40,25 @@ describe("AuthRedirectReceiver", () => {
     await expect(waiting).rejects.toThrow("Timed out");
   });
 
+  it("ignores links whose state differs from the expected one", async () => {
+    const r = new AuthRedirectReceiver();
+    const waiting = r.waitForCode({ expectedState: "good" });
+    r.handle({ code: "evil", state: "wrong" });
+    r.handle({ error: "access_denied", state: "wrong" });
+    r.handle({ code: "real", state: "good" });
+    await expect(waiting).resolves.toEqual({ code: "real", state: "good" });
+  });
+
+  it("keeps the code and state out of error messages", async () => {
+    const r = new AuthRedirectReceiver();
+    const waiting = r.waitForCode();
+    const expectation = expect(waiting).rejects.toSatisfy(
+      (e: Error) => !e.message.includes("SECRETCODE") && !e.message.includes("SECRETSTATE"),
+    );
+    r.handle({ code: "SECRETCODE", state: "SECRETSTATE", error: "access_denied" });
+    await expectation;
+  });
+
   it("ignores redirects when no sign-in is in flight", () => {
     expect(() => new AuthRedirectReceiver().handle({ code: "c", state: "s" })).not.toThrow();
   });
