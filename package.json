@@ -30,7 +30,7 @@
     "tslib": "^2.6.3",
     "typescript": "^7.0.2",
     "vite": "^8.3.5",
-    "vitest": "^5.0.5"
+    "vitest": "^5.1.0"
   },
   "dependencies": {
     "dompurify": "^3.4.17",
