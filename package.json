@@ -1,6 +1,6 @@
 {
   "name": "obsidian-email",
-  "version": "0.15.3",
+  "version": "0.15.4",
   "private": true,
   "description": "A full Microsoft 365 email client inside Obsidian.",
   "license": "MIT",
@@ -36,6 +36,6 @@
     "dompurify": "^3.4.17",
     "idb": "^8.0.4",
     "quill": "^2.0.3",
-    "turndown": "^7.2.4"
+    "turndown": "^7.2.5"
   }
 }
