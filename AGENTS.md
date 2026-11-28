@@ -150,7 +150,7 @@ TZ=America/Los_Angeles npm test
 TZ=Pacific/Auckland npm test
 ```
 
-Add or update tests alongside the change. A change to the Graph provider needs coverage in `tests/providers/`, and a change to the sanitizer or renderer needs hostile-input cases in `tests/render/`.
+Add or update tests alongside the change. A change to the Graph provider needs coverage in `tests/providers/`, and a change to the sanitizer or renderer needs hostile-input cases in `tests/render/`. Add a new bypass payload to `tests/render/fixtures/hostile-html-corpus.ts`, which `tests/render/html-sanitizer-corpus.test.ts` runs through the V-1 and V-3 checks in both `allowRemote` modes. The corpus also acts as the check when `dompurify` or `jsdom` is upgraded, so read any failure there before changing a test. A payload tagged `gap: "T-3"` is a known violation tracked with `it.fails`; if one starts passing, remove the tag and update the threat model.
 
 ## Documentation to keep in sync
 
