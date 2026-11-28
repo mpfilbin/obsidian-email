@@ -4,7 +4,7 @@
 |---|---|
 | **Method** | STRIDE, applied per component and per trust boundary, plus an active threat hunt (code review and proof-of-concept testing) |
 | **Version reviewed** | 0.12.11. Full analysis and all `file:line` citations are against 0.12.5 (commit `3e3643c`); `src/`, `styles.css` and the workflows are unchanged since, so the citations still hold |
-| **Last updated** | 2026-11-28 (dependency posture and review log only: `dompurify` 3.5.0, see §11) |
+| **Last updated** | 2026-11-28 (dependency posture, test status of §7 and R-16, and review log only: `dompurify` 3.5.0 and the sanitizer regression suite, see §11) |
 | **Status** | Living document. Update it in the same PR as any change listed in [§1.2](#12-when-you-must-update-this-document) |
 
 ---
@@ -490,9 +490,9 @@ should get tests (R-16).
 
 | ID | Invariant | State |
 |---|---|---|
-| V-1 | No attacker-influenced string reaches a DOM sink except via `sanitizeEmailHtml` | Holds today |
+| V-1 | No attacker-influenced string reaches a DOM sink except via `sanitizeEmailHtml` | Holds today. Tested: `sanitizeEmailHtml` output stays inert once reparsed, over a 93-payload corpus (`tests/render/html-sanitizer-corpus.test.ts`). Not tested: that every sink goes through it |
 | V-2 | Credentials are attached only to `https://graph.microsoft.com` (and the fixed Microsoft login hosts) | **VIOLATED** (T-1) |
-| V-3 | With `autoLoadImages` off, rendering a message makes **zero** requests to third parties | **VIOLATED** (T-3) |
+| V-3 | With `autoLoadImages` off, rendering a message makes **zero** requests to third parties | **VIOLATED** (T-3). The corpus suite tests the banner invariant (a surviving remote reference raises the flag) and tracks the three payloads that break it as `it.fails` tests |
 | V-4 | Sanitizing any input of *n* bytes takes time near-linear in *n* | **VIOLATED** (D-1) |
 | V-5 | Only `http`, `https` and `mailto` are ever handed to the OS | Holds at the sanitizer, **not enforced at the sink** (I-6) |
 | V-6 | Anything written to the vault from a message is built with remote content off and no executable fence language | **VIOLATED** (T-4) |
@@ -525,14 +525,15 @@ risk reduced per effort.
 | **R-2** | Render message bodies (and print) in a **sandboxed iframe with a CSP** (`default-src 'none'; img-src data: blob:`); keep the sanitizer as the first layer | T-3, E-1, I-3, I-7, V-3 | M to L |
 | **R-7** | CI hardening: `persist-credentials: false`; build in a job with no write token and publish in a second job; `npm ci --ignore-scripts` where possible; pin actions by commit SHA (let Dependabot bump them); explicit `permissions: contents: read` in `ci.yml`; attach build provenance (`actions/attest-build-provenance`); confirm branch protection and required review (AS-5) | T-8, E-4, V-10 | M |
 | **R-8** | Cache: offer a "don't cache message bodies" setting, wipe on disable or uninstall where Obsidian allows, and document the at-rest exposure. Evaluate encryption only if a key store exists that co-resident code cannot read | I-2, T-5 | M to L |
-| **R-16** | Encode §7 as tests, seeded with the §9 payloads, so regressions fail CI | V-1 to V-10 | M |
+| **R-16** | Encode §7 as tests, seeded with the §9 payloads, so regressions fail CI. **Partly done in 0.15.12:** sanitizer output (V-1) and the remote-content banner invariant (V-3) are covered by `tests/render/html-sanitizer-corpus.test.ts`; V-2 and V-4 to V-10 remain | V-1 to V-10 | M |
 
 ---
 
 ## 9. Proof-of-concept notes and method
 
 All PoCs were run on 2026-10-24 against commit `3e3643c`. Scratch tests lived under
-`tests/` temporarily and are **not committed**; recreate them from the descriptions
+`tests/` temporarily and are **not committed** (the sanitizer payloads are now committed in
+`tests/render/fixtures/hostile-html-corpus.ts`, 0.15.12); recreate the others from the descriptions
 here when writing R-16 regression tests.
 
 **Environment:** Node 26.12.1 for unit-level PoCs; Chromium 153.0.8010.12 (Playwright) for
@@ -576,3 +577,4 @@ The README's "Security notes" section makes user-facing promises. Status against
 | 2026-10-25 | 0.12.11 | Dependency posture only (§5.8): `devalue` 5.9.2 to 5.9.4 (lockfile-only, transitive via `svelte`, not shipped) clears the high-severity finding. `npm audit` now reports only the low `quill` advisory (`getSemanticHTML` unused; no fixed release exists). No change to threats, controls or citations |
 | 2026-10-28 | 0.15.0 | OAuth redirect moved from a localhost loopback listener to the `obsidian://obsidian-email-auth` protocol handler. No port is opened (X3 port-connect vector removed). Any web page or process can open the redirect link, so the receiver ignores links without `code`/`error` or with the wrong `state` (D-2 mitigated, R-11); PKCE and `state` still prevent code injection (S-2). Superseding a pending sign-in with a new one is intentional. Also: re-auth refuses a different mailbox (S-5, R-9); Client ID must be a GUID (S-1, R-10). Logging audit: nothing in `src/auth` or the redirect path logs the redirect parameters, tokens or codes, and redirect error messages carry only `error`/`error_description`; a test pins the latter |
 | 2026-11-28 | 0.15.11 | `dompurify` 3.4.17 to 3.5.0 (E-1, §5.8). 3.4.x is end of life, so this keeps us on a maintained line. The 3.4.18 and 3.5.0 security fixes concern `SAFE_FOR_TEMPLATES`, `IN_PLACE`, `CUSTOM_ELEMENT_HANDLING` and DOM-node input; `sanitizeEmailHtml` passes a string and sets none of those options, so none was reachable (same position as the 0.12.6 advisories). Verified by running `sanitizeEmailHtml` over a 93-payload hostile corpus, in both `allowRemote` modes (186 outputs per version), on 3.4.17, 3.4.18 and 3.5.0 under jsdom: the T-3 payloads, classic XSS and mXSS shapes, DOM clobbering, template markers, forged `data-blocked-*` markers, link schemes and a newsletter sample. 3.4.18 and 3.5.0 are byte-identical to each other. Against 3.4.17 the only difference is that SVG elements named `<enterkeyhint>`, `<exportparts>`, `<inputmode>` and `<part>` (attribute names that were wrongly in the tag allow-list) are now removed; the attributes of those names on HTML and SVG elements are unchanged. No output on any version contained a live script, event handler, `javascript:` URL or frame. The two `uponSanitizeAttribute` / `afterSanitizeAttributes` hooks and the `data-blocked-*` flow behave as before (V-1 holds). **T-3 is unchanged, not fixed:** `ht<TAB>tp://` in an `img src` and `feImage href` still pass through unblocked (V-3 remains violated). Behaviour changes to remember if the integration changes: a `sanitize()` call made from inside a hook no longer alters the outer call's config (we make none), and DOM-node input is stricter (we pass none). Limits: jsdom only, not Obsidian's Chromium (AS-6 still open), and the corpus was a scratch run that is not committed (R-16 would make it permanent). `npm audit` reports only the low `quill` advisory. No change to other threats or controls |
+| 2026-11-28 | 0.15.12 | Sanitizer regression suite (R-16 partly done, V-1, V-3): the 93-payload hostile corpus is committed as `tests/render/fixtures/hostile-html-corpus.ts` and run by `tests/render/html-sanitizer-corpus.test.ts`. The checks parse `sanitizeEmailHtml` output into a real DOM, as `message-renderer.ts` does, so escaped text is not mistaken for markup and mutation XSS is caught: no script, handler, `javascript:` or `vbscript:` URL, `srcdoc`, frame or forbidden element survives, in both `allowRemote` modes and after `restoreBlockedContent`; forged `data-blocked-*` markers are dropped; a surviving remote reference always raises the banner (remote blocked); sanitizing the output a second time changes nothing (remote allowed; with remote blocked a second pass legitimately drops the plugin's own markers). Checked that the suite can fail by weakening the sanitizer four ways (allow iframes, accept forged markers, drop the surviving-remote backstop, allow `javascript:` URIs): each fails it. Known gaps are tracked as `it.fails` tests, which start failing when a gap is closed: `ht<TAB>tp://` and `feImage href` (both already in T-3) and `ht<LF>tp://`. The newline variant behaves like the tab one (kept, no banner); it falls under T-3's stated cause (the URL parser removes tabs and newlines) but was not run in Chromium. Observation, unchanged: DOMPurify's own data-URI exception for image elements admits `data:image/svg+xml` on `<img>` even though `ALLOWED_URI_REGEXP` lists raster types only. That is inert (an SVG loaded as an image runs without scripts or external loads) and is stripped from links; the suite pins it. Limits: jsdom only, not Obsidian's Chromium (AS-6). No change to threats or controls |
